@@ -1,0 +1,37 @@
+services:
+  front:
+    build:
+      context: ../..
+      dockerfile: docker_compose/front/Dockerfile
+    working_dir: /app
+    volumes:
+      - ../../:/app
+      - /app/node_modules 
+    environment:
+      - NODE_ENV=${NODE_ENV}
+      - API_HOST=${API_HOST}
+    # ports:
+    #   - "${REACT_PORT}:${REACT_PORT}"
+    command: npm start
+    stdin_open: true
+    tty: true
+    networks:
+      - backend
+
+
+  nginx:
+    build:
+      context: ../..
+      dockerfile: docker_compose/nginx/Dockerfile
+    ports:
+      - "${NGINX_PORT}:${NGINX_PORT}"
+    depends_on:
+      - front
+    links:
+      - front
+    networks:
+      - backend
+
+networks:
+  backend:
+    external: true

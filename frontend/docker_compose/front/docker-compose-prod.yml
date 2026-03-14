@@ -1,0 +1,38 @@
+services:
+  front-prod:
+    build:
+      context: ../..
+      dockerfile: docker_compose/front/Dockerfile
+    working_dir: /app
+    volumes:
+      - ../../:/app
+      - /app/node_modules 
+    networks:
+      - backend-prod
+    environment:
+      - NODE_ENV=${NODE_ENV}
+      - API_HOST=${API_HOST}
+    command: npm start
+    stdin_open: true
+    tty: true
+
+
+  nginx-prod:
+    build:
+      context: ../..
+      dockerfile: docker_compose/nginx/Dockerfile-prod
+    ports:
+      - "443:443"
+    volumes:
+      - ../../:/app
+      - /app/node_modules 
+      - ../../../devops/ssl/prod/frontend/archive:/etc/letsencrypt/archive/rakvzan.space
+      - ../../../devops/ssl/prod/frontend/live:/etc/letsencrypt/live/rakvzan.space
+    depends_on:
+      - front-prod
+    networks:
+      - backend-prod
+
+networks:
+  backend-prod:
+    external: true
