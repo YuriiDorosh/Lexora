@@ -1,0 +1,52 @@
+version: "3.8"
+
+services:
+  odoo:
+    # image: odoo:18
+    # dockerfile: Dockerfile
+    # context: .
+    build:
+      context: ../..
+      dockerfile: docker_compose/odoo/Dockerfile
+    container_name: odoo
+
+    restart: unless-stopped
+    environment:
+      HOST: ${POSTGRES_DB}
+      USER: ${POSTGRES_USER}
+      PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - odoo-data:/var/lib/odoo
+      - ../../src/addons:/mnt/extra-addons
+      - ../../src/configs/odoo.conf:/etc/odoo/odoo.conf:ro
+      - ../../backups:/mnt/backups
+      - ../../logs:/mnt/logs
+    networks:
+      - backend
+  nginx:
+    build: 
+      context: ../..
+      dockerfile: docker_compose/nginx/Dockerfile
+    container_name: nginx
+    restart: unless-stopped
+    command: "/bin/sh -c 'while :; do sleep 6h & wait $${!}; nginx -s reload; done & nginx -g \"daemon off;\"'"
+    ports:
+      - "5433:81"
+    volumes:
+      - ../../src:/app/src 
+      - ../../.env:/app/.env
+      - ../../logs/nginx:/var/log/nginx
+    env_file:
+      - ../../.env
+    depends_on:
+      - odoo
+    networks:
+      - backend
+    environment:
+      NGINX_PORT: ${NGINX_PORT}
+
+volumes:
+  odoo-data:
+networks:
+  backend:
+    external: true

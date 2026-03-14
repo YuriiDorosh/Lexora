@@ -1,0 +1,48 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15
+    container_name: postgres
+    restart: unless-stopped
+    env_file:
+      - ../../.env
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data_odoo:/var/lib/postgresql/data
+    ports:
+      - "5435:5432"
+    networks:
+      - backend
+
+  backup:
+    image: postgres:15
+    container_name: postgres_backup
+    restart: unless-stopped
+    env_file:
+      - ../../.env
+    environment:
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - ./backups:/backups
+      - ./backup.sh:/backup.sh
+      - ./handle-backup.sh:/handle-backup.sh
+    networks:
+      - backend
+    depends_on:
+      - postgres
+    command: sh -c "
+      (/handle-backup.sh && while true; do sleep 60; /handle-backup.sh; done) &
+      (/backup.sh && while true; do sleep 86400; /backup.sh; done) &
+      tail -f /dev/null
+      "
+
+volumes:
+  postgres_data_odoo:
+
+networks:
+  backend:
+    external: true

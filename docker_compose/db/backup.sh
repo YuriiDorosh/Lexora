@@ -1,0 +1,9 @@
+#!/bin/bash
+
+DATE=$(date +"%Y-%m-%d")
+
+DATABASE_WHICH_YOU_CREATED_IN_ODOO_WEB_INTERFACE=prod
+
+pg_dump -h postgres -U ${POSTGRES_USER} ${DATABASE_WHICH_YOU_CREATED_IN_ODOO_WEB_INTERFACE} > /backups/backup_${DATABASE_WHICH_YOU_CREATED_IN_ODOO_WEB_INTERFACE}_$DATE.sql
+
+pg_dump -h postgres -U ${POSTGRES_USER} ${DATABASE_WHICH_YOU_CREATED_IN_ODOO_WEB_INTERFACE} --column-inserts > /backups/backup_${DATABASE_WHICH_YOU_CREATED_IN_ODOO_WEB_INTERFACE}_column_inserts_$DATE.sql
