@@ -11,6 +11,9 @@ services:
       POSTGRES_DB: ${POSTGRES_DB}
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    command: >
+      postgres
+      -c max_connections=500
     volumes:
       - postgres_data_odoo:/var/lib/postgresql/data
     ports:
