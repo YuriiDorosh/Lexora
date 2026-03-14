@@ -2,14 +2,10 @@ version: "3.8"
 
 services:
   odoo:
-    # image: odoo:18
-    # dockerfile: Dockerfile
-    # context: .
     build:
       context: ../..
       dockerfile: docker_compose/odoo/Dockerfile
     container_name: odoo
-
     restart: unless-stopped
     environment:
       HOST: ${POSTGRES_DB}
@@ -44,6 +40,39 @@ services:
       - backend
     environment:
       NGINX_PORT: ${NGINX_PORT}
+
+  nginx-exporter:
+    image: nginx/nginx-prometheus-exporter:latest
+    container_name: nginx_exporter
+    restart: always
+    environment:
+    - SCRAPE_URI=http://nginx:81/stub_status 
+    networks:
+    - backend
+    depends_on:
+    - nginx
+
+  promtail:
+    image: grafana/promtail:latest
+    container_name: promtail
+    user: root
+    volumes:
+    - ../../logs/nginx:/var/log/nginx
+    - ./promtail-config.yml:/etc/promtail/config.yml
+    command: -config.file=/etc/promtail/config.yml
+    networks:
+    - backend
+    depends_on:
+    - loki
+
+  loki:
+    image: grafana/loki:latest
+    container_name: loki
+    ports:
+    - "3100:3100"
+    command: -config.file=/etc/loki/local-config.yaml
+    networks:
+    - backend
 
 volumes:
   odoo-data:

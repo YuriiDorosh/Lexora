@@ -13,6 +13,9 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     command: >
       postgres
+      -c shared_preload_libraries=pg_stat_statements
+      -c pg_stat_statements.track=all
+      -c pg_stat_statements.max=10000
       -c max_connections=500
     volumes:
       - postgres_data_odoo:/var/lib/postgresql/data
@@ -43,8 +46,72 @@ services:
       tail -f /dev/null
       "
 
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter
+    container_name: postgres_exporter
+    restart: always
+    environment:
+      DATA_SOURCE_NAME: "postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?sslmode=disable"
+      PG_EXPORTER_AUTO_DISCOVER_DATABASES: "true"
+    networks:
+    - backend
+    depends_on:
+    - postgres
+
+  node-exporter:
+    image: prom/node-exporter:latest
+    container_name: node_exporter
+    restart: unless-stopped
+    volumes:
+    - /proc:/host/proc:ro
+    - /sys:/host/sys:ro
+    - /:/rootfs:ro
+    command:
+    - '--path.procfs=/host/proc'
+    - '--path.rootfs=/rootfs'
+    - '--path.sysfs=/host/sys'
+    - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
+    networks:
+    - backend
+
+  cadvisor:
+      image: gcr.io/cadvisor/cadvisor:latest
+      container_name: cadvisor
+      restart: unless-stopped
+      volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+      networks:
+      - backend
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    restart: unless-stopped
+    volumes:
+    - ./prometheus.yml:/etc/prometheus/prometheus.yml
+    - prometheus_data:/prometheus
+    networks:
+    - backend
+
+  grafana:
+      image: grafana/grafana:latest
+      container_name: grafana
+      restart: unless-stopped
+      ports:
+      - "3003:3000"
+      volumes:
+      - grafana_data:/var/lib/grafana
+      networks:
+      - backend
+
 volumes:
   postgres_data_odoo:
+  prometheus_data:
+  grafana_data:
 
 networks:
   backend:
