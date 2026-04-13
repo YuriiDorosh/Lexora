@@ -15,11 +15,70 @@
 
 ## Current Milestone
 
-None in progress. M1 complete. Awaiting confirmation to begin M2.
+None in progress. M2 complete. Awaiting confirmation to begin M3.
 
 ---
 
 ## Completed Milestones
+
+### M2 — Learning Entries
+
+**Status:** Complete and verified.
+**Started:** 2026-04-13
+**Completed:** 2026-04-13
+
+#### Sub-steps completed
+
+- [x] `language_words`: implement `language.entry` model (all SPEC §3.1 fields)
+  - type, source_text, normalized_text, source_language, owner_id, is_shared, status,
+    created_from, copied_from_user_id, copied_from_entry_id, media_links, pvp_eligible
+  - Deferred: copied_from_post_id (M7), translations/enrichments/audio One2manys (M3-M6)
+- [x] `normalize()` function per SPEC §3.2
+  - NFC, lowercase, strip, collapse whitespace, smart punctuation → ASCII, strip trailing .!?
+- [x] Dedup check on `create()` and `write()` — raises ValidationError on collision
+  - Dedup key = normalize(source_text) + source_language + owner_id (ADR-003)
+  - Type NOT in key (ADR-003 verified by test)
+- [x] `language.user.profile` model (SPEC §3.3)
+  - native_language, learning_languages (Many2many → language.lang), default_source_language,
+    pvp stats, is_shared_list; `_get_or_create_for_user()` lazy helper
+- [x] `language.lang` lookup model — seeded uk/en/el (ADR-020)
+- [x] Language detection via `langdetect==1.0.9` (added to base-requirements.txt)
+  - Confidence threshold 0.7; falls back to user profile default (ADR-022)
+- [x] Portal views: vocabulary list, detail, add-entry form, shared view (in language_words, ADR-021)
+- [x] Sharing: `is_shared` toggle; record rules: owner full CRUD; shared entries readable by all Language Users
+- [x] `language.media.link` model with URL format validation
+- [x] Portal controller: /my/vocabulary, /new, /<id>, /shared, /share, /archive, /copy, /detect_language
+- [x] Backend views: list/form/search for language.entry and language.user.profile
+
+#### Verification steps passed
+
+- [x] Scripted M2 verification (all 7 PLAN steps):
+  1. Add 'apple' (en) → saved, normalized='apple'
+  2. Add 'Apple ' (en) → ValidationError (duplicate)
+  3. Add 'яблуко' (uk) → saved
+  4. Add 'How are you?' (en) → saved, normalized='how are you'
+  5. Add 'How are you' (en) → ValidationError (trailing ? stripped)
+  6. Share 'apple' → user_b can find it via search (record rule)
+  7. user_b copies 'apple' → new entry with correct provenance fields
+- [x] 29 automated tests pass: 16 normalize tests + 13 language_entry tests
+
+#### Decisions made during M2
+
+- ADR-020: language.lang lookup model for learning_languages
+- ADR-021: portal views in language_words (follow PLAN, not ARCHITECTURE)
+- ADR-022: langdetect with 0.7 threshold; single-word detection unreliable (known limitation)
+- `langdetect` installed in running container; persisted to base-requirements.txt; rebuild needed for new containers
+
+#### Known limitations at M2 exit
+
+- Single short-word language detection is unreliable (e.g. "яблуко" → "ru"). User can always correct manually.
+- `langdetect` is installed in running container; permanent only after `make up-odoo-no-cache` rebuilds the image.
+- Portal views are functional but unstyled beyond Bootstrap basics — no custom CSS yet.
+- copied_from_post_id field deferred to M7 (language.post doesn't exist).
+- pvp_eligible always False until M3 adds translation records.
+- `--no-http` required for all CLI init/test commands while main Odoo service is running.
+
+---
 
 ### M1 — Core Module Scaffold + Auth
 

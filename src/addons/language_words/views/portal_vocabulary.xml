@@ -1,0 +1,313 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- ============================================================
+         Portal home — add "My Vocabulary" widget
+    ============================================================ -->
+    <template id="portal_my_home_vocabulary" inherit_id="portal.portal_my_home">
+        <xpath expr="//div[hasclass('o_portal_docs')]" position="inside">
+            <t t-call="portal.portal_docs_entry">
+                <t t-set="title">My Vocabulary</t>
+                <t t-set="url" t-value="'/my/vocabulary'"/>
+                <t t-set="count" t-value="entry_count"/>
+            </t>
+        </xpath>
+    </template>
+
+    <!-- ============================================================
+         Vocabulary list  /my/vocabulary
+    ============================================================ -->
+    <template id="portal_vocabulary_list" name="My Vocabulary">
+        <t t-call="portal.portal_layout">
+            <t t-set="breadcrumbs_searchbar" t-value="True"/>
+            <t t-call="portal.portal_searchbar">
+                <t t-set="title">My Vocabulary</t>
+            </t>
+            <div class="container mt-4">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h3>My Vocabulary (<t t-esc="entry_count"/> entries)</h3>
+                    <div>
+                        <a href="/my/vocabulary/new" class="btn btn-primary">+ Add Entry</a>
+                        <a href="/my/vocabulary/shared" class="btn btn-outline-secondary ms-2">Browse Shared</a>
+                    </div>
+                </div>
+
+                <t t-if="not entries">
+                    <p class="text-muted">Your vocabulary list is empty. <a href="/my/vocabulary/new">Add your first entry.</a></p>
+                </t>
+
+                <t t-if="entries">
+                    <table class="table table-hover">
+                        <thead>
+                            <tr>
+                                <th>Text</th>
+                                <th>Type</th>
+                                <th>Language</th>
+                                <th>Status</th>
+                                <th>Shared</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <t t-foreach="entries" t-as="entry">
+                                <tr>
+                                    <td>
+                                        <a t-att-href="'/my/vocabulary/%d' % entry.id">
+                                            <t t-esc="entry.source_text"/>
+                                        </a>
+                                    </td>
+                                    <td><span class="badge bg-secondary"><t t-esc="entry.type"/></span></td>
+                                    <td><t t-esc="entry.source_language"/></td>
+                                    <td>
+                                        <span t-att-class="'badge ' + ('bg-success' if entry.status == 'active' else 'bg-warning')">
+                                            <t t-esc="entry.status"/>
+                                        </span>
+                                    </td>
+                                    <td>
+                                        <t t-if="entry.is_shared">
+                                            <span class="badge bg-info">shared</span>
+                                        </t>
+                                    </td>
+                                </tr>
+                            </t>
+                        </tbody>
+                    </table>
+                    <t t-call="portal.pager"/>
+                </t>
+            </div>
+        </t>
+    </template>
+
+    <!-- ============================================================
+         Entry detail  /my/vocabulary/<id>
+    ============================================================ -->
+    <template id="portal_vocabulary_detail" name="Entry Detail">
+        <t t-call="portal.portal_layout">
+            <div class="container mt-4">
+                <nav aria-label="breadcrumb">
+                    <ol class="breadcrumb">
+                        <li class="breadcrumb-item"><a href="/my/vocabulary">My Vocabulary</a></li>
+                        <li class="breadcrumb-item active" aria-current="page"><t t-esc="entry.source_text"/></li>
+                    </ol>
+                </nav>
+
+                <div class="card mt-3">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h4 class="mb-0"><t t-esc="entry.source_text"/></h4>
+                        <div>
+                            <span class="badge bg-secondary me-1"><t t-esc="entry.type"/></span>
+                            <span class="badge bg-primary me-1"><t t-esc="entry.source_language"/></span>
+                            <span t-att-class="'badge me-1 ' + ('bg-success' if entry.status == 'active' else 'bg-warning')">
+                                <t t-esc="entry.status"/>
+                            </span>
+                            <t t-if="entry.is_shared">
+                                <span class="badge bg-info">shared</span>
+                            </t>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        <!-- Actions -->
+                        <div class="d-flex gap-2 mb-4">
+                            <form t-att-action="'/my/vocabulary/%d/share' % entry.id" method="post">
+                                <input type="hidden" name="csrf_token" t-att-value="request.csrf_token()"/>
+                                <button type="submit" class="btn btn-sm btn-outline-info">
+                                    <t t-if="entry.is_shared">Unshare</t>
+                                    <t t-else="">Share</t>
+                                </button>
+                            </form>
+                            <form t-att-action="'/my/vocabulary/%d/archive' % entry.id" method="post">
+                                <input type="hidden" name="csrf_token" t-att-value="request.csrf_token()"/>
+                                <button type="submit" class="btn btn-sm btn-outline-warning">
+                                    <t t-if="entry.status == 'active'">Archive</t>
+                                    <t t-else="">Restore</t>
+                                </button>
+                            </form>
+                            <a href="/my/vocabulary" class="btn btn-sm btn-outline-secondary">Back</a>
+                        </div>
+
+                        <!-- Translations placeholder (M3) -->
+                        <h6 class="text-muted">Translations <small class="text-muted">(available after M3)</small></h6>
+                        <p class="text-muted small">Translations will appear here once the translation service is connected.</p>
+
+                        <!-- Media links -->
+                        <t t-if="entry.media_links">
+                            <h6>Media Links</h6>
+                            <ul>
+                                <t t-foreach="entry.media_links" t-as="link">
+                                    <li>
+                                        <a t-att-href="link.url" target="_blank" rel="noopener noreferrer">
+                                            <t t-esc="link.title or link.url"/>
+                                        </a>
+                                        <t t-if="link.description">
+                                            — <span class="text-muted"><t t-esc="link.description"/></span>
+                                        </t>
+                                    </li>
+                                </t>
+                            </ul>
+                        </t>
+                    </div>
+                </div>
+            </div>
+        </t>
+    </template>
+
+    <!-- ============================================================
+         Add entry form  /my/vocabulary/new
+    ============================================================ -->
+    <template id="portal_vocabulary_new" name="Add Entry">
+        <t t-call="portal.portal_layout">
+            <div class="container mt-4" style="max-width: 600px;">
+                <nav aria-label="breadcrumb">
+                    <ol class="breadcrumb">
+                        <li class="breadcrumb-item"><a href="/my/vocabulary">My Vocabulary</a></li>
+                        <li class="breadcrumb-item active">Add Entry</li>
+                    </ol>
+                </nav>
+
+                <div class="card mt-3">
+                    <div class="card-header"><h5 class="mb-0">Add New Entry</h5></div>
+                    <div class="card-body">
+                        <t t-if="error">
+                            <div class="alert alert-danger"><t t-esc="error"/></div>
+                        </t>
+                        <form method="post" action="/my/vocabulary/new">
+                            <input type="hidden" name="csrf_token" t-att-value="request.csrf_token()"/>
+
+                            <div class="mb-3">
+                                <label for="source_text" class="form-label fw-bold">Text</label>
+                                <input type="text"
+                                       id="source_text"
+                                       name="source_text"
+                                       class="form-control"
+                                       t-att-value="source_text"
+                                       placeholder="Word, phrase or sentence…"
+                                       autocomplete="off"
+                                       required="required"/>
+                                <div class="form-text">
+                                    Language is auto-detected as you type. You can correct it below.
+                                </div>
+                            </div>
+
+                            <div class="mb-3">
+                                <label for="source_language" class="form-label fw-bold">Language</label>
+                                <select id="source_language" name="source_language" class="form-select" required="required">
+                                    <option value="">-- select language --</option>
+                                    <option value="en" t-att-selected="'selected' if source_language == 'en' else None">English</option>
+                                    <option value="uk" t-att-selected="'selected' if source_language == 'uk' else None">Ukrainian</option>
+                                    <option value="el" t-att-selected="'selected' if source_language == 'el' else None">Greek</option>
+                                </select>
+                                <div id="detection_hint" class="form-text text-muted"></div>
+                            </div>
+
+                            <div class="mb-3">
+                                <label for="entry_type" class="form-label fw-bold">Type</label>
+                                <select id="entry_type" name="entry_type" class="form-select">
+                                    <option value="word" t-att-selected="'selected' if entry_type == 'word' else None">Word</option>
+                                    <option value="phrase" t-att-selected="'selected' if entry_type == 'phrase' else None">Phrase</option>
+                                    <option value="sentence" t-att-selected="'selected' if entry_type == 'sentence' else None">Sentence</option>
+                                    <option value="collocation" t-att-selected="'selected' if entry_type == 'collocation' else None">Collocation</option>
+                                </select>
+                            </div>
+
+                            <div class="d-flex gap-2">
+                                <button type="submit" class="btn btn-primary">Save</button>
+                                <a href="/my/vocabulary" class="btn btn-outline-secondary">Cancel</a>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Language auto-detection via AJAX -->
+            <script type="text/javascript">
+                (function () {
+                    var textInput = document.getElementById('source_text');
+                    var langSelect = document.getElementById('source_language');
+                    var hint = document.getElementById('detection_hint');
+                    var debounceTimer = null;
+
+                    if (!textInput) return;
+
+                    textInput.addEventListener('input', function () {
+                        clearTimeout(debounceTimer);
+                        var text = textInput.value;
+                        if (!text || text.length &lt; 4) {
+                            hint.textContent = '';
+                            return;
+                        }
+                        debounceTimer = setTimeout(function () {
+                            fetch('/my/vocabulary/detect_language', {
+                                method: 'POST',
+                                headers: {'Content-Type': 'application/json'},
+                                body: JSON.stringify({
+                                    jsonrpc: '2.0', method: 'call', id: 1,
+                                    params: { text: text }
+                                })
+                            })
+                            .then(function (r) { return r.json(); })
+                            .then(function (data) {
+                                var lang = data.result;
+                                if (lang) {
+                                    langSelect.value = lang;
+                                    hint.textContent = 'Auto-detected: ' + lang + ' (you can change it)';
+                                    hint.className = 'form-text text-success';
+                                } else {
+                                    hint.textContent = 'Could not detect language automatically.';
+                                    hint.className = 'form-text text-muted';
+                                }
+                            })
+                            .catch(function () {});
+                        }, 500);
+                    });
+                }());
+            </script>
+        </t>
+    </template>
+
+    <!-- ============================================================
+         Shared vocabulary  /my/vocabulary/shared
+    ============================================================ -->
+    <template id="portal_vocabulary_shared" name="Shared Vocabulary">
+        <t t-call="portal.portal_layout">
+            <div class="container mt-4">
+                <h3>Shared Vocabulary (<t t-esc="entry_count"/> entries)</h3>
+                <a href="/my/vocabulary" class="btn btn-outline-secondary btn-sm mb-3">Back to My Vocabulary</a>
+
+                <t t-if="not entries">
+                    <p class="text-muted">No shared entries from other users yet.</p>
+                </t>
+
+                <t t-if="entries">
+                    <table class="table table-hover">
+                        <thead>
+                            <tr>
+                                <th>Text</th>
+                                <th>Type</th>
+                                <th>Language</th>
+                                <th>Shared by</th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <t t-foreach="entries" t-as="entry">
+                                <tr>
+                                    <td><t t-esc="entry.source_text"/></td>
+                                    <td><span class="badge bg-secondary"><t t-esc="entry.type"/></span></td>
+                                    <td><t t-esc="entry.source_language"/></td>
+                                    <td><t t-esc="entry.owner_id.name"/></td>
+                                    <td>
+                                        <form t-att-action="'/my/vocabulary/%d/copy' % entry.id" method="post" class="d-inline">
+                                            <input type="hidden" name="csrf_token" t-att-value="request.csrf_token()"/>
+                                            <button type="submit" class="btn btn-sm btn-outline-primary">Copy to my list</button>
+                                        </form>
+                                    </td>
+                                </tr>
+                            </t>
+                        </tbody>
+                    </table>
+                    <t t-call="portal.pager"/>
+                </t>
+            </div>
+        </t>
+    </template>
+
+</odoo>

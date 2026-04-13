@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data noupdate="1">
+        <!-- Seed the three MVP-supported languages (SPEC §1). -->
+
+        <record id="lang_en" model="language.lang">
+            <field name="code">en</field>
+            <field name="name">English</field>
+        </record>
+
+        <record id="lang_uk" model="language.lang">
+            <field name="code">uk</field>
+            <field name="name">Ukrainian</field>
+        </record>
+
+        <record id="lang_el" model="language.lang">
+            <field name="code">el</field>
+            <field name="name">Greek</field>
+        </record>
+
+    </data>
+</odoo>

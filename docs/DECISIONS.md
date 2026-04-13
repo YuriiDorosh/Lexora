@@ -252,3 +252,40 @@ GDPR right-to-erasure is treated as a real product requirement. The MVP implemen
 **Context:** What ranking system for the leaderboard?
 
 **Decision:** Win count is the primary ranking. Win rate is displayed alongside. Language-pair-specific leaderboard views. No ELO in MVP. Minimum battle count before appearing in certain ranking views is configurable. ELO is a future enhancement.
+
+---
+
+## ADR-020: `language.lang` lookup model for learning_languages
+
+**Status:** Accepted (M2)
+
+**Context:** `language.user.profile.learning_languages` needs to store a set of language codes.
+Options: (A) JSON Char field, (B) three Boolean fields, (C) Many2many to a lookup model.
+
+**Decision:** Option C — `language.lang` model with `code` + `name`, seeded with uk/en/el. Profile has `Many2many → language.lang`. Selection fields on `language.entry` (source_language etc.) remain as Odoo `Selection` fields since they are scalar values, not sets.
+
+**Reasoning:** Consistent Odoo idiom, trivially extensible if more languages are added. Avoids mixed approach (Selection scalar vs. JSON for the same concept). M3 iterates `profile.learning_languages` to enqueue translation jobs.
+
+---
+
+## ADR-021: Portal vocabulary views in `language_words`, not `language_portal`
+
+**Status:** Accepted (M2)
+
+**Context:** PLAN §M2 explicitly lists "Portal views" as `language_words` work. ARCHITECTURE assigns portal views to `language_portal`.
+
+**Decision:** Follow PLAN for M2 — portal controller and Qweb templates for vocabulary live in `language_words` (adding `portal` as a dependency). `language_portal` remains the home for posts/articles/copy-to-list UI (M7+).
+
+**Reasoning:** The vocabulary portal is tightly coupled to the `language.entry` model. Co-locating controller + model in the same module reduces cross-module coupling for this slice. `language_portal` will house UI that spans multiple models (posts, chat, copy-to-list).
+
+---
+
+## ADR-022: `langdetect` for source language auto-detection; SPEC fallback applies
+
+**Status:** Accepted (M2)
+
+**Context:** SPEC §4.1 requires auto-detection of source language with fallback to `default_source_language` when confidence is low.
+
+**Decision:** Use `langdetect==1.0.9` (added to `base-requirements.txt`). Detection threshold: 0.7 probability for one of the three supported codes (en/uk/el). Below threshold → return None → UI falls back to user's `default_source_language`.
+
+**Known limitation:** Single-word detection is unreliable (e.g., "яблуко" may be classified as Russian due to Cyrillic character overlap). This is inherent to `langdetect` for short texts. The UI always allows manual correction. This is within the scope of SPEC §4.1 ("user reviews/corrects the language"). Documented as a known limitation.
