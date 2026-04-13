@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash -c 'f=\"${CLAUDE_TOOL_INPUT_file_path:-}\"; [ -n \"$f\" ] || exit 0; echo \"$f\" | grep -qE \"src/addons/.+\\.py$\" || exit 0; out=$(python3 -m py_compile \"$f\" 2>&1); rc=$?; [ $rc -eq 0 ] && echo \"[hook] syntax ok: $f\" || { echo \"[hook] SYNTAX ERROR: $f\"; echo \"$out\"; } >&2'"
+          }
+        ]
+      }
+    ]
+  }
+}
