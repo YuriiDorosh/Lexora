@@ -323,3 +323,107 @@ stop-all:
 
 rm-all:
 	docker rm $$(docker ps -aq) || true
+
+# ============================================================
+# === Dev stack (M0+) ========================================
+# ============================================================
+RABBITMQ_CONTAINER = rabbitmq
+TRANSLATION_CONTAINER = translation_service
+LLM_CONTAINER = llm_service
+ANKI_CONTAINER = anki_service
+AUDIO_CONTAINER = audio_service
+
+.PHONY: up-dev down-dev \
+        up-rabbitmq down-rabbitmq logs-rabbitmq \
+        up-translation down-translation up-translation-no-cache logs-translation \
+        up-llm down-llm up-llm-no-cache logs-llm \
+        up-anki down-anki up-anki-no-cache logs-anki \
+        up-audio down-audio up-audio-no-cache logs-audio
+
+# Start the full local development stack:
+#   postgres · odoo · nginx · rabbitmq · redis · translation · llm · anki · audio
+up-dev: check-network
+	$(MAKE) up-db
+	$(DC) -f docker_compose/rabbitmq/docker-compose.yml $(ENV) up -d
+	$(DC) -f docker_compose/redis/docker-compose.yml $(ENV) up -d
+	$(MAKE) up-odoo
+	$(DC) -f docker_compose/translation/docker-compose.yml $(ENV) up -d
+	$(DC) -f docker_compose/llm/docker-compose.yml $(ENV) up -d
+	$(DC) -f docker_compose/anki/docker-compose.yml $(ENV) up -d
+	$(DC) -f docker_compose/audio/docker-compose.yml $(ENV) up -d
+
+down-dev:
+	$(DC) -f docker_compose/audio/docker-compose.yml down
+	$(DC) -f docker_compose/anki/docker-compose.yml down
+	$(DC) -f docker_compose/llm/docker-compose.yml down
+	$(DC) -f docker_compose/translation/docker-compose.yml down
+	$(MAKE) down-odoo
+	$(DC) -f docker_compose/redis/docker-compose.yml down
+	$(DC) -f docker_compose/rabbitmq/docker-compose.yml down
+	$(MAKE) down-db
+
+# === RabbitMQ ===
+up-rabbitmq:
+	$(DC) -f docker_compose/rabbitmq/docker-compose.yml $(ENV) up -d
+
+down-rabbitmq:
+	$(DC) -f docker_compose/rabbitmq/docker-compose.yml down
+
+logs-rabbitmq:
+	$(LOGS) $(RABBITMQ_CONTAINER)
+
+# === Translation service ===
+up-translation:
+	$(DC) -f docker_compose/translation/docker-compose.yml $(ENV) up -d
+
+up-translation-no-cache:
+	$(DC) -f docker_compose/translation/docker-compose.yml $(ENV) build --no-cache
+	$(DC) -f docker_compose/translation/docker-compose.yml $(ENV) up -d
+
+down-translation:
+	$(DC) -f docker_compose/translation/docker-compose.yml down
+
+logs-translation:
+	$(LOGS) $(TRANSLATION_CONTAINER)
+
+# === LLM service ===
+up-llm:
+	$(DC) -f docker_compose/llm/docker-compose.yml $(ENV) up -d
+
+up-llm-no-cache:
+	$(DC) -f docker_compose/llm/docker-compose.yml $(ENV) build --no-cache
+	$(DC) -f docker_compose/llm/docker-compose.yml $(ENV) up -d
+
+down-llm:
+	$(DC) -f docker_compose/llm/docker-compose.yml down
+
+logs-llm:
+	$(LOGS) $(LLM_CONTAINER)
+
+# === Anki import service ===
+up-anki:
+	$(DC) -f docker_compose/anki/docker-compose.yml $(ENV) up -d
+
+up-anki-no-cache:
+	$(DC) -f docker_compose/anki/docker-compose.yml $(ENV) build --no-cache
+	$(DC) -f docker_compose/anki/docker-compose.yml $(ENV) up -d
+
+down-anki:
+	$(DC) -f docker_compose/anki/docker-compose.yml down
+
+logs-anki:
+	$(LOGS) $(ANKI_CONTAINER)
+
+# === Audio / TTS service ===
+up-audio:
+	$(DC) -f docker_compose/audio/docker-compose.yml $(ENV) up -d
+
+up-audio-no-cache:
+	$(DC) -f docker_compose/audio/docker-compose.yml $(ENV) build --no-cache
+	$(DC) -f docker_compose/audio/docker-compose.yml $(ENV) up -d
+
+down-audio:
+	$(DC) -f docker_compose/audio/docker-compose.yml down
+
+logs-audio:
+	$(LOGS) $(AUDIO_CONTAINER)
