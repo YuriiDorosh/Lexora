@@ -1,0 +1,114 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- ================================================================
+         language.entry — backend views (admin / developer use)
+    ================================================================ -->
+
+    <record id="view_language_entry_list" model="ir.ui.view">
+        <field name="name">language.entry.list</field>
+        <field name="model">language.entry</field>
+        <field name="arch" type="xml">
+            <list string="Learning Entries">
+                <field name="source_text"/>
+                <field name="type"/>
+                <field name="source_language"/>
+                <field name="owner_id"/>
+                <field name="status"/>
+                <field name="is_shared"/>
+                <field name="pvp_eligible"/>
+                <field name="create_date" string="Added"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_language_entry_form" model="ir.ui.view">
+        <field name="name">language.entry.form</field>
+        <field name="model">language.entry</field>
+        <field name="arch" type="xml">
+            <form string="Learning Entry">
+                <sheet>
+                    <div class="oe_title">
+                        <label for="source_text"/>
+                        <h1><field name="source_text" placeholder="Enter word, phrase or sentence…"/></h1>
+                    </div>
+                    <group>
+                        <group>
+                            <field name="type"/>
+                            <field name="source_language"/>
+                            <field name="status"/>
+                        </group>
+                        <group>
+                            <field name="owner_id" groups="base.group_system"/>
+                            <field name="is_shared"/>
+                            <field name="pvp_eligible"/>
+                        </group>
+                    </group>
+                    <group string="Provenance" groups="base.group_system">
+                        <field name="created_from"/>
+                        <field name="copied_from_user_id"/>
+                        <field name="copied_from_entry_id"/>
+                    </group>
+                    <notebook>
+                        <page string="Media Links">
+                            <field name="media_links">
+                                <list editable="bottom">
+                                    <field name="url"/>
+                                    <field name="title"/>
+                                    <field name="description"/>
+                                    <field name="user_note"/>
+                                </list>
+                            </field>
+                        </page>
+                        <page string="Technical" groups="base.group_system">
+                            <group>
+                                <field name="normalized_text"/>
+                            </group>
+                        </page>
+                    </notebook>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="view_language_entry_search" model="ir.ui.view">
+        <field name="name">language.entry.search</field>
+        <field name="model">language.entry</field>
+        <field name="arch" type="xml">
+            <search string="Learning Entries">
+                <field name="source_text"/>
+                <field name="source_language"/>
+                <filter string="Active" name="active" domain="[('status','=','active')]"/>
+                <filter string="Archived" name="archived" domain="[('status','=','archived')]"/>
+                <filter string="Shared" name="shared" domain="[('is_shared','=',True)]"/>
+                <filter string="PvP Eligible" name="pvp" domain="[('pvp_eligible','=',True)]"/>
+                <separator/>
+                <filter string="My Entries" name="mine" domain="[('owner_id','=',uid)]"/>
+                <group expand="0" string="Group By">
+                    <filter string="Type" name="group_type" context="{'group_by':'type'}"/>
+                    <filter string="Language" name="group_lang" context="{'group_by':'source_language'}"/>
+                    <filter string="Status" name="group_status" context="{'group_by':'status'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="action_language_entry" model="ir.actions.act_window">
+        <field name="name">Learning Entries</field>
+        <field name="res_model">language.entry</field>
+        <field name="view_mode">list,form</field>
+        <field name="search_view_id" ref="view_language_entry_search"/>
+        <field name="context">{'search_default_mine': 1, 'search_default_active': 1}</field>
+    </record>
+
+    <menuitem id="menu_lexora_root"
+              name="Lexora"
+              sequence="100"/>
+
+    <menuitem id="menu_lexora_vocabulary"
+              name="Vocabulary"
+              parent="menu_lexora_root"
+              action="action_language_entry"
+              sequence="10"/>
+
+</odoo>

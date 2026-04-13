@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- ================================================================
+         language.user.profile — backend views
+    ================================================================ -->
+
+    <record id="view_language_user_profile_list" model="ir.ui.view">
+        <field name="name">language.user.profile.list</field>
+        <field name="model">language.user.profile</field>
+        <field name="arch" type="xml">
+            <list string="Language Profiles">
+                <field name="user_id"/>
+                <field name="native_language"/>
+                <field name="learning_languages"/>
+                <field name="pvp_total_battles"/>
+                <field name="pvp_wins"/>
+                <field name="pvp_win_rate" string="Win Rate %"/>
+                <field name="is_shared_list"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_language_user_profile_form" model="ir.ui.view">
+        <field name="name">language.user.profile.form</field>
+        <field name="model">language.user.profile</field>
+        <field name="arch" type="xml">
+            <form string="Language Profile">
+                <sheet>
+                    <group>
+                        <group string="Profile">
+                            <field name="user_id"/>
+                            <field name="native_language"/>
+                            <field name="learning_languages" widget="many2many_tags"/>
+                            <field name="default_source_language"/>
+                            <field name="is_shared_list"/>
+                        </group>
+                        <group string="PvP Statistics">
+                            <field name="pvp_total_battles"/>
+                            <field name="pvp_wins"/>
+                            <field name="pvp_losses"/>
+                            <field name="pvp_draws"/>
+                            <field name="pvp_win_rate" string="Win Rate %"/>
+                        </group>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_language_user_profile" model="ir.actions.act_window">
+        <field name="name">Language Profiles</field>
+        <field name="res_model">language.user.profile</field>
+        <field name="view_mode">list,form</field>
+    </record>
+
+    <menuitem id="menu_lexora_profiles"
+              name="User Profiles"
+              parent="menu_lexora_root"
+              action="action_language_user_profile"
+              sequence="20"/>
+
+</odoo>

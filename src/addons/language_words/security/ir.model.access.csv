@@ -1,1 +1,9 @@
 id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_language_lang_user,language.lang user,model_language_lang,language_security.group_language_user,1,0,0,0
+access_language_lang_admin,language.lang admin,model_language_lang,base.group_system,1,1,1,1
+access_language_entry_user,language.entry user,model_language_entry,language_security.group_language_user,1,1,1,1
+access_language_entry_admin,language.entry admin,model_language_entry,base.group_system,1,1,1,1
+access_language_user_profile_user,language.user.profile user,model_language_user_profile,language_security.group_language_user,1,1,1,1
+access_language_user_profile_admin,language.user.profile admin,model_language_user_profile,base.group_system,1,1,1,1
+access_language_media_link_user,language.media.link user,model_language_media_link,language_security.group_language_user,1,1,1,1
+access_language_media_link_admin,language.media.link admin,model_language_media_link,base.group_system,1,1,1,1
