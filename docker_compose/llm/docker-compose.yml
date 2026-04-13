@@ -1,0 +1,19 @@
+version: "3.8"
+
+services:
+  llm-service:
+    build:
+      context: ../..
+      dockerfile: docker_compose/llm/Dockerfile
+    container_name: llm_service
+    restart: unless-stopped
+    # The real LLM service will require significant RAM (Qwen3 8B ~8-16 GB).
+    # In M0 this is a lightweight stub with no model loaded.
+    ports:
+      - "8002:8000"
+    networks:
+      - backend
+
+networks:
+  backend:
+    external: true

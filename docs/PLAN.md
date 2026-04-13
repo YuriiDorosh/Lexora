@@ -51,14 +51,20 @@
 **Verification:**
 ```bash
 make up-dev
-# Wait ~60 seconds
-curl http://localhost:8069/web/health         # 200 OK
+# Wait ~60 seconds for Odoo to initialise
+
+# Odoo is exposed through nginx on host port 5433 (not 8069 directly)
+curl http://localhost:5433/web/health         # {"status": "pass"} — Odoo HTTP server up
+                                              # Note: requires database to be initialised;
+                                              # on first boot, use the Odoo setup wizard at
+                                              # http://localhost:5433 to create the database.
+
 curl http://localhost:15672                   # RabbitMQ management UI (guest/guest)
 docker exec redis redis-cli ping              # PONG
-curl http://localhost:8001/health             # Translation service: {"status": "ok"}
-curl http://localhost:8002/health             # LLM service: {"status": "ok"}
-curl http://localhost:8003/health             # Anki service: {"status": "ok"}
-curl http://localhost:8004/health             # Audio service: {"status": "ok"}
+curl http://localhost:8001/health             # {"status":"ok","service":"translation"}
+curl http://localhost:8002/health             # {"status":"ok","service":"llm"}
+curl http://localhost:8003/health             # {"status":"ok","service":"anki"}
+curl http://localhost:8004/health             # {"status":"ok","service":"audio"}
 ```
 
 ---

@@ -1,0 +1,17 @@
+version: "3.8"
+
+services:
+  translation-service:
+    build:
+      context: ../..
+      dockerfile: docker_compose/translation/Dockerfile
+    container_name: translation_service
+    restart: unless-stopped
+    ports:
+      - "8001:8000"
+    networks:
+      - backend
+
+networks:
+  backend:
+    external: true

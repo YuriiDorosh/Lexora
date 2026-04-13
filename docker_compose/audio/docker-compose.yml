@@ -1,0 +1,17 @@
+version: "3.8"
+
+services:
+  audio-service:
+    build:
+      context: ../..
+      dockerfile: docker_compose/audio/Dockerfile
+    container_name: audio_service
+    restart: unless-stopped
+    ports:
+      - "8004:8000"
+    networks:
+      - backend
+
+networks:
+  backend:
+    external: true
