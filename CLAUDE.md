@@ -82,6 +82,17 @@ make load-backup FILE=your_backup.dump
 - No Elasticsearch in MVP stack (ADR-016)
 - GDPR: private entries deletable; community content anonymizable (ADR-017)
 
+## Resuming after an interruption
+
+**Read in this order:**
+1. `docs/TASKS.md` — exact resume point: what's done, what's next, which verifications passed
+2. `git log --oneline -10` — confirm what's actually committed
+3. Read the specific files modified in the current milestone before touching them
+
+`docs/TASKS.md` is updated after each meaningful sub-step during active work.
+Any implementation decision that refines or deviates from the spec is also recorded in `docs/DECISIONS.md`.
+
 ## Current status
 
-Discovery complete. Implementation not started. Begin at M0 in @docs/PLAN.md.
+M0 complete and verified. Awaiting confirmation to begin M1.
+See @docs/TASKS.md for the detailed M0 completion record.
