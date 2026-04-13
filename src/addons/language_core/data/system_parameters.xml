@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data noupdate="1">
+        <!--
+            noupdate="1" so that admin changes are not overwritten on module upgrade.
+        -->
+
+        <!-- Minimum number of entries in the practice language before a user
+             can start a PvP battle (SPEC §4.12, ADR-010). -->
+        <record id="param_pvp_min_entries" model="ir.config_parameter">
+            <field name="key">language.pvp.min_entries</field>
+            <field name="value">10</field>
+        </record>
+
+        <!-- Maximum audio upload size in bytes for user-recorded audio
+             (SPEC §4.5, ADR-008).  Default: 10 MB = 10 * 1024 * 1024. -->
+        <record id="param_audio_max_upload_bytes" model="ir.config_parameter">
+            <field name="key">language.audio.max_upload_bytes</field>
+            <field name="value">10485760</field>
+        </record>
+
+    </data>
+</odoo>

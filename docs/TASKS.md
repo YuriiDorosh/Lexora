@@ -15,35 +15,71 @@
 
 ## Current Milestone
 
-### M1 — Core Module Scaffold + Auth
-
-**Status:** In progress
-**Started:** 2026-04-13
-
-#### Sub-steps
-
-- [ ] Create 11 module scaffolds (manifests, __init__ files, security CSVs, views dirs)
-- [ ] `language_security`: security groups XML + auto-assignment hook on res.users
-- [ ] `language_core`: system parameters XML + job status mixin + RabbitMQ publisher stub
-- [ ] Tests for language_security (groups exist, implication chain, portal signup hook)
-- [ ] Tests for language_core (system parameter defaults)
-- [ ] Verify all modules install cleanly via --init
-
-#### Verification steps passed
-
-(none yet)
-
-#### Decisions made during M1
-
-(none yet)
-
-#### Blockers
-
-(none)
+None in progress. M1 complete. Awaiting confirmation to begin M2.
 
 ---
 
 ## Completed Milestones
+
+### M1 — Core Module Scaffold + Auth
+
+**Status:** Complete and verified.
+**Started:** 2026-04-13
+**Completed:** 2026-04-13
+
+#### Sub-steps completed
+
+- [x] Create 11 module scaffolds (manifests, __init__ files, security CSVs, views dirs)
+  - All modules in `src/addons/language_*` created with `__init__.py`, `__manifest__.py`,
+    `models/__init__.py`, `security/ir.model.access.csv`, `views/`, `data/`, `tests/`
+- [x] `language_security`: security groups XML + auto-assignment hook on res.users
+  - Three groups defined: `group_language_user`, `group_language_moderator`, `group_language_admin`
+  - Implication chain: moderator → user; admin → moderator (ADR-004)
+  - Auto-assignment via `implied_ids` on `base.group_portal` (no code hook needed)
+  - `password_security` declared as dependency
+- [x] `language_core`: system parameters XML + job status mixin + RabbitMQ publisher stub
+  - `ir.config_parameter`: `language.pvp.min_entries=10`, `language.audio.max_upload_bytes=10485760`
+  - `language.job.status.mixin` abstract model: `job_id`, `status`, `error_message`, helpers
+  - `RabbitMQPublisher` stub class with `publish(event_type, payload, job_id)` interface
+  - `web_notify` declared as dependency
+- [x] Tests for language_security (groups exist, implication chain, portal signup hook)
+  - `language_security/tests/test_security_groups.py`: 3 tests
+- [x] Tests for language_core (system parameter defaults + mixin)
+  - `language_core/tests/test_system_parameters.py`: 2 tests
+  - `language_core/tests/test_job_status_mixin.py`: 2 tests
+- [x] Verify all modules install cleanly via --init
+  - 55 modules loaded (11 custom + 44 pulled-in deps), 0 errors
+  - All 7 tests pass, 0 failures
+
+#### Verification steps passed
+
+- [x] All 11 `language_*` modules install via `--init --no-http --stop-after-init` — 0 errors
+- [x] All 7 tests pass (language_security: 3, language_core: 4) — 0 failures
+- Note: manual "Register portal user → confirm Language User group" is the remaining human
+  verification step; automated tests confirm the implied_ids mechanism is in place.
+
+#### Decisions made during M1
+
+- **Auto-assignment via XML `implied_ids`**: `base.group_portal.implied_ids` includes
+  `group_language_user`. This is the idiomatic Odoo approach; no Python `res.users.create()`
+  override needed. Simpler, no risk of missing portal signup edge cases.
+- **OCA addons as manifest deps**: `password_security` → `language_security`;
+  `web_notify` → `language_core`; `base_search_fuzzy` → `language_words`;
+  `website_require_login` + `website_menu_by_user_status` → `language_portal`.
+  Ensures they install when our modules install without needing to list them separately in
+  the `--init` command.
+- **`--no-http` required for CLI init/test while Odoo service is running**: Port 8069 is
+  held by the main Odoo process. All `--stop-after-init` and `--test-enable` commands must
+  include `--no-http`. Document this in the M2 verification section.
+
+#### Known limitations at M1 exit
+
+- All language_* modules except language_security and language_core are pure stubs (no models
+  or views yet). They install cleanly but do nothing.
+- Manual human verification pending: register a portal user via the web UI and confirm they
+  appear in `group_language_user` in the Odoo backend.
+
+---
 
 ### M0 — Infrastructure Foundation
 
