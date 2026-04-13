@@ -11,7 +11,7 @@ Then output a resume briefing in this exact format — nothing else, no preamble
 **Next sub-step:** <first unchecked [ ] item from TASKS.md, or "milestone complete — awaiting next">
 **Last commits:** <3 most recent, one per line>
 **Blockers:** <from TASKS.md, or "none">
-**Invariants to keep in mind:** <3 most relevant invariants from CLAUDE.md for the current work>
+**Invariants to keep in mind:** <copy the 3 invariants from the "Key invariants" table in CLAUDE.md that are most directly related to the current milestone's domain (e.g. for event work: job_id / idempotency; for entry work: dedup key; for PvP: Redis/Odoo split)>
 ---
 
 Keep the total output under 20 lines. Do not begin implementing anything.

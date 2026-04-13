@@ -1,6 +1,9 @@
 Create the standard Odoo 18 addon scaffold for a new Lexora module named: $ARGUMENTS
 
-Before generating any files:
+**Before generating any files:**
+- Check whether `src/addons/$ARGUMENTS/` already exists using the Glob or Bash tool.
+- If the directory exists, stop immediately and report: "Module $ARGUMENTS already exists at src/addons/$ARGUMENTS/ — aborting to avoid overwrite. Delete the directory or choose a different name."
+- Only proceed if the directory does not exist.
 1. Read `CLAUDE.md` to confirm the module install order and verify `$ARGUMENTS` appears in it.
 2. Identify the correct `depends` list: always include `language_security` as a base; add others based on where `$ARGUMENTS` sits in the install order chain.
 

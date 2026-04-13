@@ -15,7 +15,31 @@
 
 ## Current Milestone
 
-None in progress. M0 is complete. Awaiting confirmation to begin M1.
+### M1 — Core Module Scaffold + Auth
+
+**Status:** In progress
+**Started:** 2026-04-13
+
+#### Sub-steps
+
+- [ ] Create 11 module scaffolds (manifests, __init__ files, security CSVs, views dirs)
+- [ ] `language_security`: security groups XML + auto-assignment hook on res.users
+- [ ] `language_core`: system parameters XML + job status mixin + RabbitMQ publisher stub
+- [ ] Tests for language_security (groups exist, implication chain, portal signup hook)
+- [ ] Tests for language_core (system parameter defaults)
+- [ ] Verify all modules install cleanly via --init
+
+#### Verification steps passed
+
+(none yet)
+
+#### Decisions made during M1
+
+(none yet)
+
+#### Blockers
+
+(none)
 
 ---
 
