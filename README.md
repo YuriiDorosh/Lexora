@@ -2,117 +2,38 @@
 
 ## Overview
 
-This MVP is a language-learning platform for **English, Greek, and Ukrainian**.
+Lexora is a language-learning platform for **English (en), Greek (el), and Ukrainian (uk)**.
 
 The product uses:
 
-- **Odoo monolith** as the main product platform
-- **FastAPI Translation Service** for simple offline translation
-- **FastAPI LLM Service** for synonyms, antonyms, example sentences, and short explanations
-- **FastAPI Anki Import Service** for importing Anki exports
-- **RabbitMQ** for async integration between Odoo and microservices
-- **PostgreSQL** for business data
-- **Redis** for cache / realtime support
-- **Elasticsearch** for dashboards, analytics, and trending words
+- **Odoo 18** as the main application monolith (auth, users, vocabulary, chat, posts, PvP battles, dashboards)
+- **FastAPI Translation Service** — offline translation via Argos Translate
+- **FastAPI LLM Service** — synonyms, antonyms, example sentences, explanations (Qwen3 8B local model)
+- **FastAPI Anki Import Service** — `.apkg` and `.txt` Anki deck imports
+- **FastAPI Audio/TTS Service** — offline text-to-speech (piper / espeak-ng)
+- **RabbitMQ** — async event bus between Odoo and the four worker services
+- **PostgreSQL 15** — primary database
+- **Redis** — ephemeral PvP battle state
 
-For MVP, we **do not support image upload / OCR yet**.
+## Documentation
 
+| Document | Purpose |
+|---|---|
+| [docs/SPEC.md](docs/SPEC.md) | Full product specification: domain model, all features, privacy rules, PvP rules |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | System design: services, Odoo modules, event catalog, real-time design |
+| [docs/PLAN.md](docs/PLAN.md) | Milestone-by-milestone implementation plan with verification commands |
+| [docs/DECISIONS.md](docs/DECISIONS.md) | Architecture decision records (ADR-001–ADR-019) with rationale |
+| [CLAUDE.md](CLAUDE.md) | Claude Code context: build commands, key invariants, module install order |
 
-## General architectural diagram
+## Quick start (dev)
 
-<img src="docs/mermaid-diagram(2).png">
+```bash
+cp env.example .env          # fill in passwords
+make up-dev                   # start full dev stack (once M0 is implemented)
+```
 
----
+See [docs/PLAN.md](docs/PLAN.md) for the milestone-by-milestone implementation guide.
 
+## Status
 
-## Goals of the MVP
-
-The system should allow a user to:
-
-- register and log in
-- manually add a word or phrase
-- import words from Anki export
-- automatically skip duplicates
-- translate words or phrases between **English, Greek, and Ukrainian**
-- request generation of:
-  - synonyms
-  - antonyms
-  - example sentences
-  - short explanation
-- chat with other users to practice writing
-- see dashboards such as:
-  - popular words
-  - personal activity
-  - language usage
-  - most translated words
-  - most enriched words
-
-
-## User script logic
-
-<img src="docs/mermaid-diagram(3).png">
-
----
-
-
-## Main Architecture
-
-### Main idea
-
-- **Odoo** is the central system:
-  - website / portal
-  - auth
-  - users
-  - roles
-  - words and phrases
-  - translations
-  - generated enrichment
-  - chats
-  - dashboards
-  - admin/backoffice
-- **Translation Service** performs simple offline translation via a free Python library
-- **LLM Service** uses a local free model up to **20 GB**
-- **Anki Import Service** parses exports and skips duplicates
-- **RabbitMQ** connects everything asynchronously
-
----
-
-## Recommended Models and Services for MVP
-
-### Translation service
-Recommended offline approach:
-- **Argos Translate**
-
-### LLM service
-Recommended local free model:
-- **Qwen3 8B**
-
-Possible alternative if Greek support becomes more important:
-- **Aya Expanse 8B**
-
-### Search / analytics
-- **Elasticsearch**
-
-### Realtime / auxiliary
-- **Redis**
-
----
-
-## General Architecture Diagram
-
-
-## Breakdown of modules within Odoo
-
-<img src="docs/mermaid-diagram(4).png">
-
----
-
-## Which entities to keep in Odoo
-
-<img src="docs/mermaid-diagram(5).png">
-
----
-
-## Access and Roles Diagram in Odoo
-
-<img src="docs/mermaid-diagram(6).png">
+Discovery and specification complete. Implementation not yet started. Begin at **M0** in [docs/PLAN.md](docs/PLAN.md).
