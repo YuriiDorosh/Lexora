@@ -19,5 +19,29 @@
             <field name="value">10485760</field>
         </record>
 
+        <!-- RabbitMQ connection parameters (M3).
+             Override these via Settings > Technical > Parameters > System Parameters
+             for non-default environments. -->
+        <record id="param_rabbitmq_host" model="ir.config_parameter">
+            <field name="key">rabbitmq.host</field>
+            <field name="value">rabbitmq</field>
+        </record>
+        <record id="param_rabbitmq_port" model="ir.config_parameter">
+            <field name="key">rabbitmq.port</field>
+            <field name="value">5672</field>
+        </record>
+        <record id="param_rabbitmq_vhost" model="ir.config_parameter">
+            <field name="key">rabbitmq.vhost</field>
+            <field name="value">/</field>
+        </record>
+        <record id="param_rabbitmq_user" model="ir.config_parameter">
+            <field name="key">rabbitmq.user</field>
+            <field name="value">guest</field>
+        </record>
+        <record id="param_rabbitmq_password" model="ir.config_parameter">
+            <field name="key">rabbitmq.password</field>
+            <field name="value">guest</field>
+        </record>
+
     </data>
 </odoo>

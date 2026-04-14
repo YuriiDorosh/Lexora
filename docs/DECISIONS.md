@@ -289,3 +289,31 @@ Options: (A) JSON Char field, (B) three Boolean fields, (C) Many2many to a looku
 **Decision:** Use `langdetect==1.0.9` (added to `base-requirements.txt`). Detection threshold: 0.7 probability for one of the three supported codes (en/uk/el). Below threshold → return None → UI falls back to user's `default_source_language`.
 
 **Known limitation:** Single-word detection is unreliable (e.g., "яблуко" may be classified as Russian due to Cyrillic character overlap). This is inherent to `langdetect` for short texts. The UI always allows manual correction. This is within the scope of SPEC §4.1 ("user reviews/corrects the language"). Documented as a known limitation.
+
+---
+
+## ADR-023: Odoo-side RabbitMQ consumer — cron-based basic_get draining
+
+**Status:** Accepted (M3)
+
+**Context:** Odoo needs to consume translation result events from RabbitMQ (`translation.completed`, `translation.failed`). Options: (A) persistent background thread, (B) cron-based polling with `basic_get`.
+
+**Decision:** Option B — a scheduled cron action runs every minute, opens a `BlockingConnection`, drains up to 200 messages per queue using `basic_get` (polling), then closes the connection. Handler processes each message and acks after durable write.
+
+**Reasoning:** Persistent threads in Odoo workers are complex to manage (worker restarts, multiple workers competing). Cron-based draining is idiomatic Odoo, predictable, and sufficient for MVP translation volumes (low throughput). `basic_get` is safe in a synchronous context, unlike `basic_consume` which requires an event loop.
+
+**Consequences:** Up to ~60s latency between translation completion and Odoo DB update. Acceptable for MVP. If sub-second latency is needed in future, a dedicated consumer process should be added.
+
+---
+
+## ADR-024: Translation service fallback stub when Argos not installed
+
+**Status:** Accepted (M3)
+
+**Context:** Argos Translate requires downloading language packages at startup (~200 MB), which slows dev container start significantly.
+
+**Decision:** Translation service attempts to install Argos packages on startup. If `argostranslate` is not importable (not in the container image) or package download fails, the service falls back to a stub that returns `[stub:src→tgt] <source_text>`. The health endpoint reports `argos_ready: false`.
+
+**Reasoning:** Dev and CI can run the full stack without a multi-GB model download. Production containers rebuild with argostranslate installed. The stub makes the async event flow testable end-to-end without real translation.
+
+**Consequences:** Stub translations are clearly marked and not production-quality. Anyone running the dev stack sees stub output until Argos packages are installed.

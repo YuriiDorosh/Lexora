@@ -66,8 +66,13 @@ class LanguageUserProfile(models.Model):
 
     @api.model
     def _get_or_create_for_user(self, user_id=None):
-        """Return (or lazily create) the profile for the given user."""
-        uid = user_id or self.env.uid
+        """Return (or lazily create) the profile for the given user.
+
+        :param user_id: res.users record, integer user ID, or None (defaults to env.uid)
+        """
+        from odoo.models import BaseModel  # noqa: PLC0415
+        raw = user_id or self.env.uid
+        uid = raw.id if isinstance(raw, BaseModel) else raw
         profile = self.search([('user_id', '=', uid)], limit=1)
         if not profile:
             profile = self.create({'user_id': uid})

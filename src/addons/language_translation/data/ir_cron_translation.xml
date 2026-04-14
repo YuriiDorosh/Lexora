@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data noupdate="1">
+
+        <!-- Cron: consume translation result events from RabbitMQ.
+             Runs every minute.  Drains translation.completed and
+             translation.failed queues and updates language.translation records.
+             noupdate="1" so admins can tune the interval without it being reset on upgrade. -->
+        <record id="cron_consume_translation_results" model="ir.cron">
+            <field name="name">Lexora: Consume Translation Results</field>
+            <field name="model_id" ref="language_translation.model_language_translation"/>
+            <field name="state">code</field>
+            <field name="code">model.action_consume_results()</field>
+            <field name="interval_number">1</field>
+            <field name="interval_type">minutes</field>
+            <field name="active">True</field>
+            <field name="user_id" ref="base.user_root"/>
+        </record>
+
+    </data>
+</odoo>

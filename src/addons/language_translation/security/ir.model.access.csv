@@ -1,1 +1,3 @@
 id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_language_translation_user,language.translation user,model_language_translation,language_security.group_language_user,1,0,0,0
+access_language_translation_admin,language.translation admin,model_language_translation,base.group_system,1,1,1,1
