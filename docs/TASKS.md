@@ -15,11 +15,85 @@
 
 ## Current Milestone
 
-None in progress. M2 complete. Awaiting confirmation to begin M3.
+None in progress. M3 complete and verified. Awaiting confirmation to begin M4.
 
 ---
 
 ## Completed Milestones
+
+### M3 — Translation Service
+
+**Status:** Complete and verified.
+**Started:** 2026-04-14
+**Completed:** 2026-04-14
+
+#### Sub-steps completed
+
+- [x] Update TASKS.md to mark M3 started
+- [x] `language_core`: real RabbitMQ publisher (pika connection + publish)
+  - `src/addons/language_core/models/rabbitmq_publisher.py` — real pika BlockingConnection
+- [x] `language_core`: add RabbitMQ config params to system_parameters.xml
+  - host/port/vhost/user/password with dev defaults (rabbitmq/5672/guest/guest)
+- [x] `language_core`: RabbitMQ consumer utility (basic_get cron-based drainer)
+  - `src/addons/language_core/models/rabbitmq_consumer.py` — `drain(queue, handler)` method
+  - passive=True declare: if queue absent, returns 0 cleanly (publisher creates it on first job)
+- [x] `language_translation`: implement `language.translation` model (SPEC §3.4)
+  - `src/addons/language_translation/models/language_translation.py`
+  - Inherits `language.job.status.mixin`; fields: entry_id, target_language, translated_text
+  - `_handle_completed` / `_handle_failed` with idempotency check (skip if already terminal)
+  - UNIQUE constraint on (entry_id, target_language)
+- [x] `language_translation`: extend `language.entry` with `translation_ids` + `_enqueue_translations()`
+  - `src/addons/language_translation/models/language_entry_translation.py`
+  - Overrides `create()` to auto-enqueue for user's learning languages
+  - `pvp_eligible` computed from `@api.depends('translation_ids.status')` — True when any completed
+- [x] `language_translation`: security rules (ir.model.access.csv + record rules)
+  - Language Users: read own translations only; admin: full CRUD
+- [x] `language_translation`: cron scheduled action for consuming result queues
+  - `data/ir_cron_translation.xml` — runs every 1 minute, calls `action_consume_results()`
+  - Fixed: removed `numbercall` field (removed in Odoo 17+)
+- [x] `language_translation`: backend views (list/form)
+  - `views/language_translation_views.xml` — list with status colors, form with retry button
+  - Fixed: replaced `attrs=` with Odoo 18 `invisible=` syntax
+- [x] `language_translation`: manifest with all data files listed
+- [x] Portal view: show translations on entry detail; spinner for processing; retry button for failed
+  - `src/addons/language_words/views/portal_vocabulary.xml` — translations table added
+  - Retry route: `language_translation/controllers/portal.py` (avoids reverse dep on language_words)
+- [x] Translation service (FastAPI): daemon consumer thread + `_translate()` + result publish
+  - `services/translation/main.py` — auto-reconnects on failure; graceful argostranslate fallback
+  - Stub translation: `[stub:src→tgt] text` (argostranslate deferred — see ADR-024)
+- [x] Translation service: requirements.txt — lean (no argostranslate/torch); ~16s build
+  - Comment in requirements.txt explains how to enable real translation in production
+- [x] Translation service: docker-compose env_file + RABBITMQ_* env vars with defaults
+- [x] Tests: 18 tests covering model, state machine, enqueue-on-save, idempotency, pvp_eligible, retry
+  - `_patch_publish()` context manager; `_get_auto_translation()` to avoid UNIQUE constraint
+- [x] `language_words/models/language_user_profile.py`: `_get_or_create_for_user` accepts recordset or int
+
+#### Verification steps passed
+
+- [x] `--update language_core,language_translation --stop-after-init` — 0 errors, modules loaded
+- [x] 18 language_translation tests pass (0 failures, 0 errors)
+- [x] All prior tests still pass: language_security (3), language_core (4), language_words (29)
+- [x] `make up-translation-no-cache` — image rebuilt in ~16s; container running
+- [x] `curl http://localhost:8001/health` — `{"status":"ok","service":"translation","argos_ready":false,"consumer_alive":true}`
+- [x] `make logs-translation` — pika connected to RabbitMQ; "Translation consumer started. Waiting for messages…"
+- [x] E2E test via rabbitmqadmin: published `translation.requested` → service processed → `translation.completed` contains `[stub:en→uk] apple`
+- [x] Cron confirmed in DB: `id=20, cron_name='Lexora: Consume Translation Results', active=t, interval_number=1, interval_type=minutes`
+
+#### Decisions made during this milestone
+
+- ADR-023 (see DECISIONS.md): cron-based `basic_get` consumer for Odoo side (not push-based)
+- ADR-024 (see DECISIONS.md): argostranslate deferred from image; stub fallback in service
+- Odoo 18 cron: `numbercall` field removed; `attrs=` replaced by `invisible=` in views
+- `_get_or_create_for_user` now handles both recordset and int user_id
+- Retry route in `language_translation/controllers/portal.py` to avoid reverse dep on language_words
+
+#### Known limitations at M3 exit
+
+- argostranslate not installed → all translations are stubs (`[stub:src→tgt] text`). Real translation requires `argostranslate==1.9.6` added to a separate `requirements-full.txt` and a dedicated Dockerfile build.
+- Portal entry detail page with translations was not verified in a browser (automation covers model layer; UI QA deferred).
+- Cron fires every 1 minute; there may be up to 1 minute of latency between a job completing and Odoo picking it up in dev.
+
+---
 
 ### M2 — Learning Entries
 

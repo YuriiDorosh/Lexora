@@ -1,3 +1,8 @@
 fastapi==0.115.5
 uvicorn[standard]==0.32.1
 pika==1.3.2
+# argostranslate is NOT installed by default: it pulls torch + CUDA (~1 GB).
+# The service gracefully falls back to stub translation when argostranslate
+# is not importable.  To enable real offline translation in a production
+# container, add argostranslate==1.9.6 to a separate requirements-full.txt
+# and use a dedicated Dockerfile that extends this one.

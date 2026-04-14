@@ -124,9 +124,72 @@
                             <a href="/my/vocabulary" class="btn btn-sm btn-outline-secondary">Back</a>
                         </div>
 
-                        <!-- Translations placeholder (M3) -->
-                        <h6 class="text-muted">Translations <small class="text-muted">(available after M3)</small></h6>
-                        <p class="text-muted small">Translations will appear here once the translation service is connected.</p>
+                        <!-- Translations (M3) -->
+                        <h6>Translations</h6>
+                        <t t-if="not entry.translation_ids">
+                            <p class="text-muted small">No translations yet. They are requested automatically when you add an entry.</p>
+                        </t>
+                        <t t-if="entry.translation_ids">
+                            <table class="table table-sm mb-3">
+                                <thead>
+                                    <tr>
+                                        <th>Language</th>
+                                        <th>Translation</th>
+                                        <th>Status</th>
+                                        <th></th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <t t-foreach="entry.translation_ids" t-as="tr">
+                                        <tr>
+                                            <td><span class="badge bg-secondary"><t t-esc="tr.target_language"/></span></td>
+                                            <td>
+                                                <t t-if="tr.status == 'completed'">
+                                                    <strong><t t-esc="tr.translated_text"/></strong>
+                                                </t>
+                                                <t t-if="tr.status == 'processing'">
+                                                    <span class="text-muted">
+                                                        <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+                                                        Translating…
+                                                    </span>
+                                                </t>
+                                                <t t-if="tr.status == 'pending'">
+                                                    <span class="text-muted">Queued…</span>
+                                                </t>
+                                                <t t-if="tr.status == 'failed'">
+                                                    <span class="text-danger">
+                                                        Failed
+                                                        <t t-if="tr.error_message"> — <t t-esc="tr.error_message"/></t>
+                                                    </span>
+                                                </t>
+                                            </td>
+                                            <td>
+                                                <t t-if="tr.status == 'completed'">
+                                                    <span class="badge bg-success">done</span>
+                                                </t>
+                                                <t t-if="tr.status == 'processing'">
+                                                    <span class="badge bg-warning text-dark">processing</span>
+                                                </t>
+                                                <t t-if="tr.status == 'pending'">
+                                                    <span class="badge bg-secondary">pending</span>
+                                                </t>
+                                                <t t-if="tr.status == 'failed'">
+                                                    <span class="badge bg-danger">failed</span>
+                                                </t>
+                                            </td>
+                                            <td>
+                                                <t t-if="tr.status == 'failed'">
+                                                    <form t-att-action="'/my/vocabulary/%d/retry_translation/%d' % (entry.id, tr.id)" method="post">
+                                                        <input type="hidden" name="csrf_token" t-att-value="request.csrf_token()"/>
+                                                        <button type="submit" class="btn btn-sm btn-outline-warning">Retry</button>
+                                                    </form>
+                                                </t>
+                                            </td>
+                                        </tr>
+                                    </t>
+                                </tbody>
+                            </table>
+                        </t>
 
                         <!-- Media links -->
                         <t t-if="entry.media_links">
