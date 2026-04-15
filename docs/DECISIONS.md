@@ -332,3 +332,15 @@ Options: (A) JSON Char field, (B) three Boolean fields, (C) Many2many to a looku
 - Enrichment is user-triggered only (not auto on entry create), unlike translation. The portal "Enrich with AI" button POSTs to `/my/vocabulary/<id>/enrich`, which calls `_enqueue_single(entry, entry.source_language)`.
 
 **Reasoning:** Same reasoning as ADR-024 for the stub. QWeb inheritance is cleaner than modifying the parent template because enrichment is a separate feature layer; the parent module (`language_words`) shouldn't need to know about enrichment. Tests revealed that the test user must have `group_language_user` (not just `base.group_user`) to pass `check_access` on `language.entry` create — matching the M3 test pattern exactly.
+
+---
+
+## ADR-026: LLM inference is CPU-only; no GPU assumed for MVP
+
+**Status:** Accepted (M4 — post-implementation correction)
+
+**Context:** ARCHITECTURE.md originally said "A GPU or large RAM (≥16 GB) is recommended." The target server is CPU-only with no GPU.
+
+**Decision:** The LLM enrichment service is designed for CPU-only operation. The recommended model for production use is **Qwen2.5 1.5B or 3B** (INT8 or FP32, ≤3 GB RAM), loadable via `transformers` with `torch` CPU backend, or equivalently via `llama-cpp-python` with a `.gguf` checkpoint. Qwen3 8B INT4 via `llama-cpp-python` is supported on machines with ≥16 GB RAM but is slower (~30–120s per request). Unquantized Qwen3 8B in FP16/FP32 on CPU is explicitly out of scope — memory and latency requirements are impractical.
+
+**Consequences:** In stub mode (current dev default), enrichment results are fake but the full async event pipeline is exercised. To activate real inference: implement `_init_llm()` and `_enrich()` in `services/llm/main.py` and rebuild the image with the chosen model's pip dependencies. No Dockerfile or compose changes are needed beyond adding packages to a `requirements-full.txt`. ARCHITECTURE.md, SPEC.md, and `services/llm/main.py` have been updated to reflect CPU-first reality.

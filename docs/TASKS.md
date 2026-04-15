@@ -15,7 +15,7 @@
 
 ## Current Milestone
 
-### M4 — LLM Enrichment Service
+### M4 — LLM Enrichment Service (post-implementation UX + docs pass)
 
 **Status:** In progress
 **Started:** 2026-04-14
@@ -61,9 +61,23 @@
 #### Decisions made during this milestone
 
 - ADR-025: LLM service follows same stub/graceful-fallback pattern as translation (ADR-024)
+- ADR-026: LLM is CPU-only; no GPU assumed; recommended model is Qwen2.5 1.5B–3B for production
 - Portal enrichment section injected via QWeb template inheritance (`views/portal_enrichment.xml` inherits `language_words.portal_vocabulary_detail`) — keeps language_enrichment self-contained
 - Enrichment is user-triggered only (not auto on entry create); controller enqueues in source_language context
 - Test user must have `group_language_user` (not `base.group_user`) to pass `check_access` on language.entry create
+
+#### Post-implementation UX pass (same milestone)
+
+- [x] Vocabulary list: language codes → human names ("en" → "English"); pvp_eligible indicator; cleaner empty state
+- [x] Entry detail: lang_names throughout; pvp_eligible "⚡ PvP ready" badge; section separators (border-bottom + hr); structured action bar; improved empty state for no-translations with profile link hint
+- [x] Enrichment button: state-aware — shows "Enrich with AI" / "Re-enrich" / disabled spinner based on current enrichment status for source language
+- [x] Shared view: language names in badges
+- [x] Portal controller: passes `lang_names` dict and `user_profile` to all templates
+- [x] ARCHITECTURE.md: rewrote §3.3 hardware note — CPU-only, no GPU assumed, model strategy documented
+- [x] SPEC.md: updated §4.4 model reference — Qwen2.5 1.5B–3B recommended, no GPU
+- [x] `services/llm/main.py`: expanded `_init_llm()` docstring with CPU-safe model paths and explicit "do not use" warning for unquantized FP16 on CPU
+- [x] DECISIONS.md: added ADR-026 (CPU-only LLM strategy)
+- [x] All 71 tests still pass after UI changes
 
 #### Blockers
 

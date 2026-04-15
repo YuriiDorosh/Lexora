@@ -47,9 +47,22 @@ _llm_ready = False
 
 
 def _init_llm():
-    """Attempt to load the local LLM model.  Returns True if successful."""
-    # Placeholder: real implementation would load Qwen3 8B here.
-    # Kept as stub so the service starts in seconds during dev.
+    """Attempt to load a local LLM model.  Returns True if successful.
+
+    CPU-first strategy (no GPU assumed):
+    - Lightweight path (recommended): Qwen2.5 1.5B or 3B via transformers (≤3 GB RAM).
+      Install: pip install transformers torch --index-url https://download.pytorch.org/whl/cpu
+      Then load with AutoModelForCausalLM and return True.
+    - Heavier path (≥16 GB RAM): Qwen3 8B INT4 via llama-cpp-python.
+      Install: pip install llama-cpp-python
+      Then load a .gguf quantized checkpoint and return True.
+    - Do NOT use unquantized FP16/FP32 Qwen3 8B on CPU — it requires 16–32 GB RAM
+      and inference takes minutes, not seconds.
+
+    Kept as stub (returns False) so the service starts in <1 second in dev/CI.
+    In production: implement the load logic above, set _llm_ready = True, and
+    use the model in _enrich() replacing the _stub_enrich() fallback.
+    """
     return False
 
 

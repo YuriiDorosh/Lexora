@@ -224,7 +224,7 @@ Import logs are stored **persistently**; users can review them later.
 - User-triggered from the entry detail page (not automatic).
 - Enriches in the context of the entry's source language.
 - Produces: synonyms (JSON list), antonyms (JSON list), 3–7 example sentences (JSON list), short explanation (text).
-- Model: **Qwen3 8B** (or equivalent ≤20 GB local model). Greek support may be weaker; documented as a known limitation.
+- Model: CPU-first. Recommended: Qwen2.5 1.5B–3B (≤3 GB RAM, fast on CPU). Qwen3 8B INT4 via llama.cpp is supported on ≥16 GB RAM machines. No GPU required. Greek support may be weaker; documented as a known limitation.
 - If model unavailable or generation fails: show retry button + error badge on the entry.
 - Events: `enrichment.requested` → `enrichment.completed` / `enrichment.failed`.
 

@@ -23,6 +23,11 @@ _logger = logging.getLogger(__name__)
 
 ITEMS_PER_PAGE = 20
 
+# Human-readable labels for the three supported language codes.
+# Passed as `lang_names` to all portal templates so QWeb can show
+# "English" instead of "en" without embedding logic in each template.
+LANG_NAMES = {'en': 'English', 'uk': 'Ukrainian', 'el': 'Greek'}
+
 
 def _try_detect_language(text: str):
     """Return 'en', 'uk', 'el', or None.
@@ -94,6 +99,7 @@ class VocabularyPortal(CustomerPortal):
             'page_name': 'vocabulary',
             'pager': pager,
             'entry_count': entry_count,
+            'lang_names': LANG_NAMES,
         })
 
     # ------------------------------------------------------------------
@@ -105,9 +111,14 @@ class VocabularyPortal(CustomerPortal):
         entry = request.env['language.entry'].browse(entry_id)
         if not entry.exists() or entry.owner_id.id != request.env.user.id:
             return request.not_found()
+        profile = request.env['language.user.profile'].search(
+            [('user_id', '=', request.env.uid)], limit=1
+        )
         return request.render('language_words.portal_vocabulary_detail', {
             'entry': entry,
             'page_name': 'vocabulary',
+            'lang_names': LANG_NAMES,
+            'user_profile': profile,
         })
 
     # ------------------------------------------------------------------
@@ -206,6 +217,7 @@ class VocabularyPortal(CustomerPortal):
             'page_name': 'vocabulary',
             'pager': pager,
             'entry_count': entry_count,
+            'lang_names': LANG_NAMES,
         })
 
     # ------------------------------------------------------------------

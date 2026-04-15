@@ -2,62 +2,78 @@
 <odoo>
     <!--
         Inject the enrichment section into the entry detail page.
-        language_words.portal_vocabulary_detail is defined in language_words.
-        We add an "Enrich" button and results panel between Translations and Media Links.
+        Targets the <hr class="my-3"/> comment line we added as the injection
+        anchor.  The enrichment block appears between Translations and Media Links.
+
+        XPath targets the <hr> separator in portal_vocabulary_detail so that
+        enrichment slots in cleanly between the translations table and media links.
     -->
     <template id="portal_entry_enrichment_section"
               inherit_id="language_words.portal_vocabulary_detail"
               name="Entry Detail — Enrichment Section">
 
-        <!-- Insert enrichment block just before the Media Links section -->
-        <xpath expr="//t[@t-if='entry.media_links']" position="before">
+        <!-- Insert after the <hr class="my-3"/> separator, before media links -->
+        <xpath expr="//hr[contains(@class,'my-3')]" position="after">
 
-            <!-- Enrich trigger button -->
-            <div class="mb-3">
-                <form t-att-action="'/my/vocabulary/%d/enrich' % entry.id" method="post"
-                      class="d-inline">
-                    <input type="hidden" name="csrf_token" t-att-value="request.csrf_token()"/>
-                    <button type="submit" class="btn btn-sm btn-outline-primary">
-                        Enrich with AI
+            <!-- ── Enrichment trigger button (state-aware) ── -->
+            <t t-set="src_enrichments" t-value="entry.enrichment_ids.filtered(lambda e: e.language == entry.source_language)"/>
+            <t t-set="current_enrichment" t-value="src_enrichments[0] if src_enrichments else False"/>
+
+            <div class="mb-2 d-flex align-items-center flex-wrap gap-2">
+                <!-- Show active button when no enrichment, or when it's done/failed -->
+                <t t-if="not current_enrichment or current_enrichment.status in ('completed', 'failed')">
+                    <form t-att-action="'/my/vocabulary/%d/enrich' % entry.id" method="post" class="d-inline">
+                        <input type="hidden" name="csrf_token" t-att-value="request.csrf_token()"/>
+                        <button type="submit" class="btn btn-sm btn-outline-primary">
+                            <t t-if="not current_enrichment">✦ Enrich with AI</t>
+                            <t t-else="">↺ Re-enrich with AI</t>
+                        </button>
+                    </form>
+                </t>
+                <!-- Show disabled spinner when enrichment is in-flight -->
+                <t t-if="current_enrichment and current_enrichment.status in ('pending', 'processing')">
+                    <button class="btn btn-sm btn-outline-secondary" disabled="disabled">
+                        <span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"/>
+                        AI enrichment in progress…
                     </button>
-                </form>
-                <span class="text-muted small ms-2">
-                    Generates synonyms, antonyms, example sentences, and explanation
-                    using a local LLM.
+                </t>
+                <span class="text-muted small">
+                    Synonyms · antonyms · example sentences · explanation
+                    <t t-if="current_enrichment and current_enrichment.status in ('pending', 'processing')">
+                        · results appear within ~1 minute
+                    </t>
                 </span>
             </div>
 
-            <!-- Enrichment results -->
+            <!-- ── Enrichment results ── -->
             <t t-if="entry.enrichment_ids">
-                <h6>Enrichments</h6>
                 <t t-foreach="entry.enrichment_ids" t-as="en">
-                    <div class="card mb-2">
-                        <div class="card-header d-flex justify-content-between align-items-center py-1 px-2">
-                            <span>
-                                <span class="badge bg-secondary me-1"><t t-esc="en.language"/></span>
+                    <div class="card border-0 bg-light mb-3">
+                        <div class="card-header bg-transparent border-bottom d-flex justify-content-between align-items-center py-1 px-3">
+                            <span class="small fw-medium">
+                                AI Enrichment
+                                <span class="badge bg-secondary ms-1"><t t-esc="lang_names.get(en.language, en.language)"/></span>
                                 <t t-if="en.status == 'completed'">
-                                    <span class="badge bg-success">done</span>
+                                    <span class="badge bg-success ms-1">done</span>
                                 </t>
                                 <t t-if="en.status == 'processing'">
-                                    <span class="badge bg-warning text-dark">
+                                    <span class="badge bg-warning text-dark ms-1">
                                         <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"/>
                                         processing
                                     </span>
                                 </t>
                                 <t t-if="en.status == 'pending'">
-                                    <span class="badge bg-secondary">pending</span>
+                                    <span class="badge bg-secondary ms-1">queued</span>
                                 </t>
                                 <t t-if="en.status == 'failed'">
-                                    <span class="badge bg-danger">failed</span>
+                                    <span class="badge bg-danger ms-1">failed</span>
                                 </t>
                             </span>
                             <t t-if="en.status == 'failed'">
                                 <form t-att-action="'/my/vocabulary/%d/retry_enrichment/%d' % (entry.id, en.id)"
                                       method="post" class="d-inline">
                                     <input type="hidden" name="csrf_token" t-att-value="request.csrf_token()"/>
-                                    <button type="submit" class="btn btn-sm btn-outline-warning py-0">
-                                        Retry
-                                    </button>
+                                    <button type="submit" class="btn btn-xs btn-outline-warning py-0 px-2" style="font-size:0.75rem">Retry</button>
                                 </form>
                             </t>
                         </div>
@@ -68,36 +84,40 @@
                                 <t t-set="ants" t-value="en._antonyms_list()"/>
                                 <t t-set="exs"  t-value="en._example_sentences_list()"/>
 
-                                <t t-if="syns">
-                                    <p class="mb-1">
-                                        <strong>Synonyms:</strong>
-                                        <t t-foreach="syns" t-as="s">
-                                            <span class="badge bg-light text-dark border me-1"><t t-esc="s"/></span>
-                                        </t>
-                                    </p>
-                                </t>
-                                <t t-if="ants">
-                                    <p class="mb-1">
-                                        <strong>Antonyms:</strong>
-                                        <t t-foreach="ants" t-as="a">
-                                            <span class="badge bg-light text-dark border me-1"><t t-esc="a"/></span>
-                                        </t>
-                                    </p>
-                                </t>
-                                <t t-if="en.explanation">
-                                    <p class="mb-1">
-                                        <strong>Explanation:</strong>
-                                        <t t-esc="en.explanation"/>
-                                    </p>
-                                </t>
-                                <t t-if="exs">
-                                    <p class="mb-1"><strong>Examples:</strong></p>
-                                    <ol class="mb-0">
-                                        <t t-foreach="exs" t-as="ex">
-                                            <li><t t-esc="ex"/></li>
-                                        </t>
-                                    </ol>
-                                </t>
+                                <div class="row g-2">
+                                    <t t-if="syns">
+                                        <div class="col-12">
+                                            <span class="text-muted small fw-bold text-uppercase">Synonyms</span><br/>
+                                            <t t-foreach="syns" t-as="s">
+                                                <span class="badge bg-white text-dark border me-1 mb-1"><t t-esc="s"/></span>
+                                            </t>
+                                        </div>
+                                    </t>
+                                    <t t-if="ants">
+                                        <div class="col-12">
+                                            <span class="text-muted small fw-bold text-uppercase">Antonyms</span><br/>
+                                            <t t-foreach="ants" t-as="a">
+                                                <span class="badge bg-white text-dark border me-1 mb-1"><t t-esc="a"/></span>
+                                            </t>
+                                        </div>
+                                    </t>
+                                    <t t-if="en.explanation">
+                                        <div class="col-12">
+                                            <span class="text-muted small fw-bold text-uppercase">Explanation</span><br/>
+                                            <span class="small"><t t-esc="en.explanation"/></span>
+                                        </div>
+                                    </t>
+                                    <t t-if="exs">
+                                        <div class="col-12">
+                                            <span class="text-muted small fw-bold text-uppercase">Examples</span>
+                                            <ol class="mb-0 small ps-3">
+                                                <t t-foreach="exs" t-as="ex">
+                                                    <li><t t-esc="ex"/></li>
+                                                </t>
+                                            </ol>
+                                        </div>
+                                    </t>
+                                </div>
                             </div>
                         </t>
 
@@ -109,6 +129,8 @@
                     </div>
                 </t>
             </t>
+
+            <hr class="my-3"/>
 
         </xpath>
     </template>
