@@ -81,12 +81,16 @@ External services (Translation, LLM, Anki, TTS) are **stateless processors**. Th
 ### 3.3 LLM Enrichment Service
 
 - **Runtime:** FastAPI (Python)
-- **Model:** Qwen3 8B (or equivalent ≤20 GB local model, CPU or GPU)
+- **Target hardware:** CPU-only server (no GPU assumed). The service is designed to run without a GPU.
+- **Model strategy (CPU-first):**
+  - **Stub mode (current default):** service starts in seconds; returns clearly-marked `[stub:…]` data so the full async event flow is testable without any model loaded.
+  - **Lightweight real model (recommended CPU path):** Qwen2.5 1.5B or 3B (≤3 GB RAM, ~2–15s inference on a modern CPU). Wire into `_init_llm()` / `_enrich()` in `services/llm/main.py`.
+  - **Heavier model (optional, ≥16 GB RAM):** Qwen3 8B (INT4 quantized) via llama.cpp / ctransformers. Acceptable on a beefy CPU but latency is 30–120s per request.
+  - **Do not use:** unquantized Qwen3 8B in FP16/FP32 on CPU — that requires 16–32 GB RAM and is too slow for interactive use.
 - **Outputs:** synonyms, antonyms, 3–7 example sentences, short explanation
 - **Note:** Greek enrichment quality may be lower than English/Ukrainian (OD-3).
 - **Consumes:** `enrichment.requested`
 - **Publishes:** `enrichment.completed`, `enrichment.failed`
-- **Hardware note:** CPU-only inference is possible but slow. A GPU or large RAM (≥16 GB) is recommended for acceptable latency.
 
 ### 3.4 Anki Import Service
 

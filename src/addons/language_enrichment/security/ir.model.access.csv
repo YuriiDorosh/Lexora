@@ -1,1 +1,3 @@
 id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_language_enrichment_user,language.enrichment user,model_language_enrichment,language_security.group_language_user,1,0,0,0
+access_language_enrichment_admin,language.enrichment admin,model_language_enrichment,base.group_system,1,1,1,1

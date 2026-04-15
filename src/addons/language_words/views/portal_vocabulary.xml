@@ -25,46 +25,62 @@
             </t>
             <div class="container mt-4">
                 <div class="d-flex justify-content-between align-items-center mb-3">
-                    <h3>My Vocabulary (<t t-esc="entry_count"/> entries)</h3>
+                    <h3>My Vocabulary <span class="text-muted fs-6 fw-normal">(<t t-esc="entry_count"/> entries)</span></h3>
                     <div>
-                        <a href="/my/vocabulary/new" class="btn btn-primary">+ Add Entry</a>
-                        <a href="/my/vocabulary/shared" class="btn btn-outline-secondary ms-2">Browse Shared</a>
+                        <a href="/my/vocabulary/new" class="btn btn-primary btn-sm">+ Add Entry</a>
+                        <a href="/my/vocabulary/shared" class="btn btn-outline-secondary btn-sm ms-2">Browse Shared</a>
                     </div>
                 </div>
 
                 <t t-if="not entries">
-                    <p class="text-muted">Your vocabulary list is empty. <a href="/my/vocabulary/new">Add your first entry.</a></p>
+                    <div class="text-center py-5 text-muted">
+                        <p class="mb-2">Your vocabulary list is empty.</p>
+                        <a href="/my/vocabulary/new" class="btn btn-primary btn-sm">Add your first entry</a>
+                    </div>
                 </t>
 
                 <t t-if="entries">
-                    <table class="table table-hover">
-                        <thead>
+                    <table class="table table-hover table-sm">
+                        <thead class="table-light">
                             <tr>
                                 <th>Text</th>
                                 <th>Type</th>
                                 <th>Language</th>
-                                <th>Status</th>
-                                <th>Shared</th>
+                                <th>Translations</th>
+                                <th>Flags</th>
                             </tr>
                         </thead>
                         <tbody>
                             <t t-foreach="entries" t-as="entry">
                                 <tr>
                                     <td>
-                                        <a t-att-href="'/my/vocabulary/%d' % entry.id">
+                                        <a t-att-href="'/my/vocabulary/%d' % entry.id" class="fw-medium text-decoration-none">
                                             <t t-esc="entry.source_text"/>
                                         </a>
                                     </td>
                                     <td><span class="badge bg-secondary"><t t-esc="entry.type"/></span></td>
-                                    <td><t t-esc="entry.source_language"/></td>
                                     <td>
-                                        <span t-att-class="'badge ' + ('bg-success' if entry.status == 'active' else 'bg-warning')">
-                                            <t t-esc="entry.status"/>
+                                        <span class="badge bg-primary">
+                                            <t t-esc="lang_names.get(entry.source_language, entry.source_language)"/>
                                         </span>
+                                    </td>
+                                    <td>
+                                        <t t-if="entry.pvp_eligible">
+                                            <span class="badge bg-success" title="Has completed translation — PvP eligible">✓ translated</span>
+                                        </t>
+                                        <t t-elif="entry.translation_ids">
+                                            <span class="badge bg-warning text-dark">pending…</span>
+                                        </t>
+                                        <t t-else="">
+                                            <span class="text-muted small">—</span>
+                                        </t>
                                     </td>
                                     <td>
                                         <t t-if="entry.is_shared">
                                             <span class="badge bg-info">shared</span>
+                                        </t>
+                                        <t t-if="entry.status == 'archived'">
+                                            <span class="badge bg-secondary">archived</span>
                                         </t>
                                     </td>
                                 </tr>
@@ -82,7 +98,7 @@
     ============================================================ -->
     <template id="portal_vocabulary_detail" name="Entry Detail">
         <t t-call="portal.portal_layout">
-            <div class="container mt-4">
+            <div class="container mt-4" style="max-width: 800px;">
                 <nav aria-label="breadcrumb">
                     <ol class="breadcrumb">
                         <li class="breadcrumb-item"><a href="/my/vocabulary">My Vocabulary</a></li>
@@ -90,99 +106,99 @@
                     </ol>
                 </nav>
 
-                <div class="card mt-3">
-                    <div class="card-header d-flex justify-content-between align-items-center">
-                        <h4 class="mb-0"><t t-esc="entry.source_text"/></h4>
-                        <div>
-                            <span class="badge bg-secondary me-1"><t t-esc="entry.type"/></span>
-                            <span class="badge bg-primary me-1"><t t-esc="entry.source_language"/></span>
-                            <span t-att-class="'badge me-1 ' + ('bg-success' if entry.status == 'active' else 'bg-warning')">
-                                <t t-esc="entry.status"/>
+                <div class="card mt-3 shadow-sm">
+                    <div class="card-header bg-white d-flex justify-content-between align-items-center py-3">
+                        <h4 class="mb-0 fw-bold"><t t-esc="entry.source_text"/></h4>
+                        <div class="d-flex flex-wrap gap-1 justify-content-end">
+                            <span class="badge bg-secondary text-capitalize"><t t-esc="entry.type"/></span>
+                            <span class="badge bg-primary">
+                                <t t-esc="lang_names.get(entry.source_language, entry.source_language)"/>
                             </span>
+                            <t t-if="entry.pvp_eligible">
+                                <span class="badge bg-success" title="Has at least one completed translation — eligible for PvP battles">⚡ PvP ready</span>
+                            </t>
                             <t t-if="entry.is_shared">
                                 <span class="badge bg-info">shared</span>
                             </t>
+                            <t t-if="entry.status == 'archived'">
+                                <span class="badge bg-warning text-dark">archived</span>
+                            </t>
                         </div>
                     </div>
-                    <div class="card-body">
-                        <!-- Actions -->
-                        <div class="d-flex gap-2 mb-4">
-                            <form t-att-action="'/my/vocabulary/%d/share' % entry.id" method="post">
+                    <div class="card-body px-4 py-3">
+
+                        <!-- ── Actions ── -->
+                        <div class="d-flex flex-wrap gap-2 mb-3 pb-3 border-bottom">
+                            <form t-att-action="'/my/vocabulary/%d/share' % entry.id" method="post" class="d-inline">
                                 <input type="hidden" name="csrf_token" t-att-value="request.csrf_token()"/>
                                 <button type="submit" class="btn btn-sm btn-outline-info">
                                     <t t-if="entry.is_shared">Unshare</t>
-                                    <t t-else="">Share</t>
+                                    <t t-else="">Share with community</t>
                                 </button>
                             </form>
-                            <form t-att-action="'/my/vocabulary/%d/archive' % entry.id" method="post">
+                            <form t-att-action="'/my/vocabulary/%d/archive' % entry.id" method="post" class="d-inline">
                                 <input type="hidden" name="csrf_token" t-att-value="request.csrf_token()"/>
-                                <button type="submit" class="btn btn-sm btn-outline-warning">
+                                <button type="submit" class="btn btn-sm btn-outline-secondary">
                                     <t t-if="entry.status == 'active'">Archive</t>
                                     <t t-else="">Restore</t>
                                 </button>
                             </form>
-                            <a href="/my/vocabulary" class="btn btn-sm btn-outline-secondary">Back</a>
+                            <a href="/my/vocabulary" class="btn btn-sm btn-link text-muted ms-auto">← Back to list</a>
                         </div>
 
-                        <!-- Translations (M3) -->
-                        <h6>Translations</h6>
+                        <!-- ── Translations ── -->
+                        <h6 class="text-uppercase text-muted small fw-bold mb-2 ls-1">Translations</h6>
                         <t t-if="not entry.translation_ids">
-                            <p class="text-muted small">No translations yet. They are requested automatically when you add an entry.</p>
+                            <div class="alert alert-light border py-2 px-3 mb-3">
+                                <span class="text-muted small">
+                                    No translation jobs found.
+                                    <t t-if="user_profile and user_profile.learning_languages">
+                                        Translations are enqueued automatically — check back in a moment.
+                                    </t>
+                                    <t t-else="">
+                                        To get automatic translations, configure your
+                                        <a href="/my">learning languages</a> in your profile.
+                                    </t>
+                                </span>
+                            </div>
                         </t>
                         <t t-if="entry.translation_ids">
-                            <table class="table table-sm mb-3">
-                                <thead>
-                                    <tr>
-                                        <th>Language</th>
-                                        <th>Translation</th>
-                                        <th>Status</th>
-                                        <th></th>
-                                    </tr>
-                                </thead>
+                            <table class="table table-sm table-borderless mb-0">
                                 <tbody>
                                     <t t-foreach="entry.translation_ids" t-as="tr">
-                                        <tr>
-                                            <td><span class="badge bg-secondary"><t t-esc="tr.target_language"/></span></td>
+                                        <tr class="align-middle">
+                                            <td style="width:120px">
+                                                <span class="badge bg-secondary">
+                                                    <t t-esc="lang_names.get(tr.target_language, tr.target_language)"/>
+                                                </span>
+                                            </td>
                                             <td>
                                                 <t t-if="tr.status == 'completed'">
-                                                    <strong><t t-esc="tr.translated_text"/></strong>
+                                                    <strong class="fs-6"><t t-esc="tr.translated_text"/></strong>
                                                 </t>
-                                                <t t-if="tr.status == 'processing'">
+                                                <t t-if="tr.status in ('processing', 'pending')">
                                                     <span class="text-muted">
-                                                        <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
-                                                        Translating…
+                                                        <span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"/>
+                                                        <t t-if="tr.status == 'processing'">Translating…</t>
+                                                        <t t-else="">Queued…</t>
                                                     </span>
                                                 </t>
-                                                <t t-if="tr.status == 'pending'">
-                                                    <span class="text-muted">Queued…</span>
-                                                </t>
                                                 <t t-if="tr.status == 'failed'">
-                                                    <span class="text-danger">
-                                                        Failed
+                                                    <span class="text-danger small">
+                                                        Translation failed
                                                         <t t-if="tr.error_message"> — <t t-esc="tr.error_message"/></t>
                                                     </span>
                                                 </t>
                                             </td>
-                                            <td>
-                                                <t t-if="tr.status == 'completed'">
-                                                    <span class="badge bg-success">done</span>
-                                                </t>
-                                                <t t-if="tr.status == 'processing'">
-                                                    <span class="badge bg-warning text-dark">processing</span>
-                                                </t>
-                                                <t t-if="tr.status == 'pending'">
-                                                    <span class="badge bg-secondary">pending</span>
-                                                </t>
+                                            <td style="width:80px" class="text-end">
                                                 <t t-if="tr.status == 'failed'">
-                                                    <span class="badge bg-danger">failed</span>
-                                                </t>
-                                            </td>
-                                            <td>
-                                                <t t-if="tr.status == 'failed'">
-                                                    <form t-att-action="'/my/vocabulary/%d/retry_translation/%d' % (entry.id, tr.id)" method="post">
+                                                    <form t-att-action="'/my/vocabulary/%d/retry_translation/%d' % (entry.id, tr.id)" method="post" class="d-inline">
                                                         <input type="hidden" name="csrf_token" t-att-value="request.csrf_token()"/>
-                                                        <button type="submit" class="btn btn-sm btn-outline-warning">Retry</button>
+                                                        <button type="submit" class="btn btn-xs btn-outline-warning py-0 px-2" style="font-size:0.75rem">Retry</button>
                                                     </form>
+                                                </t>
+                                                <t t-if="tr.status == 'completed'">
+                                                    <span class="badge bg-success">✓</span>
                                                 </t>
                                             </td>
                                         </tr>
@@ -191,17 +207,22 @@
                             </table>
                         </t>
 
-                        <!-- Media links -->
+                        <hr class="my-3"/>
+
+                        <!-- ── Enrichment section injected here by language_enrichment module ── -->
+                        <!-- (portal_enrichment.xml targets the media_links block below) -->
+
+                        <!-- ── Media links ── -->
                         <t t-if="entry.media_links">
-                            <h6>Media Links</h6>
-                            <ul>
+                            <h6 class="text-uppercase text-muted small fw-bold mb-2">Media Links</h6>
+                            <ul class="list-unstyled mb-0">
                                 <t t-foreach="entry.media_links" t-as="link">
-                                    <li>
-                                        <a t-att-href="link.url" target="_blank" rel="noopener noreferrer">
+                                    <li class="mb-1">
+                                        <a t-att-href="link.url" target="_blank" rel="noopener noreferrer" class="text-decoration-none">
                                             <t t-esc="link.title or link.url"/>
                                         </a>
                                         <t t-if="link.description">
-                                            — <span class="text-muted"><t t-esc="link.description"/></span>
+                                            <span class="text-muted small ms-1">— <t t-esc="link.description"/></span>
                                         </t>
                                     </li>
                                 </t>
@@ -355,7 +376,11 @@
                                 <tr>
                                     <td><t t-esc="entry.source_text"/></td>
                                     <td><span class="badge bg-secondary"><t t-esc="entry.type"/></span></td>
-                                    <td><t t-esc="entry.source_language"/></td>
+                                    <td>
+                                        <span class="badge bg-primary">
+                                            <t t-esc="lang_names.get(entry.source_language, entry.source_language)"/>
+                                        </span>
+                                    </td>
                                     <td><t t-esc="entry.owner_id.name"/></td>
                                     <td>
                                         <form t-att-action="'/my/vocabulary/%d/copy' % entry.id" method="post" class="d-inline">
