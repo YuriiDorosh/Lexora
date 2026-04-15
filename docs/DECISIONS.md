@@ -317,3 +317,18 @@ Options: (A) JSON Char field, (B) three Boolean fields, (C) Many2many to a looku
 **Reasoning:** Dev and CI can run the full stack without a multi-GB model download. Production containers rebuild with argostranslate installed. The stub makes the async event flow testable end-to-end without real translation.
 
 **Consequences:** Stub translations are clearly marked and not production-quality. Anyone running the dev stack sees stub output until Argos packages are installed.
+
+---
+
+## ADR-025: LLM service stub fallback; portal enrichment via QWeb inheritance
+
+**Status:** Accepted (M4)
+
+**Context:** Same two questions as M3: (1) how to run the LLM service without loading a multi-GB model in dev, (2) where to put the portal enrichment UI.
+
+**Decision:**
+- LLM service starts a daemon consumer thread immediately; `_init_llm()` returns False in dev (no model loaded). `_enrich()` falls back to `_stub_enrich()` which returns clearly-marked `[stub:src→lang]` data. `/health` reports `llm_ready: false, consumer_alive: true`.
+- Portal enrichment section is implemented as a QWeb template in `language_enrichment/views/portal_enrichment.xml` that inherits `language_words.portal_vocabulary_detail`. This keeps `language_enrichment` self-contained without modifying `language_words`.
+- Enrichment is user-triggered only (not auto on entry create), unlike translation. The portal "Enrich with AI" button POSTs to `/my/vocabulary/<id>/enrich`, which calls `_enqueue_single(entry, entry.source_language)`.
+
+**Reasoning:** Same reasoning as ADR-024 for the stub. QWeb inheritance is cleaner than modifying the parent template because enrichment is a separate feature layer; the parent module (`language_words`) shouldn't need to know about enrichment. Tests revealed that the test user must have `group_language_user` (not just `base.group_user`) to pass `check_access` on `language.entry` create — matching the M3 test pattern exactly.

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- Language Users can read only their own enrichment records. -->
+    <record id="enrichment_rule_language_user" model="ir.rule">
+        <field name="name">language.enrichment: read own entries only</field>
+        <field name="model_id" ref="model_language_enrichment"/>
+        <field name="groups" eval="[(4, ref('language_security.group_language_user'))]"/>
+        <field name="domain_force">[('entry_id.owner_id', '=', user.id)]</field>
+        <field name="perm_read" eval="True"/>
+        <field name="perm_write" eval="False"/>
+        <field name="perm_create" eval="False"/>
+        <field name="perm_unlink" eval="False"/>
+    </record>
+</odoo>

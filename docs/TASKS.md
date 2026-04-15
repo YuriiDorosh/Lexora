@@ -15,7 +15,59 @@
 
 ## Current Milestone
 
-None in progress. M3 complete and verified. Awaiting confirmation to begin M4.
+### M4 — LLM Enrichment Service
+
+**Status:** In progress
+**Started:** 2026-04-14
+
+#### Sub-steps
+
+- [x] Update TASKS.md to mark M4 started
+- [x] `language_enrichment`: implement `language.enrichment` model (SPEC §3.5)
+  - `src/addons/language_enrichment/models/language_enrichment.py`
+  - Inherits `language.job.status.mixin`; fields: entry_id, language, synonyms, antonyms, example_sentences, explanation
+  - `_handle_completed` / `_handle_failed` with idempotency check; UNIQUE(entry_id, language)
+  - `_synonyms_list()`, `_antonyms_list()`, `_example_sentences_list()` JSON-parse helpers for portal
+- [x] `language_enrichment`: extend `language.entry` with `enrichment_ids`
+  - `src/addons/language_enrichment/models/language_entry_enrichment.py`
+- [x] `language_enrichment`: security rules (ir.model.access.csv + record rules)
+  - Language Users: read own enrichments only; admin: full CRUD
+- [x] `language_enrichment`: cron scheduled action for consuming result queues
+  - `data/ir_cron_enrichment.xml` — runs every 1 minute, calls `action_consume_results()`
+- [x] `language_enrichment`: backend views (list/form)
+  - `views/language_enrichment_views.xml` — list with status colors, form with retry button
+- [x] `language_enrichment`: portal template extending entry detail (enrich button + results)
+  - `views/portal_enrichment.xml` — inherits language_words.portal_vocabulary_detail
+  - Injects "Enrich with AI" button + results card (synonyms/antonyms/examples/explanation)
+  - Retry button on failed; spinner on processing
+- [x] `language_enrichment`: portal controller (trigger + retry routes)
+  - `controllers/portal.py` — POST /my/vocabulary/<id>/enrich + /retry_enrichment/<eid>
+- [x] `language_enrichment`: manifest update (depends portal; all data files listed)
+- [x] LLM service (FastAPI): pika consumer thread + stub enrichment + result publish
+  - `services/llm/main.py` — daemon consumer thread + `_enrich()` + stub fallback
+  - Stub returns clearly-marked `[stub:src→lang]` synonyms/antonyms/examples/explanation
+- [x] LLM service: docker-compose env_file + RabbitMQ env vars; removed obsolete `version:` field
+- [x] Tests: 17 tests covering model, state machine, idempotency, retry, enqueue, JSON helpers
+  - Fixed: user created with `group_language_user`; used `cls.Entry = cls.env['language.entry'].sudo()`
+
+#### Verification steps passed
+
+- [x] `--update language_enrichment --stop-after-init` — 0 errors, module loaded (129 queries)
+- [x] 17 language_enrichment tests pass (0 failures, 0 errors)
+- [x] All prior tests still pass: language_security (3), language_core (4), language_words (29), language_translation (18)
+- [x] `make up-llm-no-cache` — container rebuilt and running
+- [x] `curl http://localhost:8002/health` — `{"status":"ok","service":"llm","llm_ready":false,"consumer_alive":true}`
+
+#### Decisions made during this milestone
+
+- ADR-025: LLM service follows same stub/graceful-fallback pattern as translation (ADR-024)
+- Portal enrichment section injected via QWeb template inheritance (`views/portal_enrichment.xml` inherits `language_words.portal_vocabulary_detail`) — keeps language_enrichment self-contained
+- Enrichment is user-triggered only (not auto on entry create); controller enqueues in source_language context
+- Test user must have `group_language_user` (not `base.group_user`) to pass `check_access` on language.entry create
+
+#### Blockers
+
+(none)
 
 ---
 
