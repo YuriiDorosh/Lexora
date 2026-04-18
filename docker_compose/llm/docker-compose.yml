@@ -5,8 +5,17 @@ services:
       dockerfile: docker_compose/llm/Dockerfile
     container_name: llm_service
     restart: unless-stopped
-    # The real LLM service requires significant RAM (Qwen3 8B ~8-16 GB).
-    # In dev this is a stub with no model loaded; llm_ready=false in /health.
+    # Real inference runs a quantized GGUF model via llama-cpp-python
+    # (ADR-027).  Default model is Qwen2.5-1.5B-Instruct Q4_K_M, which
+    # sizes at ~1.2 GiB resident — sized for an 8 GiB target server
+    # co-residing with Odoo/Postgres/RabbitMQ/Redis/nginx.  Operators with
+    # >=16 GiB headroom can opt into Qwen2.5-3B-Instruct Q4_K_M by setting
+    # LLM_MODEL_REPO / LLM_MODEL_FILENAME in their .env.
+    #
+    # First start downloads the model file (~0.95 GiB for 1.5B, ~2 GiB for
+    # 3B) into the llm_models named volume.  Subsequent starts skip the
+    # download.  /health reports llm_ready:false during download+load and
+    # flips to true once the model is resident.
     ports:
       - "8002:8000"
     env_file:
@@ -17,8 +26,21 @@ services:
       RABBITMQ_VHOST: ${RABBITMQ_VHOST:-/}
       RABBITMQ_USER: ${RABBITMQ_USER:-guest}
       RABBITMQ_PASSWORD: ${RABBITMQ_PASS:-guest}
+      LLM_MODEL_REPO: ${LLM_MODEL_REPO:-Qwen/Qwen2.5-1.5B-Instruct-GGUF}
+      LLM_MODEL_FILENAME: ${LLM_MODEL_FILENAME:-qwen2.5-1.5b-instruct-q4_k_m.gguf}
+      LLM_MODEL_DIR: ${LLM_MODEL_DIR:-/models}
+      LLM_N_CTX: ${LLM_N_CTX:-2048}
+      LLM_N_THREADS: ${LLM_N_THREADS:-0}
+      LLM_MAX_TOKENS: ${LLM_MAX_TOKENS:-512}
+      LLM_AUTO_DOWNLOAD: ${LLM_AUTO_DOWNLOAD:-1}
+    volumes:
+      - llm_models:/models
     networks:
       - backend
+
+volumes:
+  llm_models:
+    name: lexora_llm_models
 
 networks:
   backend:

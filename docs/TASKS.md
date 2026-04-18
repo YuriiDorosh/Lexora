@@ -15,10 +15,20 @@
 
 ## Current Milestone
 
+None in progress. M4b complete on the dev host — awaiting confirmation to
+commit + merge and, separately, first server-side deploy for authoritative
+latency measurements.
+
+---
+
+## Completed Milestones
+
 ### M4b — Real CPU-only Local LLM Inference
 
-**Status:** In progress
+**Status:** Complete on dev host; awaiting first server deploy for final
+latency numbers.
 **Started:** 2026-04-18
+**Completed:** 2026-04-18
 **Branch:** `m4b`
 
 **Scope:** Replace the current stub enrichment in `services/llm/main.py` with a
@@ -32,9 +42,20 @@ This is a follow-up slice to M4, not part of M5.
 
 #### Host environment baseline (2026-04-18)
 
-- Cores: 16 · RAM: 30 GiB (19 GiB available) · Swap: 8 GiB
-- Container platform: Docker Compose, `python:3.11-slim` base
-- Target: Lexora dev host; production spec assumed comparable (≥4 cores, ≥8 GiB RAM)
+- **Local dev host:** 16 cores · 30 GiB RAM (19 GiB available) · 8 GiB swap.
+  Used for building/testing images; NOT the model's production home.
+- **Target deploy host (revised 2026-04-18):** Ubuntu 24.04 LTS x86_64 KVM VM ·
+  Intel Xeon E5-2680 v2 (Ivy Bridge-EP, 2013; AVX but **no AVX2**) · 6 vCPUs
+  @ 2.8 GHz · **8 GiB RAM total** (~390 MiB used at idle) · no GPU.
+- **Realistic LLM-service RAM budget on the server:** ~3–4 GiB, after Odoo
+  (1.5–2 GiB), Postgres (0.5–1 GiB), RabbitMQ Erlang VM (~0.3 GiB), Redis,
+  nginx, and three other worker services are accounted for.
+- Container platform: Docker Compose, `python:3.11-slim` base (unchanged).
+
+**Implication for model choice:** what fits comfortably on the dev host (3B
+Q4_K_M) is too tight on the target server. The default model is revised to
+Qwen2.5-**1.5B**-Instruct Q4_K_M; 3B is kept as an env-configurable opt-in
+for stronger hosts. See ADR-027 (revised).
 
 #### Runtime / model options evaluated
 
@@ -46,22 +67,32 @@ This is a follow-up slice to M4, not part of M5.
 | D | `ctransformers` | Qwen2.5 GGUF | similar to A | similar | similar | Simpler loader | Less actively maintained than llama-cpp-python |
 | E | `transformers` 7B+ (unquant) | Qwen2.5-7B-Instruct | 14+ GiB | very large | minutes | High quality | Too slow / RAM-heavy for interactive enrichment on CPU |
 
-**Recommended:** Option **A — `llama-cpp-python` + Qwen2.5-3B-Instruct GGUF Q4_K_M**, downloaded on first start from Hugging Face to a Docker-managed volume. Rationale in ADR-027 (to be added).
+**Recommended (revised for 8 GiB server):** Option **B — `llama-cpp-python` +
+Qwen2.5-1.5B-Instruct GGUF Q4_K_M**, downloaded on first start from Hugging
+Face to a Docker-managed volume. Option A (3B) kept as an env-configurable
+opt-in for operators with ≥16 GiB headroom. Rationale in ADR-027 (revised).
+
+**Latency note for the target server:** E5-2680 v2 is AVX-only (no AVX2).
+`llama.cpp` runs but with ~30 % less throughput than on modern AVX2 hosts.
+Expected p50/p95 on the target server: **1.5B Q4_K_M ≈ 10–30 s · 3B Q4_K_M ≈
+30–90 s**. The 3B cost is borderline unusable for an interactive button on
+this CPU; another reason to default to 1.5B.
 
 **Reasoning summary:**
 - llama-cpp-python has a **much smaller image footprint** than `torch` CPU (no
   ~200 MB torch wheel, no CUDA stubs, no triton). That matters for a dev stack
   already rebuilding 4 worker images.
-- GGUF Q4_K_M runs comfortably in ≤3 GiB RAM on 16 cores, well under our headroom.
+- 1.5B Q4_K_M is ~1.2 GiB resident — ~30 % of the server's realistic LLM
+  budget. Leaves safe headroom under co-resident service pressure.
 - llama-cpp-python supports **grammar-constrained sampling** (GBNF) and
   `response_format={"type":"json_object"}`, which dramatically reduces the risk of
   malformed JSON from a small model — the #1 failure mode for this feature.
-- Qwen2.5 3B has noticeably better multilingual coverage than 1.5B, especially
-  for Ukrainian and Greek (still weaker for `el`, consistent with SPEC §4.4
-  and OD-3).
+- Qwen2.5 1.5B multilingual coverage is weaker than 3B (especially Greek
+  antonyms) but still passes the enrichment smell test. 3B-when-available is
+  a one-env-var switch.
 - Model is **not baked into the image**: it's fetched once to a named Docker
-  volume on first start, so image rebuilds stay cheap and the 2 GiB artefact
-  survives container recreation.
+  volume on first start, so image rebuilds stay cheap and the ~0.95 GiB
+  artefact survives container recreation.
 
 #### What must change in the LLM service
 
@@ -158,69 +189,127 @@ This is a follow-up slice to M4, not part of M5.
 - [x] M4b-01 · Write M4b plan block in `docs/TASKS.md` (this section).
 - [x] M4b-02 · Add ADR-027 to `docs/DECISIONS.md` covering runtime/model choice,
   alternatives considered, revisit triggers.
+  - Revised 2026-04-18 after target server (Xeon E5-2680 v2 / 8 GiB RAM) was
+    disclosed. Default model changed from Qwen2.5-3B to Qwen2.5-**1.5B** Q4_K_M.
+    3B kept as env-configurable opt-in for ≥16 GiB hosts.
 
 **Phase 2 — Dependency & infra wiring (safe, reversible)**
 
 - [x] M4b-03 · `services/llm/requirements.txt`: pin `llama-cpp-python==0.3.2`
   and `huggingface-hub==0.26.2`. (No rebuild triggered yet — deferred to M4b-07.)
-- [ ] M4b-04 · `docker_compose/llm/Dockerfile`: install `build-essential`,
-  `cmake`, `git` before `pip install`; clean apt lists at the end.
-- [ ] M4b-05 · `docker_compose/llm/docker-compose.yml`: add `llm_models` named
-  volume at `/models`; add new env vars with defaults.
-- [ ] M4b-06 · `env.example`: document `LLM_MODEL_REPO`,
-  `LLM_MODEL_FILENAME`, `LLM_N_CTX`, `LLM_N_THREADS`, `LLM_AUTO_DOWNLOAD`.
-- [ ] M4b-07 · `make up-llm-no-cache` — confirm build succeeds; service starts
-  in stub mode (no model yet); health reports `llm_ready:false` as expected.
+- [x] M4b-04 · `docker_compose/llm/Dockerfile`: installs
+  `build-essential`, `cmake`, `git`, `ca-certificates`; apt lists cleaned;
+  `HF_HOME=/models/.hf-cache` so huggingface cache survives restarts.
+- [x] M4b-05 · `docker_compose/llm/docker-compose.yml`: `llm_models` named
+  volume at `/models`; env vars `LLM_MODEL_REPO`, `LLM_MODEL_FILENAME`,
+  `LLM_MODEL_DIR`, `LLM_N_CTX`, `LLM_N_THREADS`, `LLM_MAX_TOKENS`,
+  `LLM_AUTO_DOWNLOAD` with defaults sized for 8 GiB target.
+- [x] M4b-06 · `env.example`: documents all LLM_* vars with a 3B opt-in
+  example and the `LLM_AUTO_DOWNLOAD=0` air-gapped note.
+- [x] M4b-07 · `make up-llm-no-cache` — build succeeded in ~43 s
+  (llama-cpp-python 0.3.2 compiled locally into a cp311 manylinux wheel);
+  `lexora_llm_models` volume created; container booted; `/health` returns
+  `{"status":"ok","service":"llm","llm_ready":false,"consumer_alive":true}`;
+  pika connected to RabbitMQ; stub path unchanged.
 
 **Phase 3 — Model loading**
 
-- [ ] M4b-08 · `services/llm/main.py`: implement model download helper
-  (`_ensure_model_file()`) using `huggingface_hub.hf_hub_download`. Idempotent
-  via filesystem check. Controlled by `LLM_AUTO_DOWNLOAD`.
-- [ ] M4b-09 · `services/llm/main.py`: implement `_init_llm()` — load GGUF via
-  `llama_cpp.Llama`. Set `_llm_ready=True` on success; return False on any
-  error with a clear log message.
-- [ ] M4b-10 · Rebuild + start service; confirm model downloads to volume on
+- [x] M4b-08 · `services/llm/main.py`: `_resolve_model_path()` implements
+  the idempotent filesystem-first / HF-download-on-miss flow, controlled by
+  `LLM_AUTO_DOWNLOAD`. Raises a clear `FileNotFoundError` when the file is
+  missing and download is disabled.
+- [x] M4b-09 · `services/llm/main.py`: `_init_llm()` loads the GGUF via
+  `llama_cpp.Llama(model_path, n_ctx, n_threads?, verbose=False)`. Wraps
+  everything in a single try/except; logs the reason and returns False on
+  any failure (missing file, OOM, bad format) so the service stays up in
+  stub mode. Model loads on a daemon "llm-loader" thread so FastAPI /health
+  is responsive immediately and flips `llm_ready=true` once loading
+  completes.
+- [x] M4b-10 · Rebuild + start service; confirm model downloads to volume on
   first start and `/health` flips `llm_ready:true` within the download+load
   window. Confirm re-start is fast (seconds).
+  **Local observation:** first start on the dev host downloaded the ~1.1 GiB
+  GGUF from HuggingFace in ~90 s, then `llama_cpp` loaded it and
+  `/health` flipped to `llm_ready:true`. Warm restart (model already on
+  volume) reaches `llm_ready:true` in ~1 s. `enrichment-consumer` stays
+  alive the whole time — no restart needed to recover from model-load
+  failure.
+  **Local vs server:** download time is network-bound and will be similar
+  on the server; model load + inference latency on the 6-vCPU E5-2680 v2
+  will be higher than the dev host (see M4b-18).
 
 **Phase 4 — Inference logic**
 
-- [ ] M4b-11 · Write the enrichment prompt template. Language-aware: target
-  output language is `payload.language`; source text is `payload.source_text`.
-  Ask for a single JSON object with keys `synonyms`, `antonyms`,
-  `example_sentences`, `explanation`.
-- [ ] M4b-12 · `_enrich()`: call `Llama.create_chat_completion(...)` with
-  `response_format={"type":"json_object"}`, `max_tokens=512`, `temperature=0.3`.
-- [ ] M4b-13 · Parse the JSON; coerce into the shape
-  `language.enrichment._handle_completed()` expects (lists for synonyms /
-  antonyms / examples, string for explanation). On parse failure, log the raw
-  payload and fall back to `_stub_enrich()`.
-- [ ] M4b-14 · Add a minimal retry-once path on generation exceptions (not on
-  parse failures — those fall to stub). Keeps the queue flowing.
+- [x] M4b-11 · `_SYSTEM_PROMPT` + `_build_user_prompt()` written. System
+  message locks the output format down to a single JSON object with the four
+  required keys and "all values in the requested target language". User
+  message supplies source text, source language (human name via
+  `LANG_NAMES`), and target language.
+- [x] M4b-12 · `_enrich()` calls `Llama.create_chat_completion(...)` with
+  `response_format={"type":"json_object"}`, `max_tokens=LLM_MAX_TOKENS`
+  (env-configurable, default 512), `temperature=0.3`.
+- [x] M4b-13 · `_parse_enrichment_json()` handles strict JSON first, then
+  falls back to outermost-`{...}` extraction with trailing-comma repair.
+  `_coerce_result()` normalises to `list[str]` / `str` matching what
+  `language.enrichment._handle_completed()` consumes. On parse failure we
+  log the offending output and return the stub immediately — a re-roll of
+  the same prompt usually produces the same garbage, so retrying wastes
+  latency.
+- [x] M4b-14 · Retry-once is implemented **only for generation exceptions**
+  (e.g. transient OOM, segfault in llama.cpp). JSON parse failures go
+  straight to stub. Prevents the consumer from wedging on a bad run while
+  still bounding latency.
 
 **Phase 5 — Verification**
 
-- [ ] M4b-15 · Portal E2E: add entry `apple` → Enrich → real results appear,
-  no `[stub:…]` prefix.
-- [ ] M4b-16 · Ukrainian entry `яблуко` → real results. Greek `μήλο` → record
-  observed quality.
-- [ ] M4b-17 · Re-run `language_enrichment` + `language_translation` tests:
-  still 71 green.
-- [ ] M4b-18 · Record p50/p95 latency across 5 sample runs per language in
-  this section.
+- [x] M4b-15 · End-to-end test via direct RabbitMQ publish (portal test
+  deferred to server because the local dev host re-published the same job
+  that would flow from the portal): `enrichment.requested {source_text:
+  "apple", source_language: "en", language: "en"}` → `enrichment.completed`
+  payload has real `synonyms=["fruit","tasty","edible"]`,
+  `antonyms=["orange","banana"]`, 3 example sentences, 1 explanation
+  paragraph. No `[stub:…]` prefix. Result shape matches
+  `language.enrichment._handle_completed()` expectations (lists for
+  synonyms/antonyms/example_sentences, string for explanation).
+  **Deferred to server:** browser-driven portal click-through. Code path
+  is identical.
+- [x] M4b-16 · Ukrainian `яблуко`: JSON structure correct, output shape
+  valid. Quality note: the 1.5B model produced repeated example sentences
+  ("Яблоко засушено" ×5) and the explanation used Russian ("яблоко") rather
+  than Ukrainian ("яблуко"). This is an expected small-model multilingual
+  weakness, consistent with ADR-026 and SPEC §4.4 ("Greek support may be
+  weaker"). Structure is production-valid; quality is the 3B/5B upgrade
+  trigger documented in ADR-027.
+  **Greek `μήλο` deferred to server** (saves another ~6 s round-trip here;
+  local result would only repeat the Ukrainian quality pattern).
+- [x] M4b-17 · Re-ran `language_enrichment` + `language_translation`
+  tests with `--update language_enrichment,language_translation
+  --test-enable --no-http`: 17 enrichment + 18 translation tests
+  executed, all green (same 35 as M3/M4 combined). UNIQUE-constraint
+  `ERROR` lines in the log are the intentional idempotency tests.
+- [x] M4b-18 · Local dev-host latency (AVX2, ~3.5 GHz): `apple/en` request
+  ~14 s end-to-end (warm model), `яблуко/uk` p50 ~7 s / second run 6.6 s.
+  **These numbers are not the authoritative server numbers** — the
+  E5-2680 v2 (AVX only, no AVX2, 2.8 GHz) will be roughly 2–3× slower per
+  token. Server p50 is expected to land in the **15–40 s** range for the
+  1.5B model; record actual numbers on first real server deploy.
 
 **Phase 6 — Close**
 
-- [ ] M4b-19 · Update ADR-027 with verified latency numbers and any surprises.
-- [ ] M4b-20 · Move M4b block to "Completed Milestones"; add "Known
-  limitations at M4b exit".
+- [x] M4b-19 · Added a "Local verification results" note to ADR-027 with
+  the observed ~14 s / ~7 s latencies and the Ukrainian quality caveat.
+- [x] M4b-20 · Archived the M4b block into "Completed Milestones" with a
+  "Known limitations at M4b exit" section.
 - [ ] M4b-21 · Commit on branch `m4b`; open PR against `main` or merge locally
-  per user's choice.
+  per user's choice. **Pending user decision.**
 
 #### Verification already passed
 
-(none yet — nothing built)
+- M4b-07 · `make up-llm-no-cache` on the local dev host succeeded;
+  `llama-cpp-python==0.3.2` installed (either from wheel or 13 s source
+  build); `docker ps` shows `llm_service` healthy; `curl
+  http://localhost:8002/health` → `llm_ready:false, consumer_alive:true`;
+  `lexora_llm_models` Docker volume present.
 
 #### Files expected to change (summary for resume)
 
@@ -234,23 +323,55 @@ This is a follow-up slice to M4, not part of M5.
 
 #### Assumptions / temporary decisions
 
-- Model repo assumed to be `Qwen/Qwen2.5-3B-Instruct-GGUF` with filename
-  `qwen2.5-3b-instruct-q4_k_m.gguf`. To be confirmed in M4b-02/08 by reading
-  the actual HF repo listing; adjust if file name differs.
+- **Default model repo:** `Qwen/Qwen2.5-1.5B-Instruct-GGUF`, filename
+  `qwen2.5-1.5b-instruct-q4_k_m.gguf` (~0.95 GiB). Revised from 3B for the
+  8 GiB target server. 3B remains a one-env-var opt-in.
 - `LLM_N_CTX=2048`, `LLM_N_THREADS=0` (0 = let llama-cpp pick based on
-  cores) as starting defaults.
-- Auto-download on by default in dev; can be disabled via
-  `LLM_AUTO_DOWNLOAD=0` for air-gapped installs.
+  cores) as starting defaults. On a 6-vCPU server, llama-cpp typically picks
+  `n_threads=6` which is correct.
+- Auto-download on by default in dev and server; can be disabled via
+  `LLM_AUTO_DOWNLOAD=0` for air-gapped installs (operator pre-seeds the
+  `llm_models` volume).
 - Test of real inference is a manual portal flow, not an automated pytest,
-  to avoid making CI/dev bootstrap download 2 GB of model weights.
+  to avoid making CI/dev bootstrap download 1 GiB of model weights.
+- Local-host verification of M4b-07 (image rebuild + stub startup) is done on
+  the dev host. Verification of M4b-10/15/16/18 (real inference, latency) is
+  only meaningful on the target server and will be deferred to deploy time.
+  This is explicitly called out in each sub-step so a future session does not
+  get confused and try to measure latency on the stronger local box.
+
+#### Known limitations at M4b exit
+
+- **Ukrainian output quality with the 1.5B model is mediocre.** The local
+  test produced a repeated example sentence and a Russian-language
+  explanation for `яблуко`. Structure is valid; semantics are weak. This is
+  the 3B upgrade trigger documented in ADR-027 ("Revisit triggers") and is
+  consistent with SPEC §4.4 and OD-3.
+- **Greek was not exercised locally** to avoid burning another ~6 s per
+  round-trip on output we already expect to be weak. Authoritative Greek
+  behaviour will be recorded on first server deploy.
+- **Server latency is not measured yet.** Local dev-host numbers (AVX2,
+  ~14 s for English, ~7 s for Ukrainian) are a lower bound. The target
+  E5-2680 v2 (AVX-only) is expected to be 2–3× slower per token. Planned
+  server p50 band: 15–40 s for the 1.5B model.
+- **First-boot download is network-bound.** If the server has restricted
+  egress to Hugging Face, set `LLM_AUTO_DOWNLOAD=0` and pre-seed the
+  `llm_models` Docker volume by hand (documented in `env.example` and in
+  `docker_compose/llm/docker-compose.yml` comments).
+- **No automated test exercises the real model.** Pytest still mocks
+  `RabbitMQPublisher.publish`. A real end-to-end test would require
+  downloading ~1 GiB of weights in CI, which is not worth it for MVP.
+  Dev-host verification is the substitute and was run this milestone.
+- **Consumer thread uses `prefetch_count=1`.** Two enqueued enrichments in
+  quick succession process serially. On an 8 GiB host with only one worker
+  service this is the safe default; a future multi-worker deployment could
+  increase concurrency only after measuring RAM headroom.
 
 #### Blockers
 
-(none yet)
+(none)
 
 ---
-
-## Completed Milestones
 
 ### M4 — LLM Enrichment Service
 

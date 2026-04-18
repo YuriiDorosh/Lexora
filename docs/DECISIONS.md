@@ -347,40 +347,58 @@ Options: (A) JSON Char field, (B) three Boolean fields, (C) Many2many to a looku
 
 ---
 
-## ADR-027: Real CPU-only LLM runtime — llama-cpp-python + Qwen2.5-3B-Instruct GGUF (M4b)
+## ADR-027: Real CPU-only LLM runtime — llama-cpp-python + Qwen2.5-1.5B-Instruct GGUF (M4b)
 
-**Status:** Accepted (M4b)
+**Status:** Accepted (M4b, revised 2026-04-18 for target server constraints)
 
 **Context:** ADR-026 locked in "CPU-first, no GPU". M4b makes the enrichment service actually run a real model instead of returning stubbed data. The concrete runtime and model must be pinned so image builds are reproducible and future maintainers can reason about RAM, latency, and licence implications without re-deriving the decision.
 
+**Target server profile:** Ubuntu 24.04 x86_64 KVM · Intel Xeon E5-2680 v2 (Ivy Bridge-EP, AVX but **no AVX2**) · 6 vCPUs @ 2.8 GHz · **8 GiB RAM total** · no GPU. Other services co-resident on the same host: Odoo (4 workers ~1.5–2 GiB), PostgreSQL (~0.5–1 GiB), RabbitMQ Erlang VM (~0.3 GiB), Redis, nginx, three other worker services. Realistic RAM budget for the LLM service: **~3–4 GiB with safety margin**.
+
 **Decision:**
 - Runtime: **`llama-cpp-python`** (installs the `llama.cpp` C++ engine via a Python wheel). Pinned in `services/llm/requirements.txt`.
-- Model: **`Qwen/Qwen2.5-3B-Instruct-GGUF`**, file `qwen2.5-3b-instruct-q4_k_m.gguf` (~2 GiB on disk). Apache-2.0 licence — safe to redistribute/download.
+- Default model: **`Qwen/Qwen2.5-1.5B-Instruct-GGUF`**, file `qwen2.5-1.5b-instruct-q4_k_m.gguf` (~0.95 GiB on disk, ~1.2 GiB resident during inference). Apache-2.0 licence.
+- Model and filename are **env-configurable** (`LLM_MODEL_REPO`, `LLM_MODEL_FILENAME`). Operators with ≥16 GiB RAM can opt into Qwen2.5-3B-Instruct Q4_K_M (~2.5 GiB resident) without code changes.
 - Delivery: model is **not baked into the image**. The container downloads it on first start via `huggingface_hub.hf_hub_download` into a Docker named volume `llm_models` mounted at `/models`. Subsequent restarts are fast.
 - JSON shape is enforced at inference time with `response_format={"type":"json_object"}`; parse failures fall back to `_stub_enrich()` so the queue never wedges.
-- `prefetch_count=1` (already set in M4) is preserved, so only one inference runs concurrently per worker.
+- `prefetch_count=1` (already set in M4) is preserved, so only one inference runs concurrently per worker — important on a 6-vCPU box where parallel inferences would thrash.
 
-**Reasoning:**
+**Reasoning for revising default from 3B to 1.5B:**
+- On the target server, 3B Q4_K_M at ~2.5 GiB resident would consume ~60 % of the LLM service's realistic RAM budget. Any memory spike from co-resident services pushes the host into swap, and on spinning/constrained KVM storage that cascades into stalls across Odoo.
+- E5-2680 v2 is AVX-only (no AVX2). `llama.cpp` runs but loses ~30 % throughput vs AVX2 hosts. 3B latency under these conditions is ~30–90 s per enrichment — borderline unusable for an interactive button.
+- 1.5B Q4_K_M at ~1.2 GiB resident leaves meaningful headroom and runs at ~10–30 s per enrichment on this CPU — slow but acceptable.
+- 1.5B is noticeably weaker than 3B for antonyms and Greek. Accepted tradeoff: the enrichment output is clearly labelled AI-generated in the UI, and Greek weakness is already an open decision (OD-3) and documented SPEC limitation.
+
+**Reasoning for llama-cpp-python over transformers:**
 - **Smaller image than `transformers` + `torch` CPU.** `torch` CPU wheels are ~200 MB and pull in many transitive deps (fsspec, triton stubs, sympy, networkx). `llama-cpp-python` is a single C++ engine with a thin Python binding — the image delta is mostly `build-essential` + `cmake`, and only if no manylinux wheel is available for the pinned version.
-- **Quantization is native.** Q4_K_M gives a good quality/size tradeoff: ~2 GiB on disk, ~2.5 GiB resident during inference, 5–25 s latency on 16 cores for short prompts. `transformers` would require a separate quantization path (`bitsandbytes` or `optimum`) that does not play cleanly on CPU.
+- **Quantization is native.** `transformers` would require a separate quantization path (`bitsandbytes` or `optimum`) that does not play cleanly on CPU.
 - **Grammar-constrained / JSON-mode sampling** is a first-class feature of `llama.cpp` and the primary safety net against small-model JSON hallucinations — the #1 production failure mode for this feature. `transformers` has no equivalent without extra libraries.
-- **Qwen2.5 3B vs 1.5B:** 3B has materially better multilingual coverage, particularly for Ukrainian and Greek antonym/synonym generation. 1.5B is kept as a documented fallback (`LLM_MODEL_REPO` / `LLM_MODEL_FILENAME` are env-configurable).
-- **7B+ rejected** — GGUF Q4 7B runs but p95 latency creeps into minutes on mid-range CPUs; too slow for an interactive "Enrich with AI" button.
 
 **Alternatives considered and rejected for M4b:**
-- `transformers` + `torch` CPU with Qwen2.5-1.5B-Instruct — larger image, no native JSON grammar.
+- `transformers` + `torch` CPU with Qwen2.5-1.5B-Instruct — larger image, no native JSON grammar, and `torch` itself can briefly peak to 2 GiB on model load which is a worse fit for the 8 GiB host.
 - `ctransformers` — less actively maintained; same GGUF backing anyway.
-- Qwen3 8B INT4 — acceptable on the current host (30 GiB RAM) but unfriendly to smaller production hosts (<16 GiB). Defer to a future performance milestone if quality turns out to be insufficient.
+- Qwen2.5-3B Q4_K_M as default — too tight on 8 GiB.
+- Qwen2.5-0.5B — small enough to fit easily but enrichment quality degrades to near-stub for Ukrainian/Greek antonym generation.
+- Qwen3 8B INT4 — out of scope on an 8 GiB host.
 - Cloud APIs (OpenAI / Anthropic) — explicitly out of scope per SPEC (offline-first) and user directive.
 
 **Consequences:**
 - Image build adds `build-essential`, `cmake`, `git` to the LLM service Dockerfile (~300 MB, pruned via apt cache cleanup). If `llama-cpp-python` at the pinned version publishes a manylinux x86_64 wheel for Python 3.11, pip prefers that and the build tools are only a safety net.
-- First start downloads ~2 GiB from Hugging Face into the `llm_models` volume. Documented in TASKS.md M4b plan and in `docker_compose/llm/docker-compose.yml` comments.
+- First start downloads ~0.95 GiB from Hugging Face into the `llm_models` volume (much less than the 3B option). Documented in TASKS.md M4b plan and in `docker_compose/llm/docker-compose.yml` comments.
 - `/health` now has a real `llm_ready:true` state once the model is loaded; in the download/load window it remains `false`.
 - Greek enrichment quality remains a known limitation (SPEC §4.4, OD-3). M4b does not attempt to close that gap.
 - Odoo-side contracts (event names, payload shape, `language.enrichment` state machine) are **unchanged**.
+- Operators with headroom can switch to 3B by setting `LLM_MODEL_REPO=Qwen/Qwen2.5-3B-Instruct-GGUF` and `LLM_MODEL_FILENAME=qwen2.5-3b-instruct-q4_k_m.gguf` in their `.env`, then `make up-llm-no-cache`.
 
 **Revisit triggers:**
-- If first-boot download proves too flaky on target environments → bake a default model into the image or provide a pre-seeded volume tarball.
-- If Greek output is unusable → try a larger Qwen2.5 variant or a Greek-specialised model.
-- If p95 latency exceeds ~30 s on the target prod host → consider switching to 1.5B via env var, or revisit model/runtime.
+- If 1.5B quality on the target server is too weak → try Q5_K_M of the same 1.5B (~0.3 GiB larger) before jumping to 3B.
+- If first-boot download is too flaky → pre-seed the `llm_models` volume via an ops script (`huggingface-cli download …` on the host, then copy into the volume).
+- If p95 latency exceeds ~40 s on the target host → consider increasing `n_threads`, reducing `n_ctx`, or disabling memory-mapped loading (`use_mmap=False` is heavier on RAM but skips page-in stalls).
+- If Ivy Bridge AVX-only throughput turns out to be worse than projected → the model can be re-quantized to Q4_0 (~10 % faster than Q4_K_M on older CPUs, ~5 % lower quality).
+
+**Local verification results (M4b-15 / M4b-16 / M4b-18, dev host — NOT the target server):**
+- First-start cold download of `qwen2.5-1.5b-instruct-q4_k_m.gguf` from Hugging Face → ~90 s (~1.1 GiB payload). Load into `llama.cpp` completes shortly after; `/health` flips `llm_ready:false → true`.
+- Warm restart (model already present in the `llm_models` volume): `llm_ready:true` in ~1 s.
+- `apple` / `en`: ~14 s end-to-end round-trip through RabbitMQ, valid JSON, real synonyms / antonyms / 3 example sentences / 1 explanation paragraph. No `[stub:…]` prefix.
+- `яблуко` / `uk`: ~6.6–7 s round-trip. JSON structure valid. Quality caveat: the 1.5B model repeated a placeholder example sentence ("Яблоко засушено") and rendered the explanation in Russian rather than Ukrainian — consistent with a small multilingual model and already documented in SPEC §4.4 and OD-3. Structure/pipeline is production-valid; quality is the 3B upgrade trigger.
+- Expected server numbers (E5-2680 v2, AVX-only, 2.8 GHz, 6 vCPUs): p50 ≈ 15–40 s per enrichment; record the first real measurement once deployed.
