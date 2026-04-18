@@ -134,4 +134,27 @@
 
         </xpath>
     </template>
+
+    <!-- ============================================================
+         Extend the vocabulary list to show an enrichment indicator
+         in the "Flags" column, so users can see at a glance which
+         entries already have LLM enrichment vs. none.
+    ============================================================ -->
+    <template id="portal_vocabulary_list_enrichment_flag"
+              inherit_id="language_words.portal_vocabulary_list"
+              name="Vocabulary list — enrichment flag">
+        <!-- Append an extra flag badge inside the existing flags cell -->
+        <xpath expr="//tbody/t/tr/td[last()]" position="inside">
+            <t t-set="src_en" t-value="entry.enrichment_ids.filtered(lambda e: e.language == entry.source_language)"/>
+            <t t-if="src_en and src_en[0].status == 'completed'">
+                <span class="badge bg-light text-dark border" title="LLM enrichment available">✦ enriched</span>
+            </t>
+            <t t-if="src_en and src_en[0].status in ('pending', 'processing')">
+                <span class="badge bg-light text-muted border" title="Enrichment in progress">✦ pending</span>
+            </t>
+            <t t-if="src_en and src_en[0].status == 'failed'">
+                <span class="badge bg-warning text-dark" title="Enrichment failed — retry from entry page">✦ failed</span>
+            </t>
+        </xpath>
+    </template>
 </odoo>
