@@ -71,15 +71,33 @@ persistent import log, audio extraction from `.apkg` media bundles.
 
 **Phase 3 — Anki service**
 
-- [ ] M5-08 · Add `genanki` / `zipfile` parsing to `services/anki/`:
-  - `.apkg`: open zip, read `collection.anki2` SQLite, extract notes
-    (Front/Back auto-detect), extract media files (MP3 only).
-  - `.txt`: TSV two-column parse.
-  - Return JSON: `{entries: [{source_text, translation?}], audio: [{filename, data_b64}], skipped: [...]}`.
-- [ ] M5-09 · Wire RabbitMQ consumer in `services/anki/main.py`:
-  consume `anki.import.requested`, call parser, publish
-  `anki.import.completed` / `anki.import.failed`.
-- [ ] M5-10 · Update `services/anki/requirements.txt` with needed packages.
+- [x] M5-08 · Full parser implemented in `services/anki/main.py`:
+  - `_clean_field(raw)` — strips HTML (beautifulsoup4) + extracts `[sound:file]` refs,
+    separates audio filenames from display text.
+  - `_parse_txt(bytes)` — TSV two-column, skips # comments and blank lines, strips HTML
+    from both columns, single-column (no translation) is valid.
+  - `_parse_apkg(bytes, field_mapping)`:
+    - Writes zip to tempdir, extracts `collection.anki2` or `collection.anki21` SQLite.
+    - `_detect_field_indices()`: reads `col.models` JSON to auto-detect Front/Back
+      named fields; falls back to explicit `{source: N, translation: M}` from payload;
+      final fallback is index (0, 1).
+    - Splits `notes.flds` on `\x1f`, applies field mapping, cleans each field.
+    - Reads `media` JSON file (numeric key → filename), extracts referenced MP3/OGG/WAV
+      audio as base64 into `audio_data` dict; missing files log a warning, do not fail.
+    - Returns `(entries, audio_data, parse_errors)`.
+- [x] M5-09 · RabbitMQ consumer wired in `services/anki/main.py`:
+  - Daemon thread with auto-reconnect, `prefetch_count=1`.
+  - `_process_job(payload)` decodes base64 `file_data`, routes by `file_format`.
+  - `_handle_message()` publishes `anki.import.completed` on success or
+    `anki.import.failed` on global exception; always acks so no queue wedging.
+  - RabbitMQ env vars (`TRANSLATE_*` equivalent) added to compose file and `.env`.
+  - `/health` reports `consumer_alive`.
+- [x] M5-10 · `services/anki/requirements.txt` updated: added `beautifulsoup4==4.12.3`.
+  No extra build tools needed (pure Python).
+  - 22 parser unit tests green inside the container.
+  - E2E: published TSV payload via pika → service logged
+    `TXT parsed: 3 entries, 0 errors` → `Completed job_id=m5-e2e-txt-03 entries=3`.
+    `anki.import.completed` message in queue confirmed.
 
 **Phase 4 — Portal**
 
