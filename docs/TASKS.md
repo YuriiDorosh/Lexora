@@ -32,9 +32,20 @@ This is a follow-up slice to M4, not part of M5.
 
 #### Host environment baseline (2026-04-18)
 
-- Cores: 16 · RAM: 30 GiB (19 GiB available) · Swap: 8 GiB
-- Container platform: Docker Compose, `python:3.11-slim` base
-- Target: Lexora dev host; production spec assumed comparable (≥4 cores, ≥8 GiB RAM)
+- **Local dev host:** 16 cores · 30 GiB RAM (19 GiB available) · 8 GiB swap.
+  Used for building/testing images; NOT the model's production home.
+- **Target deploy host (revised 2026-04-18):** Ubuntu 24.04 LTS x86_64 KVM VM ·
+  Intel Xeon E5-2680 v2 (Ivy Bridge-EP, 2013; AVX but **no AVX2**) · 6 vCPUs
+  @ 2.8 GHz · **8 GiB RAM total** (~390 MiB used at idle) · no GPU.
+- **Realistic LLM-service RAM budget on the server:** ~3–4 GiB, after Odoo
+  (1.5–2 GiB), Postgres (0.5–1 GiB), RabbitMQ Erlang VM (~0.3 GiB), Redis,
+  nginx, and three other worker services are accounted for.
+- Container platform: Docker Compose, `python:3.11-slim` base (unchanged).
+
+**Implication for model choice:** what fits comfortably on the dev host (3B
+Q4_K_M) is too tight on the target server. The default model is revised to
+Qwen2.5-**1.5B**-Instruct Q4_K_M; 3B is kept as an env-configurable opt-in
+for stronger hosts. See ADR-027 (revised).
 
 #### Runtime / model options evaluated
 
@@ -46,22 +57,32 @@ This is a follow-up slice to M4, not part of M5.
 | D | `ctransformers` | Qwen2.5 GGUF | similar to A | similar | similar | Simpler loader | Less actively maintained than llama-cpp-python |
 | E | `transformers` 7B+ (unquant) | Qwen2.5-7B-Instruct | 14+ GiB | very large | minutes | High quality | Too slow / RAM-heavy for interactive enrichment on CPU |
 
-**Recommended:** Option **A — `llama-cpp-python` + Qwen2.5-3B-Instruct GGUF Q4_K_M**, downloaded on first start from Hugging Face to a Docker-managed volume. Rationale in ADR-027 (to be added).
+**Recommended (revised for 8 GiB server):** Option **B — `llama-cpp-python` +
+Qwen2.5-1.5B-Instruct GGUF Q4_K_M**, downloaded on first start from Hugging
+Face to a Docker-managed volume. Option A (3B) kept as an env-configurable
+opt-in for operators with ≥16 GiB headroom. Rationale in ADR-027 (revised).
+
+**Latency note for the target server:** E5-2680 v2 is AVX-only (no AVX2).
+`llama.cpp` runs but with ~30 % less throughput than on modern AVX2 hosts.
+Expected p50/p95 on the target server: **1.5B Q4_K_M ≈ 10–30 s · 3B Q4_K_M ≈
+30–90 s**. The 3B cost is borderline unusable for an interactive button on
+this CPU; another reason to default to 1.5B.
 
 **Reasoning summary:**
 - llama-cpp-python has a **much smaller image footprint** than `torch` CPU (no
   ~200 MB torch wheel, no CUDA stubs, no triton). That matters for a dev stack
   already rebuilding 4 worker images.
-- GGUF Q4_K_M runs comfortably in ≤3 GiB RAM on 16 cores, well under our headroom.
+- 1.5B Q4_K_M is ~1.2 GiB resident — ~30 % of the server's realistic LLM
+  budget. Leaves safe headroom under co-resident service pressure.
 - llama-cpp-python supports **grammar-constrained sampling** (GBNF) and
   `response_format={"type":"json_object"}`, which dramatically reduces the risk of
   malformed JSON from a small model — the #1 failure mode for this feature.
-- Qwen2.5 3B has noticeably better multilingual coverage than 1.5B, especially
-  for Ukrainian and Greek (still weaker for `el`, consistent with SPEC §4.4
-  and OD-3).
+- Qwen2.5 1.5B multilingual coverage is weaker than 3B (especially Greek
+  antonyms) but still passes the enrichment smell test. 3B-when-available is
+  a one-env-var switch.
 - Model is **not baked into the image**: it's fetched once to a named Docker
-  volume on first start, so image rebuilds stay cheap and the 2 GiB artefact
-  survives container recreation.
+  volume on first start, so image rebuilds stay cheap and the ~0.95 GiB
+  artefact survives container recreation.
 
 #### What must change in the LLM service
 
@@ -158,6 +179,9 @@ This is a follow-up slice to M4, not part of M5.
 - [x] M4b-01 · Write M4b plan block in `docs/TASKS.md` (this section).
 - [x] M4b-02 · Add ADR-027 to `docs/DECISIONS.md` covering runtime/model choice,
   alternatives considered, revisit triggers.
+  - Revised 2026-04-18 after target server (Xeon E5-2680 v2 / 8 GiB RAM) was
+    disclosed. Default model changed from Qwen2.5-3B to Qwen2.5-**1.5B** Q4_K_M.
+    3B kept as env-configurable opt-in for ≥16 GiB hosts.
 
 **Phase 2 — Dependency & infra wiring (safe, reversible)**
 
@@ -234,15 +258,22 @@ This is a follow-up slice to M4, not part of M5.
 
 #### Assumptions / temporary decisions
 
-- Model repo assumed to be `Qwen/Qwen2.5-3B-Instruct-GGUF` with filename
-  `qwen2.5-3b-instruct-q4_k_m.gguf`. To be confirmed in M4b-02/08 by reading
-  the actual HF repo listing; adjust if file name differs.
+- **Default model repo:** `Qwen/Qwen2.5-1.5B-Instruct-GGUF`, filename
+  `qwen2.5-1.5b-instruct-q4_k_m.gguf` (~0.95 GiB). Revised from 3B for the
+  8 GiB target server. 3B remains a one-env-var opt-in.
 - `LLM_N_CTX=2048`, `LLM_N_THREADS=0` (0 = let llama-cpp pick based on
-  cores) as starting defaults.
-- Auto-download on by default in dev; can be disabled via
-  `LLM_AUTO_DOWNLOAD=0` for air-gapped installs.
+  cores) as starting defaults. On a 6-vCPU server, llama-cpp typically picks
+  `n_threads=6` which is correct.
+- Auto-download on by default in dev and server; can be disabled via
+  `LLM_AUTO_DOWNLOAD=0` for air-gapped installs (operator pre-seeds the
+  `llm_models` volume).
 - Test of real inference is a manual portal flow, not an automated pytest,
-  to avoid making CI/dev bootstrap download 2 GB of model weights.
+  to avoid making CI/dev bootstrap download 1 GiB of model weights.
+- Local-host verification of M4b-07 (image rebuild + stub startup) is done on
+  the dev host. Verification of M4b-10/15/16/18 (real inference, latency) is
+  only meaningful on the target server and will be deferred to deploy time.
+  This is explicitly called out in each sub-step so a future session does not
+  get confused and try to measure latency on the stronger local box.
 
 #### Blockers
 
