@@ -344,3 +344,130 @@ Options: (A) JSON Char field, (B) three Boolean fields, (C) Many2many to a looku
 **Decision:** The LLM enrichment service is designed for CPU-only operation. The recommended model for production use is **Qwen2.5 1.5B or 3B** (INT8 or FP32, ≤3 GB RAM), loadable via `transformers` with `torch` CPU backend, or equivalently via `llama-cpp-python` with a `.gguf` checkpoint. Qwen3 8B INT4 via `llama-cpp-python` is supported on machines with ≥16 GB RAM but is slower (~30–120s per request). Unquantized Qwen3 8B in FP16/FP32 on CPU is explicitly out of scope — memory and latency requirements are impractical.
 
 **Consequences:** In stub mode (current dev default), enrichment results are fake but the full async event pipeline is exercised. To activate real inference: implement `_init_llm()` and `_enrich()` in `services/llm/main.py` and rebuild the image with the chosen model's pip dependencies. No Dockerfile or compose changes are needed beyond adding packages to a `requirements-full.txt`. ARCHITECTURE.md, SPEC.md, and `services/llm/main.py` have been updated to reflect CPU-first reality.
+
+---
+
+## ADR-027: Real CPU-only LLM runtime — llama-cpp-python + Qwen2.5-1.5B-Instruct GGUF (M4b)
+
+**Status:** Accepted (M4b, revised 2026-04-18 for target server constraints)
+
+**Context:** ADR-026 locked in "CPU-first, no GPU". M4b makes the enrichment service actually run a real model instead of returning stubbed data. The concrete runtime and model must be pinned so image builds are reproducible and future maintainers can reason about RAM, latency, and licence implications without re-deriving the decision.
+
+**Target server profile:** Ubuntu 24.04 x86_64 KVM · Intel Xeon E5-2680 v2 (Ivy Bridge-EP, AVX but **no AVX2**) · 6 vCPUs @ 2.8 GHz · **8 GiB RAM total** · no GPU. Other services co-resident on the same host: Odoo (4 workers ~1.5–2 GiB), PostgreSQL (~0.5–1 GiB), RabbitMQ Erlang VM (~0.3 GiB), Redis, nginx, three other worker services. Realistic RAM budget for the LLM service: **~3–4 GiB with safety margin**.
+
+**Decision:**
+- Runtime: **`llama-cpp-python`** (installs the `llama.cpp` C++ engine via a Python wheel). Pinned in `services/llm/requirements.txt`.
+- Default model: **`Qwen/Qwen2.5-1.5B-Instruct-GGUF`**, file `qwen2.5-1.5b-instruct-q4_k_m.gguf` (~0.95 GiB on disk, ~1.2 GiB resident during inference). Apache-2.0 licence.
+- Model and filename are **env-configurable** (`LLM_MODEL_REPO`, `LLM_MODEL_FILENAME`). Operators with ≥16 GiB RAM can opt into Qwen2.5-3B-Instruct Q4_K_M (~2.5 GiB resident) without code changes.
+- Delivery: model is **not baked into the image**. The container downloads it on first start via `huggingface_hub.hf_hub_download` into a Docker named volume `llm_models` mounted at `/models`. Subsequent restarts are fast.
+- JSON shape is enforced at inference time with `response_format={"type":"json_object"}`; parse failures fall back to `_stub_enrich()` so the queue never wedges.
+- `prefetch_count=1` (already set in M4) is preserved, so only one inference runs concurrently per worker — important on a 6-vCPU box where parallel inferences would thrash.
+
+**Reasoning for revising default from 3B to 1.5B:**
+- On the target server, 3B Q4_K_M at ~2.5 GiB resident would consume ~60 % of the LLM service's realistic RAM budget. Any memory spike from co-resident services pushes the host into swap, and on spinning/constrained KVM storage that cascades into stalls across Odoo.
+- E5-2680 v2 is AVX-only (no AVX2). `llama.cpp` runs but loses ~30 % throughput vs AVX2 hosts. 3B latency under these conditions is ~30–90 s per enrichment — borderline unusable for an interactive button.
+- 1.5B Q4_K_M at ~1.2 GiB resident leaves meaningful headroom and runs at ~10–30 s per enrichment on this CPU — slow but acceptable.
+- 1.5B is noticeably weaker than 3B for antonyms and Greek. Accepted tradeoff: the enrichment output is clearly labelled AI-generated in the UI, and Greek weakness is already an open decision (OD-3) and documented SPEC limitation.
+
+**Reasoning for llama-cpp-python over transformers:**
+- **Smaller image than `transformers` + `torch` CPU.** `torch` CPU wheels are ~200 MB and pull in many transitive deps (fsspec, triton stubs, sympy, networkx). `llama-cpp-python` is a single C++ engine with a thin Python binding — the image delta is mostly `build-essential` + `cmake`, and only if no manylinux wheel is available for the pinned version.
+- **Quantization is native.** `transformers` would require a separate quantization path (`bitsandbytes` or `optimum`) that does not play cleanly on CPU.
+- **Grammar-constrained / JSON-mode sampling** is a first-class feature of `llama.cpp` and the primary safety net against small-model JSON hallucinations — the #1 production failure mode for this feature. `transformers` has no equivalent without extra libraries.
+
+**Alternatives considered and rejected for M4b:**
+- `transformers` + `torch` CPU with Qwen2.5-1.5B-Instruct — larger image, no native JSON grammar, and `torch` itself can briefly peak to 2 GiB on model load which is a worse fit for the 8 GiB host.
+- `ctransformers` — less actively maintained; same GGUF backing anyway.
+- Qwen2.5-3B Q4_K_M as default — too tight on 8 GiB.
+- Qwen2.5-0.5B — small enough to fit easily but enrichment quality degrades to near-stub for Ukrainian/Greek antonym generation.
+- Qwen3 8B INT4 — out of scope on an 8 GiB host.
+- Cloud APIs (OpenAI / Anthropic) — explicitly out of scope per SPEC (offline-first) and user directive.
+
+**Consequences:**
+- Image build adds `build-essential`, `cmake`, `git` to the LLM service Dockerfile (~300 MB, pruned via apt cache cleanup). If `llama-cpp-python` at the pinned version publishes a manylinux x86_64 wheel for Python 3.11, pip prefers that and the build tools are only a safety net.
+- First start downloads ~0.95 GiB from Hugging Face into the `llm_models` volume (much less than the 3B option). Documented in TASKS.md M4b plan and in `docker_compose/llm/docker-compose.yml` comments.
+- `/health` now has a real `llm_ready:true` state once the model is loaded; in the download/load window it remains `false`.
+- Greek enrichment quality remains a known limitation (SPEC §4.4, OD-3). M4b does not attempt to close that gap.
+- Odoo-side contracts (event names, payload shape, `language.enrichment` state machine) are **unchanged**.
+- Operators with headroom can switch to 3B by setting `LLM_MODEL_REPO=Qwen/Qwen2.5-3B-Instruct-GGUF` and `LLM_MODEL_FILENAME=qwen2.5-3b-instruct-q4_k_m.gguf` in their `.env`, then `make up-llm-no-cache`.
+
+**Revisit triggers:**
+- If 1.5B quality on the target server is too weak → try Q5_K_M of the same 1.5B (~0.3 GiB larger) before jumping to 3B.
+- If first-boot download is too flaky → pre-seed the `llm_models` volume via an ops script (`huggingface-cli download …` on the host, then copy into the volume).
+- If p95 latency exceeds ~40 s on the target host → consider increasing `n_threads`, reducing `n_ctx`, or disabling memory-mapped loading (`use_mmap=False` is heavier on RAM but skips page-in stalls).
+- If Ivy Bridge AVX-only throughput turns out to be worse than projected → the model can be re-quantized to Q4_0 (~10 % faster than Q4_K_M on older CPUs, ~5 % lower quality).
+
+**Local verification results (M4b-15 / M4b-16 / M4b-18, dev host — NOT the target server):**
+- First-start cold download of `qwen2.5-1.5b-instruct-q4_k_m.gguf` from Hugging Face → ~90 s (~1.1 GiB payload). Load into `llama.cpp` completes shortly after; `/health` flips `llm_ready:false → true`.
+- Warm restart (model already present in the `llm_models` volume): `llm_ready:true` in ~1 s.
+- `apple` / `en`: ~14 s end-to-end round-trip through RabbitMQ, valid JSON, real synonyms / antonyms / 3 example sentences / 1 explanation paragraph. No `[stub:…]` prefix.
+- `яблуко` / `uk`: ~6.6–7 s round-trip. JSON structure valid. Quality caveat: the 1.5B model repeated a placeholder example sentence ("Яблоко засушено") and rendered the explanation in Russian rather than Ukrainian — consistent with a small multilingual model and already documented in SPEC §4.4 and OD-3. Structure/pipeline is production-valid; quality is the 3B upgrade trigger.
+- Expected server numbers (E5-2680 v2, AVX-only, 2.8 GHz, 6 vCPUs): p50 ≈ 15–40 s per enrichment; record the first real measurement once deployed.
+
+---
+
+## ADR-028: Translation pivot — free online API wrapper; LLM restricted to enrichment
+
+**Status:** Accepted (M4c, 2026-04-18)
+
+**Supersedes (in part):** ADR-024 (translation-service fallback stub while Argos was deferred) — Argos is now removed from the translation path entirely, not just deferred. ADR-023 (cron-based Odoo consumer) and ADR-018 (UUID idempotency) are unchanged.
+
+**Context:** M4b deployed Qwen2.5-1.5B-Instruct Q4_K_M on the 8 GiB target server and confirmed two things:
+
+1. The pipeline works end-to-end (source-language English enrichment is usable).
+2. **Multilingual output is unusable for anything that has to be correct.** Real examples produced during server-side validation:
+
+   | input | produced uk | produced el |
+   |---|---|---|
+   | vice versa | Віка універсальна | αντίστροφα |
+   | prom | Пром | χορός |
+   | arrogant | арган | αλαζόνας |
+   | imminent | Іммінент | επικείμενη |
+   | bedroll | Кошик | κλινοσκεπάσματα |
+   | strut | труси | στρούτ |
+
+   Greek is mostly acceptable. Ukrainian ranges from wrong ("арган") to actively misleading ("труси" = underwear). This is a data-level failure of the 1.5B model's Ukrainian capacity, not a prompt issue. Jumping to 3B or 8B to recover quality is impractical on an AVX-only 8 GiB host (ADR-027).
+
+The other option — Argos Translate — carries its own well-known quality problems for Ukrainian/Greek, has no direct uk↔el model (two-hop routing, OD-2), and each language-pair package is ~150–200 MB on disk.
+
+**Decision:**
+
+1. **LLM Enrichment Service** is restricted to enrichment in the entry's **source language only**. It generates synonyms, antonyms, example sentences, and an explanation, all in the same language as the input. It is not responsible for translation. The service's JSON-output contract and event names are unchanged.
+2. **Translation Service** switches from Argos Translate to a free online translation library. Default backend: **`deep_translator==1.11.4`** (MIT licence) with the `GoogleTranslator` provider. Fallback provider: `MyMemoryTranslator`, used automatically when Google returns a transient error or blocks the source IP.
+3. Provider, per-request timeout, and fallback provider are configurable via env vars (`TRANSLATE_PROVIDER`, `TRANSLATE_TIMEOUT_SECONDS`, `TRANSLATE_FALLBACK_PROVIDER`) so switching to a paid backend (DeepL, Google Cloud, Azure Translator) in production is a one-line change.
+4. The Translation Service remains a RabbitMQ worker. Event names (`translation.requested`, `translation.completed`, `translation.failed`), payload shape, and the `language.translation` state machine on the Odoo side are **unchanged**. Only `_translate()` and `services/translation/requirements.txt` change.
+
+**Reasoning:**
+- LLM-based translation at 1.5B has been empirically shown to be wrong in ways users cannot detect. Quality failures like "труси" for "strut" are not acceptable for a learning app where users trust the translation.
+- Argos keeps the "offline" SPEC commitment but ships demonstrably weak Ukrainian/Greek output and heavy per-pair packages. The offline commitment was a means, not an end.
+- Free community Google Translate wrappers (hit via `deep_translator`) produce production-grade translations for our three MVP languages, with sub-second latency, no API key, and no GPU. This is the highest-quality option available without introducing cost.
+- `deep_translator` cleanly abstracts the provider behind a constructor arg. If Google starts blocking the server's IP, switching to MyMemory or DeepL is a one-line change — the consumer code is provider-agnostic.
+
+**Trade-offs and risks (MUST surface in SPEC and in the portal "Known limitations" section):**
+- **Internet dependency.** The Translation Service now requires outbound HTTPS to the configured provider. SPEC §4.3 must be amended — the "offline" commitment no longer holds for translation. Offline translation becomes a future enhancement, not a default.
+- **ToS and rate limits.** `deep_translator`'s Google backend hits Google's public endpoint without an API key. Google has tolerated this pattern for years but does not formally permit it. The project's event-driven, one-entry-per-job pattern produces single-digit translations per second worst case, well within observed tolerance. If blocked, the MyMemory fallback kicks in automatically. For production, a paid API key is a trivial drop-in.
+- **Privacy.** Entry text is sent to a third-party service. Acceptable for MVP (vocabulary is generally public content) but must be disclosed in SPEC §5. A privacy-sensitive deployment would swap the provider back to an offline engine.
+- **Non-determinism.** Unlike Argos (deterministic), Google/MyMemory may return different text on different days. Translation records are created once per entry/target-language pair (existing UNIQUE constraint); re-runs only happen on explicit retry.
+
+**Alternatives considered and rejected:**
+- **`googletrans`** — historically unmaintained; breaks each time Google updates its endpoint. `deep_translator` is the community successor.
+- **`translators` package** — supports more providers but has a quirkier API, less active changelog, and no clean constructor-level provider switch.
+- **Keep Argos Translate.** Weak Ukrainian/Greek quality, no direct uk↔el pair, heavy image, offline commitment isn't worth the quality tax for MVP.
+- **Translate via the LLM.** The trigger for this ADR.
+- **Paid APIs as default (DeepL / Google Cloud / Azure).** Adds billing + config complexity for MVP. Supported as a future swap via `TRANSLATE_PROVIDER`.
+- **Two-tier: LLM-first, free-API fallback.** Rejected — adds latency and complexity without improving quality.
+
+**Consequences:**
+- `services/translation/requirements.txt` pins `deep_translator==1.11.4`. No Argos packages anywhere.
+- `docker_compose/translation/Dockerfile` stays on `python:3.11-slim` with no extra build tools (deep_translator is pure-Python + `requests`/`beautifulsoup4`, pip wheels only).
+- `docker_compose/translation/docker-compose.yml` gains the `TRANSLATE_*` env vars with defaults.
+- SPEC §4.3 rewritten to describe the online-API approach with the documented fallback chain.
+- SPEC §4.4 clarified: enrichment is always in the entry's source language.
+- OD-2 (Argos uk↔el quality) is resolved by **removal**, not improvement.
+- Odoo-side contracts unchanged; no Odoo module updates required for the pivot.
+- Existing 71 tests remain green (no schema or event change).
+
+**Revisit triggers:**
+- If Google starts rate-limiting or blocking: set `TRANSLATE_PROVIDER=mymemory` (already supported) and record the incident. If MyMemory also fails, acquire a paid Google Cloud / DeepL key and switch to the paid provider.
+- If users report inaccurate translations: evaluate DeepL as a paid drop-in. Its quality for Slavic/Greek is generally better than free Google.
+- If a privacy-sensitive or air-gapped deployment emerges: fork a separate offline translation service; the online path remains the default for the hosted product.
+- If `deep_translator` itself goes unmaintained: `translators` is the second-choice library; the `_translate()` function is small enough to swap in a morning.

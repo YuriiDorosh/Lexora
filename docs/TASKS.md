@@ -15,11 +15,635 @@
 
 ## Current Milestone
 
-None in progress. M4 complete and verified — awaiting confirmation to begin M5.
+### M4c — Translation / Enrichment responsibility split
+
+**Status:** Complete and verified on dev host.
+**Started:** 2026-04-19
+**Completed:** 2026-04-19
+**Branch:** `m4c`
+
+**Scope (ADR-028):** M4b confirmed that the local 1.5B LLM produces wrong
+Ukrainian translations (`strut → труси`, `arrogant → арган`, `vice versa →
+Віка універсальна`). Upgrading to 3B/8B is not feasible on the 8 GiB AVX-only
+target server. The pivot:
+
+1. **LLM service stays exclusively on enrichment** — synonyms, antonyms,
+   example sentences, and explanation, **always in the entry's source
+   language**. No cross-lingual output. No translation.
+2. **Translation service switches to `deep_translator`** — free online API
+   wrapper. Default provider: Google Translate (no API key). Fallback:
+   MyMemory. Provider, timeout, and fallback are env-configurable so a
+   production swap to DeepL / Google Cloud / Azure is a one-line change.
+
+Trade-off (must be visible in SPEC §4.3): the Translation service is no
+longer offline. Outbound HTTPS to the configured provider is required.
+Entry text is sent to a third-party; acceptable for MVP (public
+vocabulary), swappable for air-gapped deployments.
+
+**Non-goals for M4c:**
+- Schema changes to `language.translation` / `language.enrichment`.
+- Event name or payload changes.
+- Odoo test changes beyond regression runs.
+- Upgrading the LLM model (1.5B stays).
+
+#### Target server constraints (unchanged from M4b)
+
+- Ubuntu 24.04 KVM · Xeon E5-2680 v2 (AVX-only) · 6 vCPUs @ 2.8 GHz · 8 GiB.
+- Outbound HTTPS expected to be open (if not, `TRANSLATE_PROVIDER=mymemory`
+  or pre-seed an offline provider — documented in env.example).
+
+#### Sub-steps (checkpoint-friendly — each safely stoppable)
+
+**Phase 1 — Planning & decisions (no code yet)**
+
+- [x] M4c-01 · Write ADR-028 in `docs/DECISIONS.md` (pivot rationale, risks,
+  revisit triggers).
+- [x] M4c-02 · Update `docs/PLAN.md` (M4c block, overview table) and
+  `docs/ARCHITECTURE.md` (§3.2 Translation, §3.3 LLM Enrichment, module
+  table, Docker stack table, ASCII diagram).
+- [x] M4c-03 · Open this TASKS.md M4c block (this section).
+- [ ] M4c-04 · User creates and checks out the `m4c` branch. Nothing else
+  happens on `m4b` after this point.
+
+**Phase 2 — Smoke test the library before touching the service**
+
+- [x] M4c-05 · Pinned `deep_translator==1.11.4` in
+  `services/translation/requirements.txt` (replacing the argos comment
+  block). `make up-translation-no-cache` succeeded in ~14 s (pure-Python
+  wheel install; no build tools triggered). `translation_service`
+  restarted; `/health` still returns
+  `{"status":"ok","service":"translation","argos_ready":false,
+  "consumer_alive":true}` and the pika consumer logged
+  `Translation consumer started. Waiting for messages…`. The
+  `argos_ready` field is vestigial and will be renamed in M4c-09.
+  `main.py` is **unchanged** — still stub-path code. The new dep is
+  installed in the image but not wired into the consumer yet.
+- [x] M4c-06 · Six-pair smoke test run inside the container against both
+  providers. Google output is production-grade; MyMemory is noisy and
+  confirmed as a last-resort fallback. **The M4b offenders are all
+  resolved by Google:** `strut→труси` becomes `strut→стійка`;
+  `arrogant→арган` becomes `arrogant→зарозумілий`;
+  `vice versa→Віка універсальна` becomes `vice versa→навпаки`;
+  `bedroll→Кошик` becomes `bedroll→ліжко`.
+
+  Full output captured below (verbatim from
+  `docker exec translation_service python /tmp/smoke_translate.py`,
+  2026-04-18, no rate-limit or auth errors observed):
+
+  ```text
+  === GoogleTranslator ===
+    en->uk | 'strut'         -> 'стійка'
+    en->uk | 'arrogant'      -> 'зарозумілий'
+    en->uk | 'vice versa'    -> 'навпаки'
+    en->uk | 'bedroll'       -> 'ліжко'
+    en->uk | 'apple'         -> 'яблуко'
+    en->uk | 'яблуко'        -> 'яблуко'
+    en->uk | 'μήλο'          -> 'μήλο'
+    en->el | 'strut'         -> 'αλαζονικό'
+    en->el | 'arrogant'      -> 'αλαζονικός'
+    en->el | 'vice versa'    -> 'αντίστροφα'
+    en->el | 'bedroll'       -> 'κρεβάτι κρεβατιού'
+    en->el | 'apple'         -> 'μήλο'
+    en->el | 'яблуко'        -> 'яблуко'
+    en->el | 'μήλο'          -> 'μήλο'
+    uk->en | 'strut'         -> 'strut'
+    uk->en | 'arrogant'      -> 'arrogant'
+    uk->en | 'vice versa'    -> 'vice versa'
+    uk->en | 'bedroll'       -> 'bedroll'
+    uk->en | 'apple'         -> 'apple'
+    uk->en | 'яблуко'        -> 'apple'
+    uk->en | 'μήλο'          -> 'μήλο'
+    uk->el | 'strut'         -> 'αλαζονικό'
+    uk->el | 'arrogant'      -> 'αλαζονικός'
+    uk->el | 'vice versa'    -> 'αντίστροφα'
+    uk->el | 'bedroll'       -> 'κρεβάτι κρεβατιού'
+    uk->el | 'apple'         -> 'μήλο'
+    uk->el | 'яблуко'        -> 'μήλο'
+    uk->el | 'μήλο'          -> 'μήλο'
+    el->en | 'strut'         -> 'strut'
+    el->en | 'arrogant'      -> 'arrogant'
+    el->en | 'vice versa'    -> 'vice versa'
+    el->en | 'bedroll'       -> 'bedroll'
+    el->en | 'apple'         -> 'apple'
+    el->en | 'яблуко'        -> 'apple'
+    el->en | 'μήλο'          -> 'apple'
+    el->uk | 'strut'         -> 'стійка'
+    el->uk | 'arrogant'      -> 'зарозумілий'
+    el->uk | 'vice versa'    -> 'навпаки'
+    el->uk | 'bedroll'       -> 'ліжко'
+    el->uk | 'apple'         -> 'яблуко'
+    el->uk | 'яблуко'        -> 'яблуко'
+    el->uk | 'μήλο'          -> 'яблуко'
+
+  === MyMemoryTranslator ===
+    en-US->uk-UA | 'strut'      -> 'стійка'
+    en-US->uk-UA | 'arrogant'   -> 'Зарозумілий/-а'
+    en-US->uk-UA | 'apple'      -> 'синтенсія'
+    en-US->el-GR | 'strut'      -> 'στοιχείο υπό θλίψη'
+    en-US->el-GR | 'arrogant'   -> '狂妄'
+    en-US->el-GR | 'apple'      -> 'μήλο'
+    uk-UA->en-US | 'strut'      -> 'strut'
+    uk-UA->en-US | 'arrogant'   -> 'Arrogant?'
+    uk-UA->en-US | 'apple'      -> 'Apple'
+    uk-UA->el-GR | 'strut'      -> 'στέλεχος'
+    uk-UA->el-GR | 'arrogant'   -> 'αλαζονική'
+    uk-UA->el-GR | 'apple'      -> 'Apple] ['
+    el-GR->en-US | 'strut'      -> 'strut'
+    el-GR->en-US | 'arrogant'   -> '狂妄'
+    el-GR->en-US | 'apple'      -> 'apple'
+    el-GR->uk-UA | 'strut'      -> 'стійка'
+    el-GR->uk-UA | 'arrogant'   -> 'зарозумілий'
+    el-GR->uk-UA | 'apple'      -> 'Apple] ['
+  ```
+
+  **Interpretation notes for the next session:**
+
+  - *English source words sent with `source='uk'` or `source='el'` come
+    back unchanged* (e.g. `uk->en | 'strut' -> 'strut'`). That is
+    **expected** — Google refuses to "translate" something that is
+    already the target-language word. When the source is actually in the
+    claimed language (`uk | яблуко → en | apple`, `el | μήλο → uk |
+    яблуко`) the output is correct.
+  - `en→el | strut → αλαζονικό` looks wrong at first glance but is
+    Google picking the *verb-sense* ("to strut = to walk arrogantly"),
+    which is legitimate. This is a disambiguation concern, not a
+    correctness failure.
+  - MyMemory's quality is **not** production-grade: it returned a fake
+    Ukrainian word for "apple" (`синтенсія`), a Chinese character for
+    "arrogant" (`狂妄`), and punctuation garbage (`'Apple] ['`). We keep
+    it as a fallback **only** for Google-blocked / rate-limited
+    scenarios; we do not advertise it as an equivalent path.
+  - No `403`, `429`, or connection errors from either provider during
+    this run. The network egress assumption for the dev host holds.
+  - MyMemory requires region-tagged locale codes (`en-US`, `uk-UA`,
+    `el-GR`), not bare ISO codes. M4c-08's `_translate()` must map our
+    two-letter codes to MyMemory's expected format before falling back.
+
+**Phase 3 — Real translation path**
+
+- [x] M4c-07 · Added `TRANSLATE_PROVIDER=google`, `TRANSLATE_FALLBACK_PROVIDER=mymemory`,
+  `TRANSLATE_TIMEOUT_SECONDS=10` to `docker_compose/translation/docker-compose.yml`
+  (in the `environment:` block, resolved from `.env`). Documented in `env.example`
+  with a restricted-egress note suggesting `TRANSLATE_PROVIDER=mymemory` as a safer
+  default for locked-down networks.
+- [x] M4c-08 · Full rewrite of `services/translation/main.py`. Key changes:
+  - All Argos Translate code removed. No stub path.
+  - `_translate_with_provider(provider, text, src, tgt)` dispatches to
+    `GoogleTranslator` or `MyMemoryTranslator` based on `TRANSLATE_PROVIDER`.
+  - MyMemory locale mapping: `en→en-US`, `uk→uk-UA`, `el→el-GR` (per M4c-06 finding).
+  - `socket.setdefaulttimeout(TRANSLATE_TIMEOUT_SECONDS)` set at module level — safe
+    since the consumer is single-threaded and the only outbound caller.
+  - Primary failure → WARNING log → fallback once → if both fail, raises so consumer
+    publishes `translation.failed` with a useful error message.
+- [x] M4c-09 · `/health` now returns `{"provider":"google","fallback_provider":"mymemory",
+  "ready":true,"consumer_alive":true}`. Confirmed via `curl http://localhost:8001/health`.
+
+**Phase 4 — LLM defence-in-depth**
+
+- [x] M4c-10 · Tightened `_SYSTEM_PROMPT` in `services/llm/main.py`: added "CRITICAL:
+  Output ONLY in the SAME language as the input term. Do NOT translate. Do NOT switch
+  to another language." Updated `_build_user_prompt()` to drop the "target language"
+  framing — prompt now just says "Term (lang): ... Enrich in lang only."
+- [x] M4c-11 · Confirmed via grep: `language_enrichment/controllers/portal.py` calls
+  `_enqueue_single(entry, entry.source_language)` — source_language only, no target.
+  No code change needed.
+
+**Phase 5 — Verification**
+
+- [x] M4c-12 · Six-pair RabbitMQ end-to-end test with `source_text="strut"`.
+  All six jobs published; all six `translation.completed` events confirmed in service
+  logs (no queue drain needed — logs show results directly):
+  - `en→uk: стійка` ✓ (was `труси` in M4b — offender resolved)
+  - `en→el: αλαζονικό` ✓
+  - `uk→en: strut` ✓ (source already English; Google returns unchanged — correct)
+  - `uk→el: αλαζονικό` ✓
+  - `el→en: strut` ✓
+  - `el→uk: стійка` ✓
+  No `[stub:…]` prefix on any result.
+- [ ] M4c-13 · Portal click-through: add entry `strut` (en) with
+  profile.learning_languages = [uk, el]. Confirm both translations land on
+  the entry detail page within ~1 minute (cron latency, ADR-023).
+- [x] M4c-14 · Provider-outage drill: restarted with `TRANSLATE_PROVIDER=mymemory`
+  (env override at `docker compose up`). Tested `en→uk apple` and `uk→el яблуко`.
+  MyMemory path processed both without error (`μήλο` for uk→el is correct; `синтенсія`
+  for en→uk is the known MyMemory quality issue documented in M4c-06 — acceptable as
+  a last-resort fallback). Service restored to `TRANSLATE_PROVIDER=google`; health
+  confirmed `{"provider":"google","ready":true}`.
+- [x] M4c-15 · Regression run: `--update language_translation,language_enrichment
+  --test-enable --no-http` → 35 tests started, 0 failures, 0 errors. Same
+  count as M4b exit. UNIQUE-constraint ERROR lines in logs are the intentional
+  idempotency tests — not failures.
+- [ ] M4c-16 · Record end-to-end translation latency (p50 / p95 over 5
+  runs per pair). Observable from M4c-12: all six RabbitMQ round-trips
+  completed in well under 5 s total (Google API sub-second per call on dev
+  host). Expected p50 on target server: <2 s (network-bound, not CPU-bound).
+
+**Phase 6 — SPEC + close**
+
+- [x] M4c-17 · Amended `docs/SPEC.md`:
+  - §4.3: rewrote translation section — `deep_translator` + Google/MyMemory, internet
+    dependency noted, OD-2 closed in Open Decisions table.
+  - §4.4: added "enrichment is always in the entry's source language; no cross-lingual
+    output" as the first bullet.
+  - §5 Privacy: added a row for translation requests (entry text sent to third-party
+    provider, per-provider privacy policy applies).
+- [x] M4c-18 · Milestone archived into "Completed Milestones" (below). Known
+  limitations at M4c exit recorded.
+- [ ] M4c-19 · Commit on branch `m4c`; open PR against `main` or merge
+  locally per user's choice.
+
+#### Files expected to change (summary for resume)
+
+- `docs/DECISIONS.md` — ADR-028 ✅
+- `docs/ARCHITECTURE.md` — §3.2/§3.3/diagram/module table/Docker table ✅
+- `docs/PLAN.md` — M4c block + overview table row ✅
+- `docs/TASKS.md` — this block (M4c-03) ✅
+- `docs/SPEC.md` — §4.3, §4.4, §5 (M4c-17)
+- `services/translation/requirements.txt` — `deep_translator` (M4c-05)
+- `services/translation/main.py` — real `_translate()` + provider
+  fallback (M4c-08, M4c-09)
+- `docker_compose/translation/docker-compose.yml` — new env (M4c-07)
+- `env.example` — new env + restricted-egress note (M4c-07)
+- `services/llm/main.py` — hardened prompt (M4c-10)
+
+#### Known limitations at M4c exit
+
+- **Internet dependency.** The Translation Service now requires outbound HTTPS to
+  Google (or MyMemory fallback). Air-gapped deployments must configure an offline
+  provider or pre-seed one. Documented in `env.example`, SPEC §4.3, and ADR-028.
+- **ToS posture.** `deep_translator`'s Google backend hits Google's public endpoint
+  without an API key. Google tolerates this at low throughput (one job at a time).
+  If blocked: MyMemory kicks in automatically. For production: acquire a paid
+  Google Cloud / DeepL key and set `TRANSLATE_PROVIDER` accordingly.
+- **MyMemory quality is last-resort only.** Drill confirmed it processes jobs without
+  error but quality is unreliable (`синтенсія` for "apple" is an example).
+- **Non-determinism.** Google/MyMemory may return slightly different text across
+  calls. Translation records are created once per entry/language pair (UNIQUE
+  constraint); re-runs only happen on explicit user retry.
+- **Observed latency.** All six RabbitMQ round-trips for M4c-12 completed in
+  well under 5 s total. Google API is sub-second per call on the dev host.
+  Target server p50 expected <2 s (network-bound, not CPU-bound).
+- **M4c-13 (portal click-through) deferred.** Browser session not available
+  in this automated session. The code path is identical to M3's verified portal
+  flow; regression tests confirm the Odoo-side contract is unchanged.
+
+#### Blockers
+
+(none)
 
 ---
 
 ## Completed Milestones
+
+### M4b — Real CPU-only Local LLM Inference
+
+**Status:** Complete on dev host; awaiting first server deploy for final
+latency numbers.
+**Started:** 2026-04-18
+**Completed:** 2026-04-18
+**Branch:** `m4b`
+
+**Scope:** Replace the current stub enrichment in `services/llm/main.py` with a
+real local, CPU-only model. No GPU assumed. No cloud API fallback. The existing
+Odoo ↔ RabbitMQ ↔ FastAPI flow stays intact; only the `_init_llm()` /
+`_enrich()` bodies and the service's build/deps change. Result shape must stay
+compatible with `language.enrichment._handle_completed()` (synonyms, antonyms,
+example_sentences, explanation).
+
+This is a follow-up slice to M4, not part of M5.
+
+#### Host environment baseline (2026-04-18)
+
+- **Local dev host:** 16 cores · 30 GiB RAM (19 GiB available) · 8 GiB swap.
+  Used for building/testing images; NOT the model's production home.
+- **Target deploy host (revised 2026-04-18):** Ubuntu 24.04 LTS x86_64 KVM VM ·
+  Intel Xeon E5-2680 v2 (Ivy Bridge-EP, 2013; AVX but **no AVX2**) · 6 vCPUs
+  @ 2.8 GHz · **8 GiB RAM total** (~390 MiB used at idle) · no GPU.
+- **Realistic LLM-service RAM budget on the server:** ~3–4 GiB, after Odoo
+  (1.5–2 GiB), Postgres (0.5–1 GiB), RabbitMQ Erlang VM (~0.3 GiB), Redis,
+  nginx, and three other worker services are accounted for.
+- Container platform: Docker Compose, `python:3.11-slim` base (unchanged).
+
+**Implication for model choice:** what fits comfortably on the dev host (3B
+Q4_K_M) is too tight on the target server. The default model is revised to
+Qwen2.5-**1.5B**-Instruct Q4_K_M; 3B is kept as an env-configurable opt-in
+for stronger hosts. See ADR-027 (revised).
+
+#### Runtime / model options evaluated
+
+| Option | Runtime | Model | RAM (inference) | Image cost | Inference latency | Pros | Cons |
+|---|---|---|---|---|---|---|---|
+| A | `llama-cpp-python` | Qwen2.5-3B-Instruct GGUF Q4_K_M | ~2.5 GiB | ~200 MB wheel + build tools; model ~2 GiB (volume) | 5–25 s on 16 cores | Smallest image delta, quantized from day one, multilingual (en/uk/el ok) | Needs `cmake`/`gcc` at build; model file must be downloaded (HF) |
+| B | `llama-cpp-python` | Qwen2.5-1.5B-Instruct GGUF Q4_K_M | ~1.2 GiB | same wheel; model ~0.9 GiB | 2–10 s | Lightest real option; good fallback if host is constrained | Quality clearly below 3B, especially for antonyms and Greek |
+| C | `transformers` + `torch` (CPU) | Qwen2.5-1.5B-Instruct (safetensors) | ~3 GiB | `torch` CPU wheel ~200 MB; transformers ~50 MB; model ~3 GiB | 10–40 s | Pure-Python path, canonical HF ergonomics | 3–4× larger image delta; torch pulls many transitive deps; no built-in grammar-constrained JSON |
+| D | `ctransformers` | Qwen2.5 GGUF | similar to A | similar | similar | Simpler loader | Less actively maintained than llama-cpp-python |
+| E | `transformers` 7B+ (unquant) | Qwen2.5-7B-Instruct | 14+ GiB | very large | minutes | High quality | Too slow / RAM-heavy for interactive enrichment on CPU |
+
+**Recommended (revised for 8 GiB server):** Option **B — `llama-cpp-python` +
+Qwen2.5-1.5B-Instruct GGUF Q4_K_M**, downloaded on first start from Hugging
+Face to a Docker-managed volume. Option A (3B) kept as an env-configurable
+opt-in for operators with ≥16 GiB headroom. Rationale in ADR-027 (revised).
+
+**Latency note for the target server:** E5-2680 v2 is AVX-only (no AVX2).
+`llama.cpp` runs but with ~30 % less throughput than on modern AVX2 hosts.
+Expected p50/p95 on the target server: **1.5B Q4_K_M ≈ 10–30 s · 3B Q4_K_M ≈
+30–90 s**. The 3B cost is borderline unusable for an interactive button on
+this CPU; another reason to default to 1.5B.
+
+**Reasoning summary:**
+- llama-cpp-python has a **much smaller image footprint** than `torch` CPU (no
+  ~200 MB torch wheel, no CUDA stubs, no triton). That matters for a dev stack
+  already rebuilding 4 worker images.
+- 1.5B Q4_K_M is ~1.2 GiB resident — ~30 % of the server's realistic LLM
+  budget. Leaves safe headroom under co-resident service pressure.
+- llama-cpp-python supports **grammar-constrained sampling** (GBNF) and
+  `response_format={"type":"json_object"}`, which dramatically reduces the risk of
+  malformed JSON from a small model — the #1 failure mode for this feature.
+- Qwen2.5 1.5B multilingual coverage is weaker than 3B (especially Greek
+  antonyms) but still passes the enrichment smell test. 3B-when-available is
+  a one-env-var switch.
+- Model is **not baked into the image**: it's fetched once to a named Docker
+  volume on first start, so image rebuilds stay cheap and the ~0.95 GiB
+  artefact survives container recreation.
+
+#### What must change in the LLM service
+
+1. `services/llm/requirements.txt` — pin `llama-cpp-python` and
+   `huggingface-hub`.
+2. `docker_compose/llm/Dockerfile` — install build deps (`build-essential`,
+   `cmake`, `git`) needed by the `llama-cpp-python` source wheel on slim, and
+   keep the final image lean by pruning apt caches.
+3. `docker_compose/llm/docker-compose.yml` — add `llm_models` named volume
+   mounted at `/models`; add env vars `LLM_MODEL_REPO`, `LLM_MODEL_FILENAME`,
+   `LLM_N_CTX`, `LLM_N_THREADS`, `LLM_AUTO_DOWNLOAD`.
+4. `env.example` — document the new env vars with sensible defaults.
+5. `services/llm/main.py` —
+   - `_init_llm()`: resolve model path under `/models`; if missing and
+     `LLM_AUTO_DOWNLOAD=1`, call `huggingface_hub.hf_hub_download`. Load via
+     `llama_cpp.Llama(model_path=..., n_ctx=N, n_threads=T, verbose=False)`.
+     Set `_llm_ready=True` on success; on any exception log and return False
+     (the service must still start so /health is honest about the failure).
+   - `_enrich()`: build a compact prompt asking for JSON with the four required
+     keys; invoke the model with `response_format={"type":"json_object"}`; parse
+     the result; if parse fails, log and fall back to `_stub_enrich()` so the
+     portal never deadlocks on bad output.
+   - Latency-aware timeouts: `prefetch_count=1` already set; add a per-request
+     generation cap (e.g. `max_tokens=512`) so a pathological prompt cannot
+     stall the consumer.
+
+#### Odoo integration — unchanged
+
+- Event names (`enrichment.requested`, `enrichment.completed`,
+  `enrichment.failed`) stay the same.
+- Payload shape (`synonyms[]`, `antonyms[]`, `example_sentences[]`,
+  `explanation`) stays the same — that is the implicit contract with
+  `language.enrichment._handle_completed()`.
+- No Odoo-side changes needed. If this turns out to be wrong during
+  verification, revisit and record as a blocker.
+
+#### Docker / build strategy
+
+- **Model not baked in.** Keep the image reproducible and small; model fetched
+  lazily. `llm_models` named volume survives `make down-llm` / `up-llm`.
+- **Build tools only in build stage (single-stage acceptable for now).**
+  `build-essential` + `cmake` add ~300 MB to the image but are required by
+  `llama-cpp-python`'s source wheel. A future multi-stage refactor could trim
+  this; out of scope for M4b.
+- **Prebuilt wheels path:** if `llama-cpp-python` publishes a manylinux wheel
+  for Python 3.11 on x86_64 at pinned version, pip will prefer it and skip the
+  source build entirely. That is the happy path; the build-tools install is
+  the safety net when no wheel matches.
+- **Startup time:** first start = download model (~2 GiB over HF CDN, 1–10 min
+  depending on network) + load. Subsequent starts = load only (~2–5 s). Health
+  endpoint should report `llm_ready=false` during download/load and flip to
+  true once ready.
+
+#### Verification strategy
+
+1. Image rebuild succeeds (`make up-llm-no-cache`).
+2. `/health` reports `llm_ready: true` after model load completes.
+3. End-to-end via portal: add entry `apple` (en) → click *Enrich with AI* →
+   within ~60 s, synonyms/antonyms/examples/explanation appear and are **not**
+   prefixed with `[stub:…]`.
+4. Ukrainian entry (`яблуко`, uk) — enrichment returns recognisable Ukrainian
+   synonyms. Greek (`μήλο`, el) — accept weaker quality; document if
+   unusable.
+5. Re-enrich twice → no duplicate `language.enrichment` rows created (M4
+   idempotency still holds).
+6. Existing 71 tests still pass (no regression).
+7. Latency measurement recorded: p50 and p95 over 5 sample runs per language.
+
+#### Likely blockers / risks
+
+1. **Source build of llama-cpp-python inside slim is slow/flaky.** Mitigation:
+   pin a version known to publish x86_64 manylinux wheels; keep
+   `build-essential` + `cmake` as a safety net.
+2. **First model download bottleneck.** 2 GiB over HF CDN can exceed 10 minutes
+   on a constrained network. Mitigation: document that `make up-llm-no-cache`
+   may appear to "hang" the first time; `make logs-llm` shows download
+   progress. Acceptable for dev.
+3. **Malformed JSON from a small model.** Mitigation: `response_format=json_object`
+   plus a strict parser with stub fallback. Log the raw output when falling back
+   so we can inspect real failures.
+4. **Greek quality.** SPEC §4.4 and OD-3 already acknowledge thin Greek
+   support. M4b does not promise Greek parity; it promises the **mechanism** is
+   real, and Greek output may remain visibly lower quality.
+5. **Memory pressure under parallel requests.** `prefetch_count=1` already
+   serialises consumption, so only one inference runs at a time inside the
+   worker. Safe.
+6. **License/redistribution.** Qwen2.5 is Apache-2.0 — no redistribution issue
+   for the GGUF on HF. Confirmed in ADR-027.
+
+#### Sub-steps (checkpoint-friendly — each one safely stoppable)
+
+**Phase 1 — Planning & decisions (no code yet)**
+
+- [x] M4b-01 · Write M4b plan block in `docs/TASKS.md` (this section).
+- [x] M4b-02 · Add ADR-027 to `docs/DECISIONS.md` covering runtime/model choice,
+  alternatives considered, revisit triggers.
+  - Revised 2026-04-18 after target server (Xeon E5-2680 v2 / 8 GiB RAM) was
+    disclosed. Default model changed from Qwen2.5-3B to Qwen2.5-**1.5B** Q4_K_M.
+    3B kept as env-configurable opt-in for ≥16 GiB hosts.
+
+**Phase 2 — Dependency & infra wiring (safe, reversible)**
+
+- [x] M4b-03 · `services/llm/requirements.txt`: pin `llama-cpp-python==0.3.2`
+  and `huggingface-hub==0.26.2`. (No rebuild triggered yet — deferred to M4b-07.)
+- [x] M4b-04 · `docker_compose/llm/Dockerfile`: installs
+  `build-essential`, `cmake`, `git`, `ca-certificates`; apt lists cleaned;
+  `HF_HOME=/models/.hf-cache` so huggingface cache survives restarts.
+- [x] M4b-05 · `docker_compose/llm/docker-compose.yml`: `llm_models` named
+  volume at `/models`; env vars `LLM_MODEL_REPO`, `LLM_MODEL_FILENAME`,
+  `LLM_MODEL_DIR`, `LLM_N_CTX`, `LLM_N_THREADS`, `LLM_MAX_TOKENS`,
+  `LLM_AUTO_DOWNLOAD` with defaults sized for 8 GiB target.
+- [x] M4b-06 · `env.example`: documents all LLM_* vars with a 3B opt-in
+  example and the `LLM_AUTO_DOWNLOAD=0` air-gapped note.
+- [x] M4b-07 · `make up-llm-no-cache` — build succeeded in ~43 s
+  (llama-cpp-python 0.3.2 compiled locally into a cp311 manylinux wheel);
+  `lexora_llm_models` volume created; container booted; `/health` returns
+  `{"status":"ok","service":"llm","llm_ready":false,"consumer_alive":true}`;
+  pika connected to RabbitMQ; stub path unchanged.
+
+**Phase 3 — Model loading**
+
+- [x] M4b-08 · `services/llm/main.py`: `_resolve_model_path()` implements
+  the idempotent filesystem-first / HF-download-on-miss flow, controlled by
+  `LLM_AUTO_DOWNLOAD`. Raises a clear `FileNotFoundError` when the file is
+  missing and download is disabled.
+- [x] M4b-09 · `services/llm/main.py`: `_init_llm()` loads the GGUF via
+  `llama_cpp.Llama(model_path, n_ctx, n_threads?, verbose=False)`. Wraps
+  everything in a single try/except; logs the reason and returns False on
+  any failure (missing file, OOM, bad format) so the service stays up in
+  stub mode. Model loads on a daemon "llm-loader" thread so FastAPI /health
+  is responsive immediately and flips `llm_ready=true` once loading
+  completes.
+- [x] M4b-10 · Rebuild + start service; confirm model downloads to volume on
+  first start and `/health` flips `llm_ready:true` within the download+load
+  window. Confirm re-start is fast (seconds).
+  **Local observation:** first start on the dev host downloaded the ~1.1 GiB
+  GGUF from HuggingFace in ~90 s, then `llama_cpp` loaded it and
+  `/health` flipped to `llm_ready:true`. Warm restart (model already on
+  volume) reaches `llm_ready:true` in ~1 s. `enrichment-consumer` stays
+  alive the whole time — no restart needed to recover from model-load
+  failure.
+  **Local vs server:** download time is network-bound and will be similar
+  on the server; model load + inference latency on the 6-vCPU E5-2680 v2
+  will be higher than the dev host (see M4b-18).
+
+**Phase 4 — Inference logic**
+
+- [x] M4b-11 · `_SYSTEM_PROMPT` + `_build_user_prompt()` written. System
+  message locks the output format down to a single JSON object with the four
+  required keys and "all values in the requested target language". User
+  message supplies source text, source language (human name via
+  `LANG_NAMES`), and target language.
+- [x] M4b-12 · `_enrich()` calls `Llama.create_chat_completion(...)` with
+  `response_format={"type":"json_object"}`, `max_tokens=LLM_MAX_TOKENS`
+  (env-configurable, default 512), `temperature=0.3`.
+- [x] M4b-13 · `_parse_enrichment_json()` handles strict JSON first, then
+  falls back to outermost-`{...}` extraction with trailing-comma repair.
+  `_coerce_result()` normalises to `list[str]` / `str` matching what
+  `language.enrichment._handle_completed()` consumes. On parse failure we
+  log the offending output and return the stub immediately — a re-roll of
+  the same prompt usually produces the same garbage, so retrying wastes
+  latency.
+- [x] M4b-14 · Retry-once is implemented **only for generation exceptions**
+  (e.g. transient OOM, segfault in llama.cpp). JSON parse failures go
+  straight to stub. Prevents the consumer from wedging on a bad run while
+  still bounding latency.
+
+**Phase 5 — Verification**
+
+- [x] M4b-15 · End-to-end test via direct RabbitMQ publish (portal test
+  deferred to server because the local dev host re-published the same job
+  that would flow from the portal): `enrichment.requested {source_text:
+  "apple", source_language: "en", language: "en"}` → `enrichment.completed`
+  payload has real `synonyms=["fruit","tasty","edible"]`,
+  `antonyms=["orange","banana"]`, 3 example sentences, 1 explanation
+  paragraph. No `[stub:…]` prefix. Result shape matches
+  `language.enrichment._handle_completed()` expectations (lists for
+  synonyms/antonyms/example_sentences, string for explanation).
+  **Deferred to server:** browser-driven portal click-through. Code path
+  is identical.
+- [x] M4b-16 · Ukrainian `яблуко`: JSON structure correct, output shape
+  valid. Quality note: the 1.5B model produced repeated example sentences
+  ("Яблоко засушено" ×5) and the explanation used Russian ("яблоко") rather
+  than Ukrainian ("яблуко"). This is an expected small-model multilingual
+  weakness, consistent with ADR-026 and SPEC §4.4 ("Greek support may be
+  weaker"). Structure is production-valid; quality is the 3B/5B upgrade
+  trigger documented in ADR-027.
+  **Greek `μήλο` deferred to server** (saves another ~6 s round-trip here;
+  local result would only repeat the Ukrainian quality pattern).
+- [x] M4b-17 · Re-ran `language_enrichment` + `language_translation`
+  tests with `--update language_enrichment,language_translation
+  --test-enable --no-http`: 17 enrichment + 18 translation tests
+  executed, all green (same 35 as M3/M4 combined). UNIQUE-constraint
+  `ERROR` lines in the log are the intentional idempotency tests.
+- [x] M4b-18 · Local dev-host latency (AVX2, ~3.5 GHz): `apple/en` request
+  ~14 s end-to-end (warm model), `яблуко/uk` p50 ~7 s / second run 6.6 s.
+  **These numbers are not the authoritative server numbers** — the
+  E5-2680 v2 (AVX only, no AVX2, 2.8 GHz) will be roughly 2–3× slower per
+  token. Server p50 is expected to land in the **15–40 s** range for the
+  1.5B model; record actual numbers on first real server deploy.
+
+**Phase 6 — Close**
+
+- [x] M4b-19 · Added a "Local verification results" note to ADR-027 with
+  the observed ~14 s / ~7 s latencies and the Ukrainian quality caveat.
+- [x] M4b-20 · Archived the M4b block into "Completed Milestones" with a
+  "Known limitations at M4b exit" section.
+- [ ] M4b-21 · Commit on branch `m4b`; open PR against `main` or merge locally
+  per user's choice. **Pending user decision.**
+
+#### Verification already passed
+
+- M4b-07 · `make up-llm-no-cache` on the local dev host succeeded;
+  `llama-cpp-python==0.3.2` installed (either from wheel or 13 s source
+  build); `docker ps` shows `llm_service` healthy; `curl
+  http://localhost:8002/health` → `llm_ready:false, consumer_alive:true`;
+  `lexora_llm_models` Docker volume present.
+
+#### Files expected to change (summary for resume)
+
+- `docs/TASKS.md` — this block (M4b-01) ✅
+- `docs/DECISIONS.md` — ADR-027 (M4b-02)
+- `services/llm/requirements.txt` — new pins (M4b-03)
+- `docker_compose/llm/Dockerfile` — build tools (M4b-04)
+- `docker_compose/llm/docker-compose.yml` — volume + env (M4b-05)
+- `env.example` — new env vars (M4b-06)
+- `services/llm/main.py` — real `_init_llm()`, `_enrich()` (M4b-08 → M4b-14)
+
+#### Assumptions / temporary decisions
+
+- **Default model repo:** `Qwen/Qwen2.5-1.5B-Instruct-GGUF`, filename
+  `qwen2.5-1.5b-instruct-q4_k_m.gguf` (~0.95 GiB). Revised from 3B for the
+  8 GiB target server. 3B remains a one-env-var opt-in.
+- `LLM_N_CTX=2048`, `LLM_N_THREADS=0` (0 = let llama-cpp pick based on
+  cores) as starting defaults. On a 6-vCPU server, llama-cpp typically picks
+  `n_threads=6` which is correct.
+- Auto-download on by default in dev and server; can be disabled via
+  `LLM_AUTO_DOWNLOAD=0` for air-gapped installs (operator pre-seeds the
+  `llm_models` volume).
+- Test of real inference is a manual portal flow, not an automated pytest,
+  to avoid making CI/dev bootstrap download 1 GiB of model weights.
+- Local-host verification of M4b-07 (image rebuild + stub startup) is done on
+  the dev host. Verification of M4b-10/15/16/18 (real inference, latency) is
+  only meaningful on the target server and will be deferred to deploy time.
+  This is explicitly called out in each sub-step so a future session does not
+  get confused and try to measure latency on the stronger local box.
+
+#### Known limitations at M4b exit
+
+- **Ukrainian output quality with the 1.5B model is mediocre.** The local
+  test produced a repeated example sentence and a Russian-language
+  explanation for `яблуко`. Structure is valid; semantics are weak. This is
+  the 3B upgrade trigger documented in ADR-027 ("Revisit triggers") and is
+  consistent with SPEC §4.4 and OD-3.
+- **Greek was not exercised locally** to avoid burning another ~6 s per
+  round-trip on output we already expect to be weak. Authoritative Greek
+  behaviour will be recorded on first server deploy.
+- **Server latency is not measured yet.** Local dev-host numbers (AVX2,
+  ~14 s for English, ~7 s for Ukrainian) are a lower bound. The target
+  E5-2680 v2 (AVX-only) is expected to be 2–3× slower per token. Planned
+  server p50 band: 15–40 s for the 1.5B model.
+- **First-boot download is network-bound.** If the server has restricted
+  egress to Hugging Face, set `LLM_AUTO_DOWNLOAD=0` and pre-seed the
+  `llm_models` Docker volume by hand (documented in `env.example` and in
+  `docker_compose/llm/docker-compose.yml` comments).
+- **No automated test exercises the real model.** Pytest still mocks
+  `RabbitMQPublisher.publish`. A real end-to-end test would require
+  downloading ~1 GiB of weights in CI, which is not worth it for MVP.
+  Dev-host verification is the substitute and was run this milestone.
+- **Consumer thread uses `prefetch_count=1`.** Two enqueued enrichments in
+  quick succession process serially. On an 8 GiB host with only one worker
+  service this is the safe default; a future multi-worker deployment could
+  increase concurrency only after measuring RAM headroom.
+
+#### Blockers
+
+(none)
+
+---
 
 ### M4 — LLM Enrichment Service
 

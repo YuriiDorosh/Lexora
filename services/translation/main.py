@@ -1,30 +1,32 @@
 """
-Translation Service — M3 implementation.
+Translation Service — M4c implementation.
 
-Provides offline translation between uk/en/el via Argos Translate.
+Translates text between uk/en/el via deep_translator (ADR-028).
 Consumes 'translation.requested' from RabbitMQ; publishes
 'translation.completed' or 'translation.failed'.
 
-Architecture:
-  - FastAPI app with /health endpoint (checked by Docker healthchecks)
-  - Background thread runs the RabbitMQ consumer loop on startup
-  - Argos Translate packages are downloaded/installed on first use
+Provider chain (both configurable via env vars):
+  Primary:  TRANSLATE_PROVIDER         (default: google)
+  Fallback: TRANSLATE_FALLBACK_PROVIDER (default: mymemory)
 
-Two-hop routing for uk↔el (no direct Argos model):
-  uk → en → el  and  el → en → uk
-Quality limitation: two-hop degrades accuracy (ADR, OD-2).
+On any primary exception the fallback is tried once.  If both fail,
+'translation.failed' is published with a descriptive error message.
 
-Env vars (all optional; defaults work for docker-compose dev stack):
-  RABBITMQ_HOST      default: rabbitmq
-  RABBITMQ_PORT      default: 5672
-  RABBITMQ_VHOST     default: /
-  RABBITMQ_USER      default: guest
-  RABBITMQ_PASSWORD  default: guest
+Env vars:
+  RABBITMQ_HOST                default: rabbitmq
+  RABBITMQ_PORT                default: 5672
+  RABBITMQ_VHOST               default: /
+  RABBITMQ_USER                default: guest
+  RABBITMQ_PASSWORD            default: guest
+  TRANSLATE_PROVIDER           default: google
+  TRANSLATE_FALLBACK_PROVIDER  default: mymemory
+  TRANSLATE_TIMEOUT_SECONDS    default: 10
 """
 
 import json
 import logging
 import os
+import socket
 import threading
 import time
 import uuid
@@ -37,7 +39,7 @@ logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s %(message
 _logger = logging.getLogger("translation-service")
 
 # ---------------------------------------------------------------------------
-# RabbitMQ config from environment
+# Config from environment
 # ---------------------------------------------------------------------------
 
 RABBITMQ_HOST = os.getenv("RABBITMQ_HOST", "rabbitmq")
@@ -46,117 +48,73 @@ RABBITMQ_VHOST = os.getenv("RABBITMQ_VHOST", "/")
 RABBITMQ_USER = os.getenv("RABBITMQ_USER", "guest")
 RABBITMQ_PASSWORD = os.getenv("RABBITMQ_PASSWORD", "guest")
 
+TRANSLATE_PROVIDER = os.getenv("TRANSLATE_PROVIDER", "google").lower()
+TRANSLATE_FALLBACK_PROVIDER = os.getenv("TRANSLATE_FALLBACK_PROVIDER", "mymemory").lower()
+TRANSLATE_TIMEOUT_SECONDS = int(os.getenv("TRANSLATE_TIMEOUT_SECONDS", "10"))
+
 QUEUE_REQUESTED = "translation.requested"
 QUEUE_COMPLETED = "translation.completed"
 QUEUE_FAILED = "translation.failed"
 
+# Apply a global socket timeout once at startup so all deep_translator HTTP
+# calls respect it.  Safe here because the consumer is single-threaded and
+# the only outbound caller in this process.
+socket.setdefaulttimeout(TRANSLATE_TIMEOUT_SECONDS)
+
 # ---------------------------------------------------------------------------
-# Argos Translate — lazy init with graceful fallback
+# Translation helpers
 # ---------------------------------------------------------------------------
 
-_argos_ready = False
-_argos_lock = threading.Lock()
+# MyMemory requires region-tagged locale codes rather than bare ISO-639 codes.
+_MYMEMORY_LOCALES: dict[str, str] = {
+    "en": "en-US",
+    "uk": "uk-UA",
+    "el": "el-GR",
+}
 
 
-def _init_argos():
-    """Download and install Argos Translate language packages on first call.
-
-    Supported pairs: en↔uk, en↔el (uk↔el is two-hop via en).
-    Returns True if packages are ready, False if argostranslate is not installed.
-    """
-    global _argos_ready  # noqa: PLW0603
-    with _argos_lock:
-        if _argos_ready:
-            return True
-        try:
-            import argostranslate.package  # noqa: PLC0415
-            import argostranslate.translate  # noqa: PLC0415
-
-            _logger.info("Checking Argos Translate packages…")
-            argostranslate.package.update_package_index()
-            available = argostranslate.package.get_available_packages()
-
-            needed = [
-                ("en", "uk"), ("uk", "en"),
-                ("en", "el"), ("el", "en"),
-            ]
-            for from_code, to_code in needed:
-                pkg = next(
-                    (p for p in available if p.from_code == from_code and p.to_code == to_code),
-                    None,
-                )
-                if pkg:
-                    installed = argostranslate.package.get_installed_packages()
-                    already = any(
-                        p.from_code == from_code and p.to_code == to_code
-                        for p in installed
-                    )
-                    if not already:
-                        _logger.info("Installing Argos package %s→%s…", from_code, to_code)
-                        argostranslate.package.install_from_path(pkg.download())
-                else:
-                    _logger.warning("Argos package %s→%s not found in index", from_code, to_code)
-
-            _argos_ready = True
-            _logger.info("Argos Translate ready.")
-            return True
-        except ImportError:
-            _logger.warning(
-                "argostranslate not installed — using stub translation fallback."
-                " Install argostranslate and rebuild the image to enable real translation."
-            )
-            return False
-        except Exception as exc:
-            _logger.error("Argos Translate init failed: %s", exc)
-            return False
+def _translate_with_provider(provider: str, text: str, source: str, target: str) -> str:
+    """Call the given deep_translator provider.  Raises on any failure."""
+    if provider == "google":
+        from deep_translator import GoogleTranslator  # noqa: PLC0415
+        return GoogleTranslator(source=source, target=target).translate(text)
+    if provider == "mymemory":
+        from deep_translator import MyMemoryTranslator  # noqa: PLC0415
+        src_locale = _MYMEMORY_LOCALES.get(source, source)
+        tgt_locale = _MYMEMORY_LOCALES.get(target, target)
+        return MyMemoryTranslator(source=src_locale, target=tgt_locale).translate(text)
+    raise ValueError(f"Unknown TRANSLATE_PROVIDER value: {provider!r}")
 
 
 def _translate(source_text: str, source_language: str, target_language: str) -> str:
-    """Translate text.  Falls back to a stub if Argos is unavailable."""
+    """Translate text using the configured provider with automatic fallback.
+
+    Returns the translated string.  Raises on total failure (both providers
+    exhausted) so the caller can publish translation.failed.
+    """
     if source_language == target_language:
         return source_text
 
-    ready = _init_argos()
-    if not ready:
-        return _stub_translate(source_text, source_language, target_language)
+    try:
+        result = _translate_with_provider(TRANSLATE_PROVIDER, source_text, source_language, target_language)
+        _logger.debug("Provider '%s' succeeded for %s→%s", TRANSLATE_PROVIDER, source_language, target_language)
+        return result
+    except Exception as primary_exc:
+        _logger.warning(
+            "Primary provider '%s' failed (%s) — switching to fallback '%s'",
+            TRANSLATE_PROVIDER, primary_exc, TRANSLATE_FALLBACK_PROVIDER,
+        )
 
     try:
-        import argostranslate.translate  # noqa: PLC0415
-
-        # Direct translation if a model exists; otherwise two-hop via English.
-        installed = argostranslate.translate.get_installed_languages()
-        from_lang = next((l for l in installed if l.code == source_language), None)  # noqa: E741
-        if from_lang is None:
-            raise RuntimeError(f"Source language '{source_language}' not installed in Argos")
-
-        to_lang = next((l for l in installed if l.code == target_language), None)
-        if to_lang is None:
-            raise RuntimeError(f"Target language '{target_language}' not installed in Argos")
-
-        translation_obj = from_lang.get_translation(to_lang)
-        if translation_obj:
-            return translation_obj.translate(source_text)
-
-        # Two-hop via English for uk↔el.
-        if source_language != "en" and target_language != "en":
-            _logger.info("Two-hop translation %s→en→%s", source_language, target_language)
-            en_lang = next((l for l in installed if l.code == "en"), None)
-            if en_lang:
-                step1 = from_lang.get_translation(en_lang)
-                step2 = en_lang.get_translation(to_lang)
-                if step1 and step2:
-                    intermediate = step1.translate(source_text)
-                    return step2.translate(intermediate)
-
-        raise RuntimeError(f"No translation path {source_language}→{target_language}")
-    except Exception as exc:
-        _logger.error("Argos translation error: %s", exc)
-        raise
-
-
-def _stub_translate(source_text: str, source_language: str, target_language: str) -> str:
-    """Stub translation used when argostranslate is not available."""
-    return f"[stub:{source_language}→{target_language}] {source_text}"
+        result = _translate_with_provider(TRANSLATE_FALLBACK_PROVIDER, source_text, source_language, target_language)
+        _logger.info("Fallback provider '%s' succeeded for %s→%s", TRANSLATE_FALLBACK_PROVIDER, source_language, target_language)
+        return result
+    except Exception as fallback_exc:
+        _logger.error(
+            "Fallback provider '%s' also failed: %s",
+            TRANSLATE_FALLBACK_PROVIDER, fallback_exc,
+        )
+        raise fallback_exc
 
 
 # ---------------------------------------------------------------------------
@@ -201,6 +159,7 @@ def _publish_result(channel, queue_name: str, job_id: str, payload: dict):
 
 def _handle_message(channel, method, _properties, body):
     """Process a single translation.requested message."""
+    message: dict = {}
     try:
         message = json.loads(body)
         job_id = message.get("job_id", str(uuid.uuid4()))
@@ -222,7 +181,7 @@ def _handle_message(channel, method, _properties, body):
             "target_language": target_language,
         })
         channel.basic_ack(delivery_tag=method.delivery_tag)
-        _logger.info("Completed job_id=%s", job_id)
+        _logger.info("Completed job_id=%s result=%r", job_id, translated[:60])
 
     except Exception as exc:  # noqa: BLE001
         _logger.error("Translation failed for job_id=%s: %s", message.get("job_id", "?"), exc)
@@ -253,7 +212,8 @@ def _run_consumer():
             channel.queue_declare(queue=QUEUE_REQUESTED, durable=True)
             channel.basic_qos(prefetch_count=1)
             channel.basic_consume(queue=QUEUE_REQUESTED, on_message_callback=_handle_message)
-            _logger.info("Translation consumer started. Waiting for messages…")
+            _logger.info("Translation consumer started (provider=%s, fallback=%s). Waiting for messages…",
+                         TRANSLATE_PROVIDER, TRANSLATE_FALLBACK_PROVIDER)
             channel.start_consuming()
         except Exception as exc:
             if _stop_event.is_set():
@@ -273,7 +233,8 @@ async def lifespan(app: FastAPI):
     _stop_event.clear()
     _consumer_thread = threading.Thread(target=_run_consumer, daemon=True, name="rmq-consumer")
     _consumer_thread.start()
-    _logger.info("Translation service started.")
+    _logger.info("Translation service started (provider=%s, timeout=%ss).",
+                 TRANSLATE_PROVIDER, TRANSLATE_TIMEOUT_SECONDS)
     yield
     _logger.info("Translation service shutting down…")
     _stop_event.set()
@@ -281,8 +242,8 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Lexora Translation Service",
-    description="Offline translation service (Argos Translate via RabbitMQ). M3.",
-    version="0.3.0",
+    description="Online translation service (deep_translator via RabbitMQ). M4c.",
+    version="0.4.0",
     lifespan=lifespan,
 )
 
@@ -292,6 +253,8 @@ def health():
     return {
         "status": "ok",
         "service": "translation",
-        "argos_ready": _argos_ready,
+        "provider": TRANSLATE_PROVIDER,
+        "fallback_provider": TRANSLATE_FALLBACK_PROVIDER,
+        "ready": True,
         "consumer_alive": _consumer_thread.is_alive() if _consumer_thread else False,
     }
