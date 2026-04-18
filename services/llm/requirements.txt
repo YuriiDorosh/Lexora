@@ -1,3 +1,10 @@
 fastapi==0.115.5
 uvicorn[standard]==0.32.1
 pika==1.3.2
+
+# M4b: real CPU-only local LLM (ADR-027).
+# llama-cpp-python 0.3.2 publishes manylinux x86_64 wheels for Python 3.11,
+# so pip will prefer the prebuilt wheel over a source build.  The Dockerfile
+# keeps build-essential + cmake as a safety net when no wheel matches.
+llama-cpp-python==0.3.2
+huggingface-hub==0.26.2
