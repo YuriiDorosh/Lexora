@@ -15,7 +15,238 @@
 
 ## Current Milestone
 
-None in progress. M4 complete and verified — awaiting confirmation to begin M5.
+### M4b — Real CPU-only Local LLM Inference
+
+**Status:** In progress
+**Started:** 2026-04-18
+**Branch:** `m4b`
+
+**Scope:** Replace the current stub enrichment in `services/llm/main.py` with a
+real local, CPU-only model. No GPU assumed. No cloud API fallback. The existing
+Odoo ↔ RabbitMQ ↔ FastAPI flow stays intact; only the `_init_llm()` /
+`_enrich()` bodies and the service's build/deps change. Result shape must stay
+compatible with `language.enrichment._handle_completed()` (synonyms, antonyms,
+example_sentences, explanation).
+
+This is a follow-up slice to M4, not part of M5.
+
+#### Host environment baseline (2026-04-18)
+
+- Cores: 16 · RAM: 30 GiB (19 GiB available) · Swap: 8 GiB
+- Container platform: Docker Compose, `python:3.11-slim` base
+- Target: Lexora dev host; production spec assumed comparable (≥4 cores, ≥8 GiB RAM)
+
+#### Runtime / model options evaluated
+
+| Option | Runtime | Model | RAM (inference) | Image cost | Inference latency | Pros | Cons |
+|---|---|---|---|---|---|---|---|
+| A | `llama-cpp-python` | Qwen2.5-3B-Instruct GGUF Q4_K_M | ~2.5 GiB | ~200 MB wheel + build tools; model ~2 GiB (volume) | 5–25 s on 16 cores | Smallest image delta, quantized from day one, multilingual (en/uk/el ok) | Needs `cmake`/`gcc` at build; model file must be downloaded (HF) |
+| B | `llama-cpp-python` | Qwen2.5-1.5B-Instruct GGUF Q4_K_M | ~1.2 GiB | same wheel; model ~0.9 GiB | 2–10 s | Lightest real option; good fallback if host is constrained | Quality clearly below 3B, especially for antonyms and Greek |
+| C | `transformers` + `torch` (CPU) | Qwen2.5-1.5B-Instruct (safetensors) | ~3 GiB | `torch` CPU wheel ~200 MB; transformers ~50 MB; model ~3 GiB | 10–40 s | Pure-Python path, canonical HF ergonomics | 3–4× larger image delta; torch pulls many transitive deps; no built-in grammar-constrained JSON |
+| D | `ctransformers` | Qwen2.5 GGUF | similar to A | similar | similar | Simpler loader | Less actively maintained than llama-cpp-python |
+| E | `transformers` 7B+ (unquant) | Qwen2.5-7B-Instruct | 14+ GiB | very large | minutes | High quality | Too slow / RAM-heavy for interactive enrichment on CPU |
+
+**Recommended:** Option **A — `llama-cpp-python` + Qwen2.5-3B-Instruct GGUF Q4_K_M**, downloaded on first start from Hugging Face to a Docker-managed volume. Rationale in ADR-027 (to be added).
+
+**Reasoning summary:**
+- llama-cpp-python has a **much smaller image footprint** than `torch` CPU (no
+  ~200 MB torch wheel, no CUDA stubs, no triton). That matters for a dev stack
+  already rebuilding 4 worker images.
+- GGUF Q4_K_M runs comfortably in ≤3 GiB RAM on 16 cores, well under our headroom.
+- llama-cpp-python supports **grammar-constrained sampling** (GBNF) and
+  `response_format={"type":"json_object"}`, which dramatically reduces the risk of
+  malformed JSON from a small model — the #1 failure mode for this feature.
+- Qwen2.5 3B has noticeably better multilingual coverage than 1.5B, especially
+  for Ukrainian and Greek (still weaker for `el`, consistent with SPEC §4.4
+  and OD-3).
+- Model is **not baked into the image**: it's fetched once to a named Docker
+  volume on first start, so image rebuilds stay cheap and the 2 GiB artefact
+  survives container recreation.
+
+#### What must change in the LLM service
+
+1. `services/llm/requirements.txt` — pin `llama-cpp-python` and
+   `huggingface-hub`.
+2. `docker_compose/llm/Dockerfile` — install build deps (`build-essential`,
+   `cmake`, `git`) needed by the `llama-cpp-python` source wheel on slim, and
+   keep the final image lean by pruning apt caches.
+3. `docker_compose/llm/docker-compose.yml` — add `llm_models` named volume
+   mounted at `/models`; add env vars `LLM_MODEL_REPO`, `LLM_MODEL_FILENAME`,
+   `LLM_N_CTX`, `LLM_N_THREADS`, `LLM_AUTO_DOWNLOAD`.
+4. `env.example` — document the new env vars with sensible defaults.
+5. `services/llm/main.py` —
+   - `_init_llm()`: resolve model path under `/models`; if missing and
+     `LLM_AUTO_DOWNLOAD=1`, call `huggingface_hub.hf_hub_download`. Load via
+     `llama_cpp.Llama(model_path=..., n_ctx=N, n_threads=T, verbose=False)`.
+     Set `_llm_ready=True` on success; on any exception log and return False
+     (the service must still start so /health is honest about the failure).
+   - `_enrich()`: build a compact prompt asking for JSON with the four required
+     keys; invoke the model with `response_format={"type":"json_object"}`; parse
+     the result; if parse fails, log and fall back to `_stub_enrich()` so the
+     portal never deadlocks on bad output.
+   - Latency-aware timeouts: `prefetch_count=1` already set; add a per-request
+     generation cap (e.g. `max_tokens=512`) so a pathological prompt cannot
+     stall the consumer.
+
+#### Odoo integration — unchanged
+
+- Event names (`enrichment.requested`, `enrichment.completed`,
+  `enrichment.failed`) stay the same.
+- Payload shape (`synonyms[]`, `antonyms[]`, `example_sentences[]`,
+  `explanation`) stays the same — that is the implicit contract with
+  `language.enrichment._handle_completed()`.
+- No Odoo-side changes needed. If this turns out to be wrong during
+  verification, revisit and record as a blocker.
+
+#### Docker / build strategy
+
+- **Model not baked in.** Keep the image reproducible and small; model fetched
+  lazily. `llm_models` named volume survives `make down-llm` / `up-llm`.
+- **Build tools only in build stage (single-stage acceptable for now).**
+  `build-essential` + `cmake` add ~300 MB to the image but are required by
+  `llama-cpp-python`'s source wheel. A future multi-stage refactor could trim
+  this; out of scope for M4b.
+- **Prebuilt wheels path:** if `llama-cpp-python` publishes a manylinux wheel
+  for Python 3.11 on x86_64 at pinned version, pip will prefer it and skip the
+  source build entirely. That is the happy path; the build-tools install is
+  the safety net when no wheel matches.
+- **Startup time:** first start = download model (~2 GiB over HF CDN, 1–10 min
+  depending on network) + load. Subsequent starts = load only (~2–5 s). Health
+  endpoint should report `llm_ready=false` during download/load and flip to
+  true once ready.
+
+#### Verification strategy
+
+1. Image rebuild succeeds (`make up-llm-no-cache`).
+2. `/health` reports `llm_ready: true` after model load completes.
+3. End-to-end via portal: add entry `apple` (en) → click *Enrich with AI* →
+   within ~60 s, synonyms/antonyms/examples/explanation appear and are **not**
+   prefixed with `[stub:…]`.
+4. Ukrainian entry (`яблуко`, uk) — enrichment returns recognisable Ukrainian
+   synonyms. Greek (`μήλο`, el) — accept weaker quality; document if
+   unusable.
+5. Re-enrich twice → no duplicate `language.enrichment` rows created (M4
+   idempotency still holds).
+6. Existing 71 tests still pass (no regression).
+7. Latency measurement recorded: p50 and p95 over 5 sample runs per language.
+
+#### Likely blockers / risks
+
+1. **Source build of llama-cpp-python inside slim is slow/flaky.** Mitigation:
+   pin a version known to publish x86_64 manylinux wheels; keep
+   `build-essential` + `cmake` as a safety net.
+2. **First model download bottleneck.** 2 GiB over HF CDN can exceed 10 minutes
+   on a constrained network. Mitigation: document that `make up-llm-no-cache`
+   may appear to "hang" the first time; `make logs-llm` shows download
+   progress. Acceptable for dev.
+3. **Malformed JSON from a small model.** Mitigation: `response_format=json_object`
+   plus a strict parser with stub fallback. Log the raw output when falling back
+   so we can inspect real failures.
+4. **Greek quality.** SPEC §4.4 and OD-3 already acknowledge thin Greek
+   support. M4b does not promise Greek parity; it promises the **mechanism** is
+   real, and Greek output may remain visibly lower quality.
+5. **Memory pressure under parallel requests.** `prefetch_count=1` already
+   serialises consumption, so only one inference runs at a time inside the
+   worker. Safe.
+6. **License/redistribution.** Qwen2.5 is Apache-2.0 — no redistribution issue
+   for the GGUF on HF. Confirmed in ADR-027.
+
+#### Sub-steps (checkpoint-friendly — each one safely stoppable)
+
+**Phase 1 — Planning & decisions (no code yet)**
+
+- [x] M4b-01 · Write M4b plan block in `docs/TASKS.md` (this section).
+- [x] M4b-02 · Add ADR-027 to `docs/DECISIONS.md` covering runtime/model choice,
+  alternatives considered, revisit triggers.
+
+**Phase 2 — Dependency & infra wiring (safe, reversible)**
+
+- [x] M4b-03 · `services/llm/requirements.txt`: pin `llama-cpp-python==0.3.2`
+  and `huggingface-hub==0.26.2`. (No rebuild triggered yet — deferred to M4b-07.)
+- [ ] M4b-04 · `docker_compose/llm/Dockerfile`: install `build-essential`,
+  `cmake`, `git` before `pip install`; clean apt lists at the end.
+- [ ] M4b-05 · `docker_compose/llm/docker-compose.yml`: add `llm_models` named
+  volume at `/models`; add new env vars with defaults.
+- [ ] M4b-06 · `env.example`: document `LLM_MODEL_REPO`,
+  `LLM_MODEL_FILENAME`, `LLM_N_CTX`, `LLM_N_THREADS`, `LLM_AUTO_DOWNLOAD`.
+- [ ] M4b-07 · `make up-llm-no-cache` — confirm build succeeds; service starts
+  in stub mode (no model yet); health reports `llm_ready:false` as expected.
+
+**Phase 3 — Model loading**
+
+- [ ] M4b-08 · `services/llm/main.py`: implement model download helper
+  (`_ensure_model_file()`) using `huggingface_hub.hf_hub_download`. Idempotent
+  via filesystem check. Controlled by `LLM_AUTO_DOWNLOAD`.
+- [ ] M4b-09 · `services/llm/main.py`: implement `_init_llm()` — load GGUF via
+  `llama_cpp.Llama`. Set `_llm_ready=True` on success; return False on any
+  error with a clear log message.
+- [ ] M4b-10 · Rebuild + start service; confirm model downloads to volume on
+  first start and `/health` flips `llm_ready:true` within the download+load
+  window. Confirm re-start is fast (seconds).
+
+**Phase 4 — Inference logic**
+
+- [ ] M4b-11 · Write the enrichment prompt template. Language-aware: target
+  output language is `payload.language`; source text is `payload.source_text`.
+  Ask for a single JSON object with keys `synonyms`, `antonyms`,
+  `example_sentences`, `explanation`.
+- [ ] M4b-12 · `_enrich()`: call `Llama.create_chat_completion(...)` with
+  `response_format={"type":"json_object"}`, `max_tokens=512`, `temperature=0.3`.
+- [ ] M4b-13 · Parse the JSON; coerce into the shape
+  `language.enrichment._handle_completed()` expects (lists for synonyms /
+  antonyms / examples, string for explanation). On parse failure, log the raw
+  payload and fall back to `_stub_enrich()`.
+- [ ] M4b-14 · Add a minimal retry-once path on generation exceptions (not on
+  parse failures — those fall to stub). Keeps the queue flowing.
+
+**Phase 5 — Verification**
+
+- [ ] M4b-15 · Portal E2E: add entry `apple` → Enrich → real results appear,
+  no `[stub:…]` prefix.
+- [ ] M4b-16 · Ukrainian entry `яблуко` → real results. Greek `μήλο` → record
+  observed quality.
+- [ ] M4b-17 · Re-run `language_enrichment` + `language_translation` tests:
+  still 71 green.
+- [ ] M4b-18 · Record p50/p95 latency across 5 sample runs per language in
+  this section.
+
+**Phase 6 — Close**
+
+- [ ] M4b-19 · Update ADR-027 with verified latency numbers and any surprises.
+- [ ] M4b-20 · Move M4b block to "Completed Milestones"; add "Known
+  limitations at M4b exit".
+- [ ] M4b-21 · Commit on branch `m4b`; open PR against `main` or merge locally
+  per user's choice.
+
+#### Verification already passed
+
+(none yet — nothing built)
+
+#### Files expected to change (summary for resume)
+
+- `docs/TASKS.md` — this block (M4b-01) ✅
+- `docs/DECISIONS.md` — ADR-027 (M4b-02)
+- `services/llm/requirements.txt` — new pins (M4b-03)
+- `docker_compose/llm/Dockerfile` — build tools (M4b-04)
+- `docker_compose/llm/docker-compose.yml` — volume + env (M4b-05)
+- `env.example` — new env vars (M4b-06)
+- `services/llm/main.py` — real `_init_llm()`, `_enrich()` (M4b-08 → M4b-14)
+
+#### Assumptions / temporary decisions
+
+- Model repo assumed to be `Qwen/Qwen2.5-3B-Instruct-GGUF` with filename
+  `qwen2.5-3b-instruct-q4_k_m.gguf`. To be confirmed in M4b-02/08 by reading
+  the actual HF repo listing; adjust if file name differs.
+- `LLM_N_CTX=2048`, `LLM_N_THREADS=0` (0 = let llama-cpp pick based on
+  cores) as starting defaults.
+- Auto-download on by default in dev; can be disabled via
+  `LLM_AUTO_DOWNLOAD=0` for air-gapped installs.
+- Test of real inference is a manual portal flow, not an automated pytest,
+  to avoid making CI/dev bootstrap download 2 GB of model weights.
+
+#### Blockers
+
+(none yet)
 
 ---
 
