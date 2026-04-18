@@ -187,14 +187,20 @@ this CPU; another reason to default to 1.5B.
 
 - [x] M4b-03 · `services/llm/requirements.txt`: pin `llama-cpp-python==0.3.2`
   and `huggingface-hub==0.26.2`. (No rebuild triggered yet — deferred to M4b-07.)
-- [ ] M4b-04 · `docker_compose/llm/Dockerfile`: install `build-essential`,
-  `cmake`, `git` before `pip install`; clean apt lists at the end.
-- [ ] M4b-05 · `docker_compose/llm/docker-compose.yml`: add `llm_models` named
-  volume at `/models`; add new env vars with defaults.
-- [ ] M4b-06 · `env.example`: document `LLM_MODEL_REPO`,
-  `LLM_MODEL_FILENAME`, `LLM_N_CTX`, `LLM_N_THREADS`, `LLM_AUTO_DOWNLOAD`.
-- [ ] M4b-07 · `make up-llm-no-cache` — confirm build succeeds; service starts
-  in stub mode (no model yet); health reports `llm_ready:false` as expected.
+- [x] M4b-04 · `docker_compose/llm/Dockerfile`: installs
+  `build-essential`, `cmake`, `git`, `ca-certificates`; apt lists cleaned;
+  `HF_HOME=/models/.hf-cache` so huggingface cache survives restarts.
+- [x] M4b-05 · `docker_compose/llm/docker-compose.yml`: `llm_models` named
+  volume at `/models`; env vars `LLM_MODEL_REPO`, `LLM_MODEL_FILENAME`,
+  `LLM_MODEL_DIR`, `LLM_N_CTX`, `LLM_N_THREADS`, `LLM_MAX_TOKENS`,
+  `LLM_AUTO_DOWNLOAD` with defaults sized for 8 GiB target.
+- [x] M4b-06 · `env.example`: documents all LLM_* vars with a 3B opt-in
+  example and the `LLM_AUTO_DOWNLOAD=0` air-gapped note.
+- [x] M4b-07 · `make up-llm-no-cache` — build succeeded in ~43 s
+  (llama-cpp-python 0.3.2 compiled locally into a cp311 manylinux wheel);
+  `lexora_llm_models` volume created; container booted; `/health` returns
+  `{"status":"ok","service":"llm","llm_ready":false,"consumer_alive":true}`;
+  pika connected to RabbitMQ; stub path unchanged.
 
 **Phase 3 — Model loading**
 
@@ -244,7 +250,11 @@ this CPU; another reason to default to 1.5B.
 
 #### Verification already passed
 
-(none yet — nothing built)
+- M4b-07 · `make up-llm-no-cache` on the local dev host succeeded;
+  `llama-cpp-python==0.3.2` installed (either from wheel or 13 s source
+  build); `docker ps` shows `llm_service` healthy; `curl
+  http://localhost:8002/health` → `llm_ready:false, consumer_alive:true`;
+  `lexora_llm_models` Docker volume present.
 
 #### Files expected to change (summary for resume)
 
