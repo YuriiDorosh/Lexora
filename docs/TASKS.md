@@ -15,14 +15,100 @@
 
 ## Current Milestone
 
-### M4 — LLM Enrichment Service (post-implementation UX + docs pass)
+None in progress. M4 complete and verified — awaiting confirmation to begin M5.
 
-**Status:** In progress
+---
+
+## Completed Milestones
+
+### M4 — LLM Enrichment Service
+
+**Status:** Complete and verified.
 **Started:** 2026-04-14
+**Completed:** 2026-04-18
+
+#### M4 preflight — UX gap analysis (2026-04-18)
+
+Audit of the visible UX state of M1–M3 features before finalizing M4.
+Goal: make the enrichment milestone produce a visibly more usable product, not just
+more backend logic.
+
+**Implemented-but-not-visible gaps (must fix inside M4):**
+
+1. **Backend menu incomplete.**
+   `view_language_translation_list/form` and `view_language_enrichment_list/form`
+   exist and their `ir.actions.act_window` records are defined, but neither has a
+   `menuitem`. Today only `Lexora → Vocabulary` and `Lexora → User Profiles` are
+   reachable from the Odoo top menu. An admin cannot navigate to translation or
+   enrichment job queues without crafting a URL.
+   → Fix in M4: add `Translations` and `Enrichments` menu items under the `Lexora`
+   root menu.
+
+2. **Portal profile page is missing.**
+   `language.user.profile` can only be edited from the backend, which portal users
+   cannot reach. Since M3 auto-enqueues translations for every language listed in
+   `profile.learning_languages`, a newly-signed-up user with no profile or empty
+   `learning_languages` gets **zero translations on save** and has no way to fix
+   this from the UI. The portal currently suggests "configure your learning
+   languages in your profile" but there is no profile page to link to.
+   → Fix in M4: add `/my/profile` portal page so users can set
+   `native_language`, `learning_languages`, `default_source_language`, and
+   `is_shared_list` themselves.
+
+3. **Enrichment status is invisible from the vocabulary list.**
+   The entry detail page now shows a state-aware "Enrich with AI" button (built in
+   the earlier M4 UX pass), but the list page shows no signal whether an entry
+   has been enriched, is pending enrichment, or has failed. Users have to open
+   each entry to find out.
+   → Fix in M4: small badge/icon in the list's flags column.
+
+4. **Portal home (`/my`) has no direction-setting links.**
+   Only the `My Vocabulary` docs-entry widget is present. A new user lands on
+   `/my` and sees one box. There's no onboarding nudge toward their profile, the
+   shared list, or adding an entry.
+   → Fix in M4: add a Lexora quick-links card to the portal home with links to
+   vocabulary, profile, and shared browse. Keeps existing portal.portal_my_home
+   layout.
+
+**Partially productized (acknowledge, defer):**
+
+5. **Website root redirects to `/odoo` (Odoo backend).**
+   Unauthenticated visitors hitting `http://localhost:5433/` get 303 → `/odoo`.
+   There is no branded Lexora landing page. `website_require_login` is in the
+   module list but the main website layout/theme has not been productized.
+   → Out of M4 scope. A proper public landing page is a cross-cutting UX task that
+   belongs next to posts/articles (M7) where the portal gains more public surface.
+
+6. **No portal surface for Anki import (M5), audio (M6), posts/chat (M7/M8),
+   dashboards (M9), PvP (M10).** By design — these are future milestones.
+
+7. **Translations / enrichments backend menus only serve admins.** Portal-only
+   users never see them. Portal-level visibility (e.g., `/my/jobs`) is not in any
+   SPEC section and would duplicate the entry detail page's status. Defer.
+
+**Makefile / docker workflow audit:**
+
+- `up-dev` currently chains: `check-network → up-db → rabbitmq → redis →
+  up-odoo (odoo + nginx + nginx-exporter + promtail + loki) → translation → llm
+  → anki → audio`. That covers every running service for the current project
+  state (M1–M4). ✓
+- `down-dev` mirrors this in reverse. ✓
+- Per-service `up-*-no-cache`, `down-*`, `logs-*` targets exist for all four
+  worker services and for rabbitmq. ✓
+- **Gap:** no aggregate `logs-dev` or `ps-dev` convenience target. When the
+  stack grows it's useful to tail every container at once or list all dev-stack
+  containers in one place.
+  → Fix in M4: add `logs-dev` and `ps-dev` following the existing per-service
+  idiom (no new build system, no `docker compose` profiles — just grouped
+  Bash invocations consistent with the rest of the Makefile).
+- **Note:** `make up-odoo` also starts `nginx-exporter`, `promtail`, `loki` via
+  the odoo compose file. These are not part of the MVP data plane but are
+  harmless in dev and expected by the existing production path. Keep as-is.
 
 #### Sub-steps
 
 - [x] Update TASKS.md to mark M4 started
+- [x] M4 preflight — UX gap analysis written (this section)
 - [x] `language_enrichment`: implement `language.enrichment` model (SPEC §3.5)
   - `src/addons/language_enrichment/models/language_enrichment.py`
   - Inherits `language.job.status.mixin`; fields: entry_id, language, synonyms, antonyms, example_sentences, explanation
@@ -79,13 +165,83 @@
 - [x] DECISIONS.md: added ADR-026 (CPU-only LLM strategy)
 - [x] All 71 tests still pass after UI changes
 
+#### Discoverability pass (post-preflight, 2026-04-18)
+
+- [x] Backend menu: add `Lexora → Translations` menuitem pointing at the existing
+  `action_language_translation` (sequence 30), under the `menu_lexora_root` parent.
+  `src/addons/language_translation/views/language_translation_views.xml`.
+- [x] Backend menu: add `Lexora → Enrichments` menuitem (sequence 40) pointing at
+  `action_language_enrichment`. `src/addons/language_enrichment/views/language_enrichment_views.xml`.
+- [x] Portal profile page at `/my/profile` — `GET` renders the form, `POST` validates
+  (native/default_source must be in `{en, uk, el}`) and writes via sudo to
+  `language.user.profile._get_or_create_for_user()`. Form fields: native_language
+  (select), learning_languages (checkbox group), default_source_language (select),
+  is_shared_list (checkbox). Success banner + error banner. Route in
+  `src/addons/language_words/controllers/portal.py`, template
+  `portal_profile` in `src/addons/language_words/views/portal_vocabulary.xml`.
+- [x] Portal home: `portal_my_home_lexora_quicklinks` template inherits
+  `portal.portal_my_home` and injects a "Lexora — quick actions" card with links to
+  `/my/vocabulary`, `/my/vocabulary/new`, `/my/vocabulary/shared`, `/my/profile`.
+  Keeps the stock portal home untouched.
+- [x] Vocabulary list: enrichment flag badge in the flags cell. New template
+  `portal_vocabulary_list_enrichment_flag` in
+  `src/addons/language_enrichment/views/portal_enrichment.xml` that inherits
+  `language_words.portal_vocabulary_list` and adds `✦ enriched / ✦ pending /
+  ✦ failed` badges based on the source-language enrichment status.
+- [x] Makefile: add `logs-dev` (tails last 50 lines from every dev-stack container)
+  and `ps-dev` (one-shot `docker ps` filtered to the dev stack). Matches the
+  existing per-service target convention; no Compose profiles introduced.
+
+#### Verification steps passed (discoverability pass)
+
+- [x] `--update language_translation,language_enrichment,language_words
+  --stop-after-init --no-http` — 0 errors; all menuitems / templates registered.
+- [x] HTTP probes with a logged-in session cookie:
+  `/my` → 200 (quick-actions card visible),
+  `/my/profile` → 200 (form renders),
+  `/my/profile` POST with `native_language=en&default_source_language=en&learning_languages=en&learning_languages=uk`
+  → 200 + "Preferences saved" alert,
+  `/my/vocabulary`, `/my/vocabulary/new`, `/my/vocabulary/shared` → 200.
+- [x] 71 tests still pass after the changes (`language_security 3 +
+  language_core 4 + language_words 29 + language_translation 18 +
+  language_enrichment 17`).
+
+#### Fixes during the discoverability pass
+
+- **QWeb loop variable collision on `/my/profile`.** First render crashed with
+  `AttributeError: 'language.lang' object has no attribute 'replace'` coming from
+  the frontend layout (`lang.replace('_', '-')`). Root cause: the profile
+  template used `t-foreach="all_langs" t-as="lang"`, which shadowed the reserved
+  `lang` context variable Odoo's frontend layout uses for locale URL handling.
+  Fix: renamed the loop variable to `lrec` everywhere in the template.
+
+#### Known limitations at M4 exit
+
+- **LLM is in stub mode.** `llm_ready:false` in the health check; `_enrich()`
+  falls back to `[stub:src→lang] ...` synonyms/antonyms/examples/explanation.
+  Real inference requires wiring `_init_llm()` to a CPU-safe model (Qwen2.5
+  1.5B–3B via `llama-cpp-python` or `transformers`) and adding deps to a
+  `requirements-full.txt` + rebuild. Documented in ADR-026 and in
+  `services/llm/main.py` docstring.
+- **Website root (`/`) still redirects to `/odoo`.** There is no branded public
+  Lexora landing page yet. `website_require_login` is installed but the website
+  layout has not been productized. Out of M4 scope (see preflight gap #5) —
+  belongs with the posts/articles surface in M7.
+- **Backend Translations / Enrichments menus are admin-only.** Portal users
+  still see status only through the vocabulary list badges and the entry detail
+  page. No `/my/jobs` surface; SPEC does not require one.
+- **Portal profile page does not let users add new languages** beyond
+  `{en, uk, el}`; the MVP language set is fixed. `language.lang` is a lookup
+  model (ADR-020) — adding codes requires a seed change.
+- **One-minute cron latency between completion and Odoo pickup** persists from
+  M3 (ADR-023). Enrichment results appear within ~1 minute on the entry detail
+  page after the LLM service publishes the completed event.
+
 #### Blockers
 
 (none)
 
 ---
-
-## Completed Milestones
 
 ### M3 — Translation Service
 

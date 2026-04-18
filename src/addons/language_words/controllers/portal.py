@@ -72,6 +72,55 @@ class VocabularyPortal(CustomerPortal):
         return values
 
     # ------------------------------------------------------------------
+    # Portal profile  GET/POST /my/profile
+    # ------------------------------------------------------------------
+
+    @http.route('/my/profile', type='http', auth='user', website=True,
+                methods=['GET', 'POST'])
+    def vocabulary_profile(self, **post):
+        """Portal page for editing the user's language preferences.
+
+        Needed for M3 auto-translation to work end-to-end without an admin
+        touching the backend: users set their own learning_languages here.
+        """
+        Profile = request.env['language.user.profile'].sudo()
+        profile = Profile._get_or_create_for_user(request.env.uid)
+        Lang = request.env['language.lang'].sudo()
+        all_langs = Lang.search([], order='code')
+
+        error = None
+        saved = False
+        if request.httprequest.method == 'POST':
+            native = post.get('native_language') or False
+            default_src = post.get('default_source_language') or False
+            learning_codes = request.httprequest.form.getlist('learning_languages')
+            is_shared_list = bool(post.get('is_shared_list'))
+            valid_codes = {'en', 'uk', 'el'}
+
+            if native and native not in valid_codes:
+                error = 'Invalid native language.'
+            elif default_src and default_src not in valid_codes:
+                error = 'Invalid default source language.'
+            else:
+                lang_records = Lang.search([('code', 'in', learning_codes)])
+                profile.write({
+                    'native_language': native,
+                    'default_source_language': default_src,
+                    'learning_languages': [(6, 0, lang_records.ids)],
+                    'is_shared_list': is_shared_list,
+                })
+                saved = True
+
+        return request.render('language_words.portal_profile', {
+            'page_name': 'profile',
+            'profile': profile,
+            'all_langs': all_langs,
+            'lang_names': LANG_NAMES,
+            'error': error,
+            'saved': saved,
+        })
+
+    # ------------------------------------------------------------------
     # Vocabulary list  GET /my/vocabulary
     # ------------------------------------------------------------------
 

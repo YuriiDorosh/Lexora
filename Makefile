@@ -333,7 +333,7 @@ LLM_CONTAINER = llm_service
 ANKI_CONTAINER = anki_service
 AUDIO_CONTAINER = audio_service
 
-.PHONY: up-dev down-dev \
+.PHONY: up-dev down-dev logs-dev ps-dev \
         up-rabbitmq down-rabbitmq logs-rabbitmq \
         up-translation down-translation up-translation-no-cache logs-translation \
         up-llm down-llm up-llm-no-cache logs-llm \
@@ -361,6 +361,30 @@ down-dev:
 	$(DC) -f docker_compose/redis/docker-compose.yml down
 	$(DC) -f docker_compose/rabbitmq/docker-compose.yml down
 	$(MAKE) down-db
+
+# List every container that belongs to the dev stack (quick health glance).
+ps-dev:
+	@docker ps --filter "name=^$(DB_CONTAINER)$$" \
+	           --filter "name=^$(APP_CONTAINER)$$" \
+	           --filter "name=^$(NGINX_CONTAINER)$$" \
+	           --filter "name=^$(RABBITMQ_CONTAINER)$$" \
+	           --filter "name=^$(REDIS_CONTAINER)$$" \
+	           --filter "name=^$(TRANSLATION_CONTAINER)$$" \
+	           --filter "name=^$(LLM_CONTAINER)$$" \
+	           --filter "name=^$(ANKI_CONTAINER)$$" \
+	           --filter "name=^$(AUDIO_CONTAINER)$$" \
+	           --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'
+
+# Tail the last 50 lines of every dev-stack container's log.
+# Useful when diagnosing cross-service issues (e.g. RabbitMQ event flow).
+logs-dev:
+	@for c in $(DB_CONTAINER) $(APP_CONTAINER) $(NGINX_CONTAINER) \
+	         $(RABBITMQ_CONTAINER) $(REDIS_CONTAINER) \
+	         $(TRANSLATION_CONTAINER) $(LLM_CONTAINER) \
+	         $(ANKI_CONTAINER) $(AUDIO_CONTAINER); do \
+	    echo "───────── $$c ─────────"; \
+	    docker logs --tail 50 $$c 2>&1 || echo "(container $$c not running)"; \
+	done
 
 # === RabbitMQ ===
 up-rabbitmq:

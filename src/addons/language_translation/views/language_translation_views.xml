@@ -59,4 +59,10 @@
         <field name="context">{'search_default_group_entry': 1}</field>
     </record>
 
+    <menuitem id="menu_lexora_translations"
+              name="Translations"
+              parent="language_words.menu_lexora_root"
+              action="action_language_translation"
+              sequence="30"/>
+
 </odoo>

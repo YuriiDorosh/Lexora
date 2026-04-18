@@ -2,7 +2,7 @@
 <odoo>
 
     <!-- ============================================================
-         Portal home — add "My Vocabulary" widget
+         Portal home — add "My Vocabulary" widget + Lexora quick links
     ============================================================ -->
     <template id="portal_my_home_vocabulary" inherit_id="portal.portal_my_home">
         <xpath expr="//div[hasclass('o_portal_docs')]" position="inside">
@@ -11,6 +11,26 @@
                 <t t-set="url" t-value="'/my/vocabulary'"/>
                 <t t-set="count" t-value="entry_count"/>
             </t>
+        </xpath>
+    </template>
+
+    <template id="portal_my_home_lexora_quicklinks" inherit_id="portal.portal_my_home">
+        <xpath expr="//div[hasclass('o_portal_docs')]" position="before">
+            <div class="card mb-3">
+                <div class="card-body py-3">
+                    <h5 class="card-title mb-2">Lexora — quick actions</h5>
+                    <p class="card-text text-muted small mb-2">
+                        Build your vocabulary, browse shared entries, and set which
+                        languages you are learning so translations happen automatically.
+                    </p>
+                    <div class="d-flex flex-wrap gap-2">
+                        <a href="/my/vocabulary" class="btn btn-sm btn-primary">My Vocabulary</a>
+                        <a href="/my/vocabulary/new" class="btn btn-sm btn-outline-primary">+ Add entry</a>
+                        <a href="/my/vocabulary/shared" class="btn btn-sm btn-outline-secondary">Browse shared</a>
+                        <a href="/my/profile" class="btn btn-sm btn-outline-secondary">Language preferences</a>
+                    </div>
+                </div>
+            </div>
         </xpath>
     </template>
 
@@ -344,6 +364,116 @@
                     });
                 }());
             </script>
+        </t>
+    </template>
+
+    <!-- ============================================================
+         Language preferences  /my/profile
+    ============================================================ -->
+    <template id="portal_profile" name="Language Preferences">
+        <t t-call="portal.portal_layout">
+            <div class="container mt-4" style="max-width: 700px;">
+                <nav aria-label="breadcrumb">
+                    <ol class="breadcrumb">
+                        <li class="breadcrumb-item"><a href="/my">My Account</a></li>
+                        <li class="breadcrumb-item active">Language Preferences</li>
+                    </ol>
+                </nav>
+
+                <div class="card mt-3 shadow-sm">
+                    <div class="card-header bg-white py-3">
+                        <h5 class="mb-0 fw-bold">Language Preferences</h5>
+                        <small class="text-muted">Configure your learning languages to enable
+                            automatic translations on every new entry.</small>
+                    </div>
+                    <div class="card-body px-4 py-3">
+                        <t t-if="error">
+                            <div class="alert alert-danger"><t t-esc="error"/></div>
+                        </t>
+                        <t t-if="saved and not error">
+                            <div class="alert alert-success py-2">
+                                Preferences saved. New entries will be translated into your
+                                selected learning languages automatically.
+                            </div>
+                        </t>
+
+                        <form method="post" action="/my/profile">
+                            <input type="hidden" name="csrf_token" t-att-value="request.csrf_token()"/>
+
+                            <div class="mb-3">
+                                <label for="native_language" class="form-label fw-bold">Native language</label>
+                                <select id="native_language" name="native_language" class="form-select">
+                                    <option value="">— not set —</option>
+                                    <t t-foreach="[('en','English'),('uk','Ukrainian'),('el','Greek')]" t-as="opt">
+                                        <option t-att-value="opt[0]"
+                                                t-att-selected="'selected' if profile.native_language == opt[0] else None">
+                                            <t t-esc="opt[1]"/>
+                                        </option>
+                                    </t>
+                                </select>
+                            </div>
+
+                            <div class="mb-3">
+                                <label class="form-label fw-bold">Learning languages</label>
+                                <div class="form-text mb-1">
+                                    Pick every language you want automatic translations into.
+                                    Every new entry you add is translated into each of these.
+                                </div>
+                                <t t-set="profile_codes" t-value="profile.learning_languages.mapped('code')"/>
+                                <t t-foreach="all_langs" t-as="lrec">
+                                    <div class="form-check form-check-inline">
+                                        <input class="form-check-input"
+                                               type="checkbox"
+                                               name="learning_languages"
+                                               t-att-id="'learn_%s' % lrec.code"
+                                               t-att-value="lrec.code"
+                                               t-att-checked="'checked' if lrec.code in profile_codes else None"/>
+                                        <label class="form-check-label" t-att-for="'learn_%s' % lrec.code">
+                                            <t t-esc="lang_names.get(lrec.code, lrec.name)"/>
+                                        </label>
+                                    </div>
+                                </t>
+                            </div>
+
+                            <div class="mb-3">
+                                <label for="default_source_language" class="form-label fw-bold">
+                                    Default source language
+                                </label>
+                                <select id="default_source_language" name="default_source_language" class="form-select">
+                                    <option value="">— not set —</option>
+                                    <t t-foreach="[('en','English'),('uk','Ukrainian'),('el','Greek')]" t-as="opt">
+                                        <option t-att-value="opt[0]"
+                                                t-att-selected="'selected' if profile.default_source_language == opt[0] else None">
+                                            <t t-esc="opt[1]"/>
+                                        </option>
+                                    </t>
+                                </select>
+                                <div class="form-text">
+                                    Used as a fallback when auto-detection of a typed entry is ambiguous.
+                                </div>
+                            </div>
+
+                            <div class="mb-3 form-check">
+                                <input type="checkbox" id="is_shared_list" name="is_shared_list"
+                                       value="1" class="form-check-input"
+                                       t-att-checked="'checked' if profile.is_shared_list else None"/>
+                                <label for="is_shared_list" class="form-check-label">
+                                    Share my whole vocabulary list with the community
+                                </label>
+                                <div class="form-text">
+                                    Off by default. You can also mark individual entries as shared
+                                    from their detail page.
+                                </div>
+                            </div>
+
+                            <div class="d-flex gap-2">
+                                <button type="submit" class="btn btn-primary">Save preferences</button>
+                                <a href="/my/vocabulary" class="btn btn-outline-secondary">Back to vocabulary</a>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
         </t>
     </template>
 
