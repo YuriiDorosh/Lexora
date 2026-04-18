@@ -46,16 +46,28 @@ persistent import log, audio extraction from `.apkg` media bundles.
 
 **Phase 2 — Odoo RabbitMQ wiring**
 
-- [ ] M5-05 · Add `anki.import.requested` publisher method on `language.anki.job`
-  — calls `RabbitMQPublisher.publish()` with job_id, user_id, source_language code,
-  entry_type, file_format, field_mapping, and the base64-encoded file bytes.
-- [ ] M5-06 · Add result consumer cron (`anki.import.completed` /
-  `anki.import.failed`) in `language_core` or as a new cron in `language_anki_jobs`.
-  Dispatches to `_handle_completed()` / `_handle_failed()` by job_id lookup.
-- [ ] M5-07 · On `anki.import.completed`, create `language.entry` records for each
-  new entry in the payload (using existing dedup — `create()` will reject duplicates
-  with `ValidationError`, count them as skipped). For audio items, create
-  `language.audio` records with `audio_type='imported'`.
+- [x] M5-05 · `action_publish_import()` on `language.anki.job`:
+  - Guards: raises `UserError` if `file_data` is absent.
+  - Payload: `job_id`, `user_id`, `source_language` (ISO code from `source_language_id.code`),
+    `entry_type`, `file_format`, `field_mapping`, `file_data` (base64 string).
+  - Calls `RabbitMQPublisher(self.env).publish('anki.import.requested', payload, job_id)`.
+  - Sets `status='processing'` and clears `file_data` after dispatch (SPEC §7).
+  - Added `file_data` (Binary, `attachment=False`) and `file_name` (Char companion) fields.
+- [x] M5-06 · `action_consume_results()` drains `anki.import.completed` and
+  `anki.import.failed` via `RabbitMQConsumer.drain()`. Cron `ir_cron_anki.xml` runs
+  every 1 minute, dispatches by job_id lookup via `_find_by_job_id()`. Both handlers
+  follow the exact same pattern as `language_translation` and `language_enrichment`
+  (idempotency guard: no-op if already in a terminal state).
+- [x] M5-07 · `_handle_completed(job_id, payload)` creates `language.entry` records:
+  - Iterates `payload['entries']`; each entry wrapped in `self.env.cr.savepoint()`.
+  - `ValidationError` (dedup) → `count_skipped++`, appends `{reason:'duplicate'}` to
+    `skipped_details`.
+  - Other exceptions → `count_failed++`, detail logged.
+  - `parse_errors` from service counted as `count_failed` directly.
+  - `_create_audio_records()` called if `audio_data` present; gracefully skips if
+    `language.audio` model not installed (pre-M6).
+  - 16 tests green: 5 Phase-1 basics + 4 publisher + 7 consumer/handler tests.
+  - Module installs clean: 120 queries, 0 errors. Cron registered in DB.
 
 **Phase 3 — Anki service**
 

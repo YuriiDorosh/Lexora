@@ -9,6 +9,7 @@
     'data': [
         'security/ir.model.access.csv',
         'views/language_anki_job_views.xml',
+        'data/ir_cron_anki.xml',
     ],
     'installable': True,
     'auto_install': False,
