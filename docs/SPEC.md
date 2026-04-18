@@ -215,14 +215,16 @@ Import logs are stored **persistently**; users can review them later.
 - Triggered automatically after manual entry save (to all user learning languages).
 - Triggered automatically after "copy to my list" save.
 - Can be manually re-triggered from the entry detail page.
-- Uses **Argos Translate** (offline). Note: no direct uk↔el model exists; routing is uk→en→el (two-hop). Quality limitation documented.
+- Uses **`deep_translator`** (online API wrapper, ADR-028). Default provider: Google Translate (no API key required). Fallback provider: MyMemory (auto-used on primary error or timeout). Provider, timeout, and fallback are env-configurable; swapping to DeepL / Google Cloud / Azure Translator requires a one-line change.
+- **Internet dependency:** the Translation Service requires outbound HTTPS to the configured provider. An air-gapped deployment can set `TRANSLATE_PROVIDER=mymemory` or configure an offline provider — see `env.example` for guidance.
+- All three MVP language pairs (en↔uk, en↔el, uk↔el) are handled directly — no two-hop routing. OD-2 (Argos uk↔el quality) is closed by removal of Argos.
 - Events: `translation.requested` → `translation.completed` / `translation.failed`.
 - Each translation direction is a separate `language.translation` record with its own job.
 
 ### 4.4 LLM Enrichment
 
 - User-triggered from the entry detail page (not automatic).
-- Enriches in the context of the entry's source language.
+- Enriches **always in the entry's source language** — enrichment is not a translation path. Synonyms, antonyms, example sentences, and the explanation are all produced in the same language as the input term. Cross-lingual output is not a supported feature (ADR-028).
 - Produces: synonyms (JSON list), antonyms (JSON list), 3–7 example sentences (JSON list), short explanation (text).
 - Model: CPU-first. Recommended: Qwen2.5 1.5B–3B (≤3 GB RAM, fast on CPU). Qwen3 8B INT4 via llama.cpp is supported on ≥16 GB RAM machines. No GPU required. Greek support may be weaker; documented as a known limitation.
 - If model unavailable or generation fails: show retry button + error badge on the entry.
@@ -388,6 +390,7 @@ Implemented in SQL/Postgres. No Elasticsearch in MVP.
 | PvP profile / leaderboard | Public (battle stats only) | No vocabulary exposure |
 | Import job logs | Private to owner | Not shared |
 | Audio recordings | Private to owner | Not exposed separately |
+| Translation requests | Entry text sent to third-party provider (Google/MyMemory) | Provider logs may retain text per their own privacy policy; acceptable for MVP public vocabulary |
 
 When user B copies an entry from user A's shared list:
 - A new `language.entry` is created owned by B.
@@ -423,7 +426,7 @@ GDPR right-to-erasure is a **real requirement direction** for this product. The 
 | # | Decision | Notes |
 |---|---|---|
 | OD-1 | `type` in dedup key | Current: excluded. Revisit if user data shows frequent type-collision confusion. |
-| OD-2 | Argos Translate uk↔el quality | Two-hop routing. If quality is unacceptable, consider alternative offline library. |
+| OD-2 | ~~Argos Translate uk↔el quality~~ | **Closed (M4c).** Argos removed; `deep_translator` handles uk↔el directly via Google/MyMemory. Two-hop routing no longer applies. |
 | OD-3 | Greek TTS quality | piper/espeak-ng Greek support is thin. May need a different engine or documented limitation. |
 | OD-4 | Auto-enrichment on save | Currently manual. Could be a user-level toggle. |
 | OD-5 | PvP skill-based matchmaking | Future enhancement after ELO/win-rate data accumulates. |

@@ -15,6 +15,9 @@ services:
       RABBITMQ_VHOST: ${RABBITMQ_VHOST:-/}
       RABBITMQ_USER: ${RABBITMQ_USER:-guest}
       RABBITMQ_PASSWORD: ${RABBITMQ_PASS:-guest}
+      TRANSLATE_PROVIDER: ${TRANSLATE_PROVIDER:-google}
+      TRANSLATE_FALLBACK_PROVIDER: ${TRANSLATE_FALLBACK_PROVIDER:-mymemory}
+      TRANSLATE_TIMEOUT_SECONDS: ${TRANSLATE_TIMEOUT_SECONDS:-10}
     networks:
       - backend
     # RabbitMQ is in a separate compose file; connection_attempts in pika handles retries.

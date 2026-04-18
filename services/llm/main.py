@@ -150,17 +150,17 @@ _SYSTEM_PROMPT = (
     '"antonyms" (array of 2-4 short strings, can be empty if none exist), '
     '"example_sentences" (array of 3-5 short sentences using the term in context), '
     '"explanation" (a one-paragraph string, 1-3 sentences). '
-    "All values must be written in the requested target language. "
+    "CRITICAL: Output ONLY in the SAME language as the input term. "
+    "Do NOT translate. Do NOT switch to another language. "
     "Keep every string short. Do not add commentary, markdown, or code fences."
 )
 
 
 def _build_user_prompt(source_text: str, source_language: str, language: str) -> str:
-    src = LANG_NAMES.get(source_language, source_language)
-    tgt = LANG_NAMES.get(language, language)
+    lang_name = LANG_NAMES.get(language, language)
     return (
-        f"Source term ({src}): {source_text!r}\n"
-        f"Target language for every output value: {tgt}.\n\n"
+        f"Term ({lang_name}): {source_text!r}\n"
+        f"Enrich this term. All output values must be in {lang_name} only.\n\n"
         "Return the JSON object now."
     )
 
