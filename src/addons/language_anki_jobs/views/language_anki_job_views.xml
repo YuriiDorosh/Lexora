@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- List view -->
+    <record id="view_language_anki_job_list" model="ir.ui.view">
+        <field name="name">language.anki.job.list</field>
+        <field name="model">language.anki.job</field>
+        <field name="arch" type="xml">
+            <list string="Anki Import Jobs" decoration-success="status == 'completed'"
+                  decoration-danger="status == 'failed'"
+                  decoration-muted="status == 'processing'">
+                <field name="create_date" string="Imported At"/>
+                <field name="user_id"/>
+                <field name="filename"/>
+                <field name="file_format"/>
+                <field name="source_language_id"/>
+                <field name="entry_type"/>
+                <field name="status"/>
+                <field name="count_created" string="Created"/>
+                <field name="count_skipped" string="Skipped"/>
+                <field name="count_failed" string="Failed"/>
+            </list>
+        </field>
+    </record>
+
+    <!-- Form view -->
+    <record id="view_language_anki_job_form" model="ir.ui.view">
+        <field name="name">language.anki.job.form</field>
+        <field name="model">language.anki.job</field>
+        <field name="arch" type="xml">
+            <form string="Anki Import Job">
+                <header>
+                    <field name="status" widget="statusbar"
+                           statusbar_visible="pending,processing,completed,failed"/>
+                </header>
+                <sheet>
+                    <group>
+                        <group string="Import Info">
+                            <field name="user_id"/>
+                            <field name="filename"/>
+                            <field name="file_format"/>
+                            <field name="source_language_id"/>
+                            <field name="entry_type"/>
+                            <field name="job_id"/>
+                        </group>
+                        <group string="Results">
+                            <field name="count_created"/>
+                            <field name="count_skipped"/>
+                            <field name="count_failed"/>
+                        </group>
+                    </group>
+                    <group string="Field Mapping"
+                           invisible="file_format != 'apkg'">
+                        <field name="field_mapping" nolabel="1"/>
+                    </group>
+                    <group string="Error" invisible="not error_message">
+                        <field name="error_message" nolabel="1"/>
+                    </group>
+                    <group string="Details Log (JSON)" invisible="not details_log">
+                        <field name="details_log" nolabel="1"/>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <!-- Action -->
+    <record id="action_language_anki_job" model="ir.actions.act_window">
+        <field name="name">Anki Import Jobs</field>
+        <field name="res_model">language.anki.job</field>
+        <field name="view_mode">list,form</field>
+        <field name="context">{'search_default_group_by_status': 1}</field>
+    </record>
+
+    <!-- Menu item -->
+    <menuitem
+        id="menu_language_anki_jobs"
+        name="Anki Imports"
+        parent="language_words.menu_lexora_root"
+        action="action_language_anki_job"
+        sequence="50"
+        groups="language_security.group_language_admin"/>
+
+</odoo>

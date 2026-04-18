@@ -1,1 +1,3 @@
 id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_language_anki_job_user,language.anki.job user,model_language_anki_job,language_security.group_language_user,1,1,1,0
+access_language_anki_job_admin,language.anki.job admin,model_language_anki_job,language_security.group_language_admin,1,1,1,1
