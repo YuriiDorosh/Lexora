@@ -15,9 +15,166 @@
 
 ## Current Milestone
 
-None in progress. M4b complete on the dev host — awaiting confirmation to
-commit + merge and, separately, first server-side deploy for authoritative
-latency measurements.
+### M4c — Translation / Enrichment responsibility split
+
+**Status:** Planned, not yet started.
+**Planned start:** awaiting branch creation (`m4c`, off `main` once `m4b` is
+merged). **Do not start coding on any other branch.**
+**Branch:** `m4c`
+
+**Scope (ADR-028):** M4b confirmed that the local 1.5B LLM produces wrong
+Ukrainian translations (`strut → труси`, `arrogant → арган`, `vice versa →
+Віка універсальна`). Upgrading to 3B/8B is not feasible on the 8 GiB AVX-only
+target server. The pivot:
+
+1. **LLM service stays exclusively on enrichment** — synonyms, antonyms,
+   example sentences, and explanation, **always in the entry's source
+   language**. No cross-lingual output. No translation.
+2. **Translation service switches to `deep_translator`** — free online API
+   wrapper. Default provider: Google Translate (no API key). Fallback:
+   MyMemory. Provider, timeout, and fallback are env-configurable so a
+   production swap to DeepL / Google Cloud / Azure is a one-line change.
+
+Trade-off (must be visible in SPEC §4.3): the Translation service is no
+longer offline. Outbound HTTPS to the configured provider is required.
+Entry text is sent to a third-party; acceptable for MVP (public
+vocabulary), swappable for air-gapped deployments.
+
+**Non-goals for M4c:**
+- Schema changes to `language.translation` / `language.enrichment`.
+- Event name or payload changes.
+- Odoo test changes beyond regression runs.
+- Upgrading the LLM model (1.5B stays).
+
+#### Target server constraints (unchanged from M4b)
+
+- Ubuntu 24.04 KVM · Xeon E5-2680 v2 (AVX-only) · 6 vCPUs @ 2.8 GHz · 8 GiB.
+- Outbound HTTPS expected to be open (if not, `TRANSLATE_PROVIDER=mymemory`
+  or pre-seed an offline provider — documented in env.example).
+
+#### Sub-steps (checkpoint-friendly — each safely stoppable)
+
+**Phase 1 — Planning & decisions (no code yet)**
+
+- [x] M4c-01 · Write ADR-028 in `docs/DECISIONS.md` (pivot rationale, risks,
+  revisit triggers).
+- [x] M4c-02 · Update `docs/PLAN.md` (M4c block, overview table) and
+  `docs/ARCHITECTURE.md` (§3.2 Translation, §3.3 LLM Enrichment, module
+  table, Docker stack table, ASCII diagram).
+- [x] M4c-03 · Open this TASKS.md M4c block (this section).
+- [ ] M4c-04 · User creates and checks out the `m4c` branch. Nothing else
+  happens on `m4b` after this point.
+
+**Phase 2 — Smoke test the library before touching the service**
+
+- [ ] M4c-05 · Pin `deep_translator==1.11.4` into
+  `services/translation/requirements.txt`. Rebuild translation image via
+  `make up-translation-no-cache`. Verify the rebuild + container start
+  still passes `/health`. **Don't change `main.py` yet.**
+- [ ] M4c-06 · Exec into the running container and run a one-shot smoke
+  translation for each of the six pairs:
+
+  ```bash
+  docker exec -it translation_service python - <<'PY'
+  from deep_translator import GoogleTranslator
+  for s,t in [("en","uk"),("en","el"),("uk","en"),("uk","el"),("el","en"),("el","uk")]:
+      out = GoogleTranslator(source=s, target=t).translate("strut")
+      print(f"{s}→{t}: {out}")
+  PY
+  ```
+
+  Record the six outputs in this TASKS.md under a "Smoke results" note.
+  If Google returns `None`/`403`/`429`, verify MyMemory works the same way
+  before proceeding.
+
+**Phase 3 — Real translation path**
+
+- [ ] M4c-07 · Add env vars `TRANSLATE_PROVIDER=google`,
+  `TRANSLATE_FALLBACK_PROVIDER=mymemory`, `TRANSLATE_TIMEOUT_SECONDS=10` to
+  `docker_compose/translation/docker-compose.yml`. Document them in
+  `env.example` with a "restricted-egress" note suggesting
+  `TRANSLATE_PROVIDER=mymemory` as a safer default for locked-down
+  networks.
+- [ ] M4c-08 · Implement `_translate(source_text, source, target)` in
+  `services/translation/main.py`:
+  - Provider dispatch based on `TRANSLATE_PROVIDER` env var.
+  - Apply `TRANSLATE_TIMEOUT_SECONDS` (set on the requests session
+    `deep_translator` uses, or via `socket.setdefaulttimeout`).
+  - On any provider exception: log at WARNING, fall back to
+    `TRANSLATE_FALLBACK_PROVIDER` once.
+  - If both fail: raise the exception so the consumer publishes
+    `translation.failed` with a useful `error_message`.
+  - **Do not** prefix output with `[stub:…]` — remove the stub path.
+- [ ] M4c-09 · Enhance `/health` to report `{"provider": "...", "ready":
+  true/false}` so the portal/ops can distinguish network from code failures.
+
+**Phase 4 — LLM defence-in-depth**
+
+- [ ] M4c-10 · Tighten `_SYSTEM_PROMPT` in `services/llm/main.py` to
+  include an explicit "Output in the SAME language as the input text. Do
+  not translate." rule. Also update `_build_user_prompt()` so that when
+  `source_language == language` (the only case we now trigger), the prompt
+  never mentions a "target" language. This is defence-in-depth — the
+  current code already only passes `source_language`, but hardening the
+  prompt reduces the odds of drift if someone wires a new caller.
+- [ ] M4c-11 · No schema changes. Confirm the Odoo-side
+  `language_enrichment` controller still calls
+  `_enqueue_single(entry, entry.source_language)` (it does — last touched
+  in M4). Record the grep result for future sessions.
+
+**Phase 5 — Verification**
+
+- [ ] M4c-12 · Publish six `translation.requested` events (one per pair)
+  with `source_text="strut"`; fetch `translation.completed`; confirm no
+  result is the literal input and no result is prefixed with `[stub:…]`.
+  Sanity-check uk output is **not** `труси` (the M4b offender).
+- [ ] M4c-13 · Portal click-through: add entry `strut` (en) with
+  profile.learning_languages = [uk, el]. Confirm both translations land on
+  the entry detail page within ~1 minute (cron latency, ADR-023).
+- [ ] M4c-14 · Provider-outage drill: set
+  `TRANSLATE_PROVIDER=mymemory`, restart translation service, rerun the
+  six-pair smoke test, verify identical success path. Restore
+  `TRANSLATE_PROVIDER=google`.
+- [ ] M4c-15 · Run regression:
+  `--update language_translation,language_enrichment --test-enable
+  --no-http` → expected 35 tests green (same as M4b).
+- [ ] M4c-16 · Record end-to-end translation latency (p50 / p95 over 5
+  runs per pair) in the "Known limitations at M4c exit" section. Expected
+  p50: sub-second per call.
+
+**Phase 6 — SPEC + close**
+
+- [ ] M4c-17 · Amend `docs/SPEC.md`:
+  - §4.3: replace "Argos Translate (offline)" with the online-API
+    description; add internet-dependency note; close OD-2 by noting the
+    uk↔el two-hop no longer applies.
+  - §4.4: add "enrichment is always in the entry's source language; no
+    cross-lingual output" sentence.
+  - §5 Privacy: add a bullet that translation payloads transit a
+    third-party provider.
+- [ ] M4c-18 · Archive this M4c block into "Completed Milestones" with a
+  "Known limitations at M4c exit" section (internet dependency; ToS
+  posture; non-determinism; observed latency band).
+- [ ] M4c-19 · Commit on branch `m4c`; open PR against `main` or merge
+  locally per user's choice.
+
+#### Files expected to change (summary for resume)
+
+- `docs/DECISIONS.md` — ADR-028 ✅
+- `docs/ARCHITECTURE.md` — §3.2/§3.3/diagram/module table/Docker table ✅
+- `docs/PLAN.md` — M4c block + overview table row ✅
+- `docs/TASKS.md` — this block (M4c-03) ✅
+- `docs/SPEC.md` — §4.3, §4.4, §5 (M4c-17)
+- `services/translation/requirements.txt` — `deep_translator` (M4c-05)
+- `services/translation/main.py` — real `_translate()` + provider
+  fallback (M4c-08, M4c-09)
+- `docker_compose/translation/docker-compose.yml` — new env (M4c-07)
+- `env.example` — new env + restricted-egress note (M4c-07)
+- `services/llm/main.py` — hardened prompt (M4c-10)
+
+#### Blockers
+
+(none)
 
 ---
 

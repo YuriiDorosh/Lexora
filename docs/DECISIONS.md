@@ -402,3 +402,72 @@ Options: (A) JSON Char field, (B) three Boolean fields, (C) Many2many to a looku
 - `apple` / `en`: ~14 s end-to-end round-trip through RabbitMQ, valid JSON, real synonyms / antonyms / 3 example sentences / 1 explanation paragraph. No `[stub:…]` prefix.
 - `яблуко` / `uk`: ~6.6–7 s round-trip. JSON structure valid. Quality caveat: the 1.5B model repeated a placeholder example sentence ("Яблоко засушено") and rendered the explanation in Russian rather than Ukrainian — consistent with a small multilingual model and already documented in SPEC §4.4 and OD-3. Structure/pipeline is production-valid; quality is the 3B upgrade trigger.
 - Expected server numbers (E5-2680 v2, AVX-only, 2.8 GHz, 6 vCPUs): p50 ≈ 15–40 s per enrichment; record the first real measurement once deployed.
+
+---
+
+## ADR-028: Translation pivot — free online API wrapper; LLM restricted to enrichment
+
+**Status:** Accepted (M4c, 2026-04-18)
+
+**Supersedes (in part):** ADR-024 (translation-service fallback stub while Argos was deferred) — Argos is now removed from the translation path entirely, not just deferred. ADR-023 (cron-based Odoo consumer) and ADR-018 (UUID idempotency) are unchanged.
+
+**Context:** M4b deployed Qwen2.5-1.5B-Instruct Q4_K_M on the 8 GiB target server and confirmed two things:
+
+1. The pipeline works end-to-end (source-language English enrichment is usable).
+2. **Multilingual output is unusable for anything that has to be correct.** Real examples produced during server-side validation:
+
+   | input | produced uk | produced el |
+   |---|---|---|
+   | vice versa | Віка універсальна | αντίστροφα |
+   | prom | Пром | χορός |
+   | arrogant | арган | αλαζόνας |
+   | imminent | Іммінент | επικείμενη |
+   | bedroll | Кошик | κλινοσκεπάσματα |
+   | strut | труси | στρούτ |
+
+   Greek is mostly acceptable. Ukrainian ranges from wrong ("арган") to actively misleading ("труси" = underwear). This is a data-level failure of the 1.5B model's Ukrainian capacity, not a prompt issue. Jumping to 3B or 8B to recover quality is impractical on an AVX-only 8 GiB host (ADR-027).
+
+The other option — Argos Translate — carries its own well-known quality problems for Ukrainian/Greek, has no direct uk↔el model (two-hop routing, OD-2), and each language-pair package is ~150–200 MB on disk.
+
+**Decision:**
+
+1. **LLM Enrichment Service** is restricted to enrichment in the entry's **source language only**. It generates synonyms, antonyms, example sentences, and an explanation, all in the same language as the input. It is not responsible for translation. The service's JSON-output contract and event names are unchanged.
+2. **Translation Service** switches from Argos Translate to a free online translation library. Default backend: **`deep_translator==1.11.4`** (MIT licence) with the `GoogleTranslator` provider. Fallback provider: `MyMemoryTranslator`, used automatically when Google returns a transient error or blocks the source IP.
+3. Provider, per-request timeout, and fallback provider are configurable via env vars (`TRANSLATE_PROVIDER`, `TRANSLATE_TIMEOUT_SECONDS`, `TRANSLATE_FALLBACK_PROVIDER`) so switching to a paid backend (DeepL, Google Cloud, Azure Translator) in production is a one-line change.
+4. The Translation Service remains a RabbitMQ worker. Event names (`translation.requested`, `translation.completed`, `translation.failed`), payload shape, and the `language.translation` state machine on the Odoo side are **unchanged**. Only `_translate()` and `services/translation/requirements.txt` change.
+
+**Reasoning:**
+- LLM-based translation at 1.5B has been empirically shown to be wrong in ways users cannot detect. Quality failures like "труси" for "strut" are not acceptable for a learning app where users trust the translation.
+- Argos keeps the "offline" SPEC commitment but ships demonstrably weak Ukrainian/Greek output and heavy per-pair packages. The offline commitment was a means, not an end.
+- Free community Google Translate wrappers (hit via `deep_translator`) produce production-grade translations for our three MVP languages, with sub-second latency, no API key, and no GPU. This is the highest-quality option available without introducing cost.
+- `deep_translator` cleanly abstracts the provider behind a constructor arg. If Google starts blocking the server's IP, switching to MyMemory or DeepL is a one-line change — the consumer code is provider-agnostic.
+
+**Trade-offs and risks (MUST surface in SPEC and in the portal "Known limitations" section):**
+- **Internet dependency.** The Translation Service now requires outbound HTTPS to the configured provider. SPEC §4.3 must be amended — the "offline" commitment no longer holds for translation. Offline translation becomes a future enhancement, not a default.
+- **ToS and rate limits.** `deep_translator`'s Google backend hits Google's public endpoint without an API key. Google has tolerated this pattern for years but does not formally permit it. The project's event-driven, one-entry-per-job pattern produces single-digit translations per second worst case, well within observed tolerance. If blocked, the MyMemory fallback kicks in automatically. For production, a paid API key is a trivial drop-in.
+- **Privacy.** Entry text is sent to a third-party service. Acceptable for MVP (vocabulary is generally public content) but must be disclosed in SPEC §5. A privacy-sensitive deployment would swap the provider back to an offline engine.
+- **Non-determinism.** Unlike Argos (deterministic), Google/MyMemory may return different text on different days. Translation records are created once per entry/target-language pair (existing UNIQUE constraint); re-runs only happen on explicit retry.
+
+**Alternatives considered and rejected:**
+- **`googletrans`** — historically unmaintained; breaks each time Google updates its endpoint. `deep_translator` is the community successor.
+- **`translators` package** — supports more providers but has a quirkier API, less active changelog, and no clean constructor-level provider switch.
+- **Keep Argos Translate.** Weak Ukrainian/Greek quality, no direct uk↔el pair, heavy image, offline commitment isn't worth the quality tax for MVP.
+- **Translate via the LLM.** The trigger for this ADR.
+- **Paid APIs as default (DeepL / Google Cloud / Azure).** Adds billing + config complexity for MVP. Supported as a future swap via `TRANSLATE_PROVIDER`.
+- **Two-tier: LLM-first, free-API fallback.** Rejected — adds latency and complexity without improving quality.
+
+**Consequences:**
+- `services/translation/requirements.txt` pins `deep_translator==1.11.4`. No Argos packages anywhere.
+- `docker_compose/translation/Dockerfile` stays on `python:3.11-slim` with no extra build tools (deep_translator is pure-Python + `requests`/`beautifulsoup4`, pip wheels only).
+- `docker_compose/translation/docker-compose.yml` gains the `TRANSLATE_*` env vars with defaults.
+- SPEC §4.3 rewritten to describe the online-API approach with the documented fallback chain.
+- SPEC §4.4 clarified: enrichment is always in the entry's source language.
+- OD-2 (Argos uk↔el quality) is resolved by **removal**, not improvement.
+- Odoo-side contracts unchanged; no Odoo module updates required for the pivot.
+- Existing 71 tests remain green (no schema or event change).
+
+**Revisit triggers:**
+- If Google starts rate-limiting or blocking: set `TRANSLATE_PROVIDER=mymemory` (already supported) and record the incident. If MyMemory also fails, acquire a paid Google Cloud / DeepL key and switch to the paid provider.
+- If users report inaccurate translations: evaluate DeepL as a paid drop-in. Its quality for Slavic/Greek is generally better than free Google.
+- If a privacy-sensitive or air-gapped deployment emerges: fork a separate offline translation service; the online path remains the default for the hosted product.
+- If `deep_translator` itself goes unmaintained: `translators` is the second-choice library; the `_translate()` function is small enough to swap in a morning.
