@@ -15,6 +15,111 @@
 
 ## Current Milestone
 
+### M5 — Anki Import Service
+
+**Status:** In progress.
+**Started:** 2026-04-19
+**Branch:** `m5`
+
+**Scope:** End-to-end Anki import flow — portal upload, RabbitMQ event, Anki
+service parsing `.apkg` / `.txt`, dedup via existing `language.entry.create()`,
+persistent import log, audio extraction from `.apkg` media bundles.
+
+#### Sub-steps (checkpoint-friendly)
+
+**Phase 1 — Odoo-side foundation**
+
+- [x] M5-01 · `language.anki.job` model implemented
+  (`src/addons/language_anki_jobs/models/language_anki_job.py`).
+  Inherits `language.job.status.mixin`. Fields: `user_id`, `filename`,
+  `file_format` (apkg/txt), `source_language_id` (Many2one → language.lang),
+  `entry_type` (default type for imported entries), `field_mapping` (JSON),
+  `count_created/skipped/failed`, `details_log` (JSON skipped list).
+  `_handle_completed()` / `_handle_failed()` with idempotency guard.
+  `job_id` auto-set on create.
+- [x] M5-02 · Backend list + form views with status bar and colour coding.
+  `Lexora → Anki Imports` menuitem (admin-only, sequence=50).
+- [x] M5-03 · Security CSV: Language Users can read/write/create (not delete);
+  Admins full CRUD. Module install clean (96 queries, 0 errors).
+- [x] M5-04 · 8 tests green: job_id auto-generation, default status, handle_completed
+  counts + idempotency, handle_failed + idempotency, txt format, unlink denied for user.
+
+**Phase 2 — Odoo RabbitMQ wiring**
+
+- [ ] M5-05 · Add `anki.import.requested` publisher method on `language.anki.job`
+  — calls `RabbitMQPublisher.publish()` with job_id, user_id, source_language code,
+  entry_type, file_format, field_mapping, and the base64-encoded file bytes.
+- [ ] M5-06 · Add result consumer cron (`anki.import.completed` /
+  `anki.import.failed`) in `language_core` or as a new cron in `language_anki_jobs`.
+  Dispatches to `_handle_completed()` / `_handle_failed()` by job_id lookup.
+- [ ] M5-07 · On `anki.import.completed`, create `language.entry` records for each
+  new entry in the payload (using existing dedup — `create()` will reject duplicates
+  with `ValidationError`, count them as skipped). For audio items, create
+  `language.audio` records with `audio_type='imported'`.
+
+**Phase 3 — Anki service**
+
+- [ ] M5-08 · Add `genanki` / `zipfile` parsing to `services/anki/`:
+  - `.apkg`: open zip, read `collection.anki2` SQLite, extract notes
+    (Front/Back auto-detect), extract media files (MP3 only).
+  - `.txt`: TSV two-column parse.
+  - Return JSON: `{entries: [{source_text, translation?}], audio: [{filename, data_b64}], skipped: [...]}`.
+- [ ] M5-09 · Wire RabbitMQ consumer in `services/anki/main.py`:
+  consume `anki.import.requested`, call parser, publish
+  `anki.import.completed` / `anki.import.failed`.
+- [ ] M5-10 · Update `services/anki/requirements.txt` with needed packages.
+
+**Phase 4 — Portal**
+
+- [ ] M5-11 · Portal upload page at `/my/anki` — file upload form: source language
+  dropdown (uk/en/el), entry type dropdown, submit button. On GET renders the form.
+  On POST: validate file size / extension, encode to base64, create the
+  `language.anki.job` record (`status=pending`), publish `anki.import.requested`,
+  redirect to the job detail page.
+- [ ] M5-12 · Field-mapping UI for `.apkg`: if `field_mapping` can't be
+  auto-detected (non-Front/Back deck), show a second step with column selectors
+  before publish.
+- [ ] M5-13 · Import history page at `/my/anki/jobs` — list of user's past jobs with
+  status badges, created/skipped/failed counts, link to detail.
+- [ ] M5-14 · Job detail page at `/my/anki/jobs/<id>` — shows status, counts,
+  collapsible skipped-items list from `details_log`.
+
+**Phase 5 — Verification**
+
+- [ ] M5-15 · Export a test `.apkg` from Anki (simple 10-card deck) and import via
+  portal: confirm 10 entries created, translations auto-queued.
+- [ ] M5-16 · Re-import the same `.apkg` → 0 created, 10 skipped.
+- [ ] M5-17 · Import a `.txt` with 3 rows (2 new, 1 duplicate from step M5-15)
+  → 2 created, 1 skipped.
+- [ ] M5-18 · Import log visible in portal: all three jobs listed, counts correct,
+  skipped list reviewable.
+- [ ] M5-19 · If `.apkg` contains MP3: verify `language.audio` records created with
+  `audio_type='imported'`.
+- [ ] M5-20 · Run full regression: `--update language_anki_jobs --test-enable
+  --no-http` → all tests green (target: 8 new + 71 prior = 79 total).
+
+#### Files expected to change
+
+- `src/addons/language_anki_jobs/models/language_anki_job.py` ✅
+- `src/addons/language_anki_jobs/models/__init__.py` ✅
+- `src/addons/language_anki_jobs/views/language_anki_job_views.xml` ✅
+- `src/addons/language_anki_jobs/security/ir.model.access.csv` ✅
+- `src/addons/language_anki_jobs/__manifest__.py` ✅
+- `src/addons/language_anki_jobs/tests/` ✅
+- `src/addons/language_anki_jobs/controllers/portal.py` (M5-11+)
+- `src/addons/language_anki_jobs/views/portal_anki.xml` (M5-11+)
+- `services/anki/main.py` (M5-08/09)
+- `services/anki/requirements.txt` (M5-10)
+- `docs/TASKS.md` (this file)
+
+#### Blockers
+
+(none)
+
+---
+
+## Completed Milestones
+
 ### M4c — Translation / Enrichment responsibility split
 
 **Status:** Complete and verified on dev host.

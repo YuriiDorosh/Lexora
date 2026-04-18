@@ -5,9 +5,10 @@
     'summary': 'Anki import job lifecycle and persistent import logs',
     'author': 'Lexora',
     'license': 'LGPL-3',
-    'depends': ['language_words'],
+    'depends': ['language_words', 'language_security'],
     'data': [
         'security/ir.model.access.csv',
+        'views/language_anki_job_views.xml',
     ],
     'installable': True,
     'auto_install': False,
