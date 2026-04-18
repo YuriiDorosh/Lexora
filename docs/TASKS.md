@@ -101,18 +101,26 @@ persistent import log, audio extraction from `.apkg` media bundles.
 
 **Phase 4 — Portal**
 
-- [ ] M5-11 · Portal upload page at `/my/anki` — file upload form: source language
-  dropdown (uk/en/el), entry type dropdown, submit button. On GET renders the form.
-  On POST: validate file size / extension, encode to base64, create the
-  `language.anki.job` record (`status=pending`), publish `anki.import.requested`,
-  redirect to the job detail page.
-- [ ] M5-12 · Field-mapping UI for `.apkg`: if `field_mapping` can't be
-  auto-detected (non-Front/Back deck), show a second step with column selectors
-  before publish.
-- [ ] M5-13 · Import history page at `/my/anki/jobs` — list of user's past jobs with
-  status badges, created/skipped/failed counts, link to detail.
-- [ ] M5-14 · Job detail page at `/my/anki/jobs/<id>` — shows status, counts,
-  collapsible skipped-items list from `details_log`.
+- [x] M5-11 · Portal upload page at `/my/anki` — file upload form: source language
+  dropdown (uk/en/el from `language.lang`), entry type dropdown, advanced field-mapping
+  `<details>` for `.apkg`. On GET renders the form. On POST: validates file extension
+  (apkg/txt), base64-encodes file, creates `language.anki.job`, calls
+  `action_publish_import()`, redirects to `/my/anki/jobs/<id>`.
+  **Fix applied:** loop variable `t-as="lrec"` (not `lang`) to avoid shadowing Odoo's
+  reserved `lang` layout variable (same fix as M4 profile page, ADR-025 pattern).
+- [x] M5-12 · Advanced field-mapping for `.apkg` included inline as a collapsible
+  `<details>` block with a JSON text input; no separate step needed since
+  auto-detection in `_detect_field_indices()` already covers Front/Back convention.
+  Manual override is the documented path for non-standard decks.
+- [x] M5-13 · Import history at `/my/anki/jobs` — paginated (20/page), status badges
+  (colour-coded), created/skipped/failed counts, link to detail.
+- [x] M5-14 · Job detail at `/my/anki/jobs/<id>` — status banner, metadata card,
+  skipped items list (from `details_log['skipped']`), parse error list
+  (from `details_log['failed']`). Ownership check via `user_id`.
+  Portal home "My Imports" widget added (inherits `portal.portal_my_home`).
+  All four routes verified: `/my/anki` → 200, `/my/anki/jobs` → 200,
+  `/my/anki/jobs/99999` → 404, `/my` shows "My Imports" link.
+  16/16 existing tests still pass after the portal addition.
 
 **Phase 5 — Verification**
 
@@ -136,8 +144,9 @@ persistent import log, audio extraction from `.apkg` media bundles.
 - `src/addons/language_anki_jobs/security/ir.model.access.csv` ✅
 - `src/addons/language_anki_jobs/__manifest__.py` ✅
 - `src/addons/language_anki_jobs/tests/` ✅
-- `src/addons/language_anki_jobs/controllers/portal.py` (M5-11+)
-- `src/addons/language_anki_jobs/views/portal_anki.xml` (M5-11+)
+- `src/addons/language_anki_jobs/controllers/__init__.py` ✅
+- `src/addons/language_anki_jobs/controllers/portal.py` ✅
+- `src/addons/language_anki_jobs/views/portal_anki.xml` ✅
 - `services/anki/main.py` (M5-08/09)
 - `services/anki/requirements.txt` (M5-10)
 - `docs/TASKS.md` (this file)

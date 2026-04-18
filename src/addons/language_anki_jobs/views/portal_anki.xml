@@ -1,0 +1,307 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- ============================================================
+         Portal home — "My Imports" widget
+    ============================================================ -->
+    <template id="portal_my_home_anki" inherit_id="portal.portal_my_home">
+        <xpath expr="//div[hasclass('o_portal_docs')]" position="inside">
+            <t t-call="portal.portal_docs_entry">
+                <t t-set="title">My Imports</t>
+                <t t-set="url" t-value="'/my/anki/jobs'"/>
+                <t t-set="count" t-value="anki_job_count"/>
+            </t>
+        </xpath>
+    </template>
+
+    <!-- ============================================================
+         Upload form  /my/anki
+    ============================================================ -->
+    <template id="portal_anki_upload" name="Import Anki Deck">
+        <t t-call="portal.portal_layout">
+            <div class="container mt-4" style="max-width: 680px;">
+                <nav aria-label="breadcrumb">
+                    <ol class="breadcrumb">
+                        <li class="breadcrumb-item"><a href="/my">Home</a></li>
+                        <li class="breadcrumb-item"><a href="/my/anki/jobs">My Imports</a></li>
+                        <li class="breadcrumb-item active">Upload Deck</li>
+                    </ol>
+                </nav>
+
+                <h3 class="mb-4">Import Anki Deck</h3>
+
+                <t t-if="error">
+                    <div class="alert alert-danger" role="alert">
+                        <t t-esc="error"/>
+                    </div>
+                </t>
+
+                <form method="post" action="/my/anki" enctype="multipart/form-data">
+                    <input type="hidden" name="csrf_token" t-att-value="request.csrf_token()"/>
+
+                    <!-- File upload -->
+                    <div class="mb-3">
+                        <label class="form-label fw-medium" for="deck_file">Deck file</label>
+                        <input type="file" class="form-control" id="deck_file" name="deck_file"
+                               accept=".apkg,.txt" required="required"/>
+                        <div class="form-text">Supported formats: <strong>.apkg</strong> (Anki package) and <strong>.txt</strong> (tab-separated).</div>
+                    </div>
+
+                    <!-- Source language -->
+                    <div class="mb-3">
+                        <label class="form-label fw-medium" for="source_language_id">Source language</label>
+                        <select class="form-select" id="source_language_id" name="source_language_id" required="required">
+                            <option value="">— select language —</option>
+                            <t t-foreach="languages" t-as="lrec">
+                                <option t-att-value="lrec.id"><t t-esc="lrec.name"/> (<t t-esc="lrec.code"/>)</option>
+                            </t>
+                        </select>
+                        <div class="form-text">The language of the <em>front side</em> / source text in your deck.</div>
+                    </div>
+
+                    <!-- Entry type -->
+                    <div class="mb-3">
+                        <label class="form-label fw-medium" for="entry_type">Entry type</label>
+                        <select class="form-select" id="entry_type" name="entry_type">
+                            <t t-foreach="entry_types" t-as="et">
+                                <option t-att-value="et[0]"><t t-esc="et[1]"/></option>
+                            </t>
+                        </select>
+                    </div>
+
+                    <!-- Field mapping (advanced, .apkg only) -->
+                    <div class="mb-3">
+                        <details>
+                            <summary class="text-muted small" style="cursor: pointer;">Advanced — custom field mapping (.apkg)</summary>
+                            <div class="mt-2">
+                                <div class="form-text mb-2">
+                                    Leave blank to use auto-detection (Front/Back convention). Provide
+                                    JSON to override, e.g. <code>{"source": 0, "translation": 1}</code>.
+                                </div>
+                                <input type="text" class="form-control form-control-sm font-monospace"
+                                       name="field_mapping" placeholder='{"source": 0, "translation": 1}'/>
+                            </div>
+                        </details>
+                    </div>
+
+                    <hr/>
+
+                    <div class="d-flex gap-2">
+                        <button type="submit" class="btn btn-primary">Upload &amp; Import</button>
+                        <a href="/my/anki/jobs" class="btn btn-outline-secondary">View past imports</a>
+                    </div>
+                </form>
+            </div>
+        </t>
+    </template>
+
+    <!-- ============================================================
+         Import history list  /my/anki/jobs
+    ============================================================ -->
+    <template id="portal_anki_jobs_list" name="My Imports">
+        <t t-call="portal.portal_layout">
+            <div class="container mt-4">
+                <nav aria-label="breadcrumb">
+                    <ol class="breadcrumb">
+                        <li class="breadcrumb-item"><a href="/my">Home</a></li>
+                        <li class="breadcrumb-item active">My Imports</li>
+                    </ol>
+                </nav>
+
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h3>My Imports <span class="text-muted fs-6 fw-normal">(<t t-esc="total"/> jobs)</span></h3>
+                    <a href="/my/anki" class="btn btn-primary btn-sm">+ New Import</a>
+                </div>
+
+                <t t-if="not jobs">
+                    <div class="text-center py-5 text-muted">
+                        <p class="mb-2">No import jobs yet.</p>
+                        <a href="/my/anki" class="btn btn-primary btn-sm">Import your first deck</a>
+                    </div>
+                </t>
+
+                <t t-if="jobs">
+                    <table class="table table-hover table-sm">
+                        <thead class="table-light">
+                            <tr>
+                                <th>File</th>
+                                <th>Format</th>
+                                <th>Language</th>
+                                <th>Status</th>
+                                <th class="text-end">Created / Skipped / Failed</th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <t t-foreach="jobs" t-as="job">
+                                <tr>
+                                    <td>
+                                        <a t-att-href="'/my/anki/jobs/%d' % job.id"
+                                           class="text-decoration-none fw-medium">
+                                            <t t-esc="job.filename"/>
+                                        </a>
+                                    </td>
+                                    <td><span class="badge bg-light text-dark border"><t t-esc="job.file_format.upper()"/></span></td>
+                                    <td>
+                                        <t t-if="job.source_language_id">
+                                            <t t-esc="job.source_language_id.name"/>
+                                        </t>
+                                    </td>
+                                    <td>
+                                        <t t-if="job.status == 'pending'">
+                                            <span class="badge bg-secondary">Pending</span>
+                                        </t>
+                                        <t t-elif="job.status == 'processing'">
+                                            <span class="badge bg-info text-dark">Processing…</span>
+                                        </t>
+                                        <t t-elif="job.status == 'completed'">
+                                            <span class="badge bg-success">Completed</span>
+                                        </t>
+                                        <t t-elif="job.status == 'failed'">
+                                            <span class="badge bg-danger">Failed</span>
+                                        </t>
+                                    </td>
+                                    <td class="text-end text-muted small">
+                                        <t t-esc="job.count_created"/> /
+                                        <t t-esc="job.count_skipped"/> /
+                                        <t t-esc="job.count_failed"/>
+                                    </td>
+                                    <td>
+                                        <a t-att-href="'/my/anki/jobs/%d' % job.id"
+                                           class="btn btn-sm btn-outline-secondary">View</a>
+                                    </td>
+                                </tr>
+                            </t>
+                        </tbody>
+                    </table>
+
+                    <t t-if="pager['page_count'] > 1">
+                        <div class="d-flex justify-content-center mt-3">
+                            <t t-call="portal.pager"/>
+                        </div>
+                    </t>
+                </t>
+            </div>
+        </t>
+    </template>
+
+    <!-- ============================================================
+         Job detail  /my/anki/jobs/<id>
+    ============================================================ -->
+    <template id="portal_anki_job_detail" name="Import Job Detail">
+        <t t-call="portal.portal_layout">
+            <div class="container mt-4" style="max-width: 780px;">
+                <nav aria-label="breadcrumb">
+                    <ol class="breadcrumb">
+                        <li class="breadcrumb-item"><a href="/my">Home</a></li>
+                        <li class="breadcrumb-item"><a href="/my/anki/jobs">My Imports</a></li>
+                        <li class="breadcrumb-item active"><t t-esc="job.filename"/></li>
+                    </ol>
+                </nav>
+
+                <div class="d-flex justify-content-between align-items-start mb-3">
+                    <h3><t t-esc="job.filename"/></h3>
+                    <a href="/my/anki" class="btn btn-sm btn-outline-primary">+ New Import</a>
+                </div>
+
+                <!-- Status banner -->
+                <t t-if="job.status == 'processing'">
+                    <div class="alert alert-info">
+                        <strong>Processing…</strong> Your deck is being imported. This page will update within a minute.
+                    </div>
+                </t>
+                <t t-elif="job.status == 'pending'">
+                    <div class="alert alert-secondary">
+                        <strong>Queued.</strong> Import job is waiting to be picked up.
+                    </div>
+                </t>
+                <t t-elif="job.status == 'failed'">
+                    <div class="alert alert-danger">
+                        <strong>Import failed.</strong>
+                        <t t-if="job.error_message">
+                            <br/><span class="font-monospace small"><t t-esc="job.error_message"/></span>
+                        </t>
+                    </div>
+                </t>
+                <t t-elif="job.status == 'completed'">
+                    <div class="alert alert-success">
+                        <strong>Import complete.</strong>
+                        <t t-esc="job.count_created"/> entries created,
+                        <t t-esc="job.count_skipped"/> skipped (duplicates),
+                        <t t-esc="job.count_failed"/> failed to parse.
+                    </div>
+                </t>
+
+                <!-- Job metadata -->
+                <div class="card mb-4">
+                    <div class="card-body">
+                        <dl class="row mb-0 small">
+                            <dt class="col-sm-4 text-muted">Format</dt>
+                            <dd class="col-sm-8"><t t-esc="job.file_format.upper()"/></dd>
+
+                            <dt class="col-sm-4 text-muted">Source language</dt>
+                            <dd class="col-sm-8">
+                                <t t-if="job.source_language_id">
+                                    <t t-esc="job.source_language_id.name"/>
+                                </t>
+                                <t t-else="">—</t>
+                            </dd>
+
+                            <dt class="col-sm-4 text-muted">Entry type</dt>
+                            <dd class="col-sm-8"><t t-esc="job.entry_type"/></dd>
+
+                            <dt class="col-sm-4 text-muted">Submitted</dt>
+                            <dd class="col-sm-8">
+                                <t t-esc="job.create_date" t-options='{"widget": "datetime"}'/>
+                            </dd>
+                        </dl>
+                    </div>
+                </div>
+
+                <!-- Skipped items -->
+                <t t-if="skipped_items">
+                    <h5 class="mt-3">Skipped entries (<t t-esc="len(skipped_items)"/> duplicates)</h5>
+                    <p class="text-muted small">These entries already exist in your vocabulary and were not re-imported.</p>
+                    <ul class="list-group list-group-flush mb-4">
+                        <t t-foreach="skipped_items" t-as="item">
+                            <li class="list-group-item py-1 small">
+                                <t t-if="item.get('source_text')">
+                                    <strong><t t-esc="item['source_text']"/></strong>
+                                    <t t-if="item.get('reason')">
+                                        — <span class="text-muted"><t t-esc="item['reason']"/></span>
+                                    </t>
+                                </t>
+                                <t t-else="">
+                                    <t t-esc="str(item)"/>
+                                </t>
+                            </li>
+                        </t>
+                    </ul>
+                </t>
+
+                <!-- Failed parse items -->
+                <t t-if="failed_items">
+                    <h5 class="mt-3">Parse errors (<t t-esc="len(failed_items)"/> items)</h5>
+                    <p class="text-muted small">These rows could not be parsed and were skipped.</p>
+                    <ul class="list-group list-group-flush mb-4">
+                        <t t-foreach="failed_items" t-as="item">
+                            <li class="list-group-item py-1 small text-danger">
+                                <t t-esc="item.get('reason', str(item))"/>
+                            </li>
+                        </t>
+                    </ul>
+                </t>
+
+                <t t-if="job.status == 'completed' and not skipped_items and not failed_items">
+                    <p class="text-muted small">No skipped or failed entries — clean import.</p>
+                </t>
+
+                <div class="mt-3">
+                    <a href="/my/vocabulary" class="btn btn-sm btn-outline-secondary">Go to My Vocabulary</a>
+                    <a href="/my/anki/jobs" class="btn btn-sm btn-link">All imports</a>
+                </div>
+            </div>
+        </t>
+    </template>
+
+</odoo>
