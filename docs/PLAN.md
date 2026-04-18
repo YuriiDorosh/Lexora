@@ -23,8 +23,10 @@
 | M0 | Infrastructure Foundation | Docker Compose stack boots; Odoo reaches the setup screen |
 | M1 | Core Module Scaffold + Auth | All custom modules installed; signup assigns Language User role |
 | M2 | Learning Entries | Manual add, dedup, visibility, language detection prefill |
-| M3 | Translation Service | Argos Translate integrated; translation events flow end-to-end |
-| M4 | LLM Enrichment Service | Qwen3 enrichment events flow; results visible on entry |
+| M3 | Translation Service | RabbitMQ-backed translation events flow end-to-end (engine choice finalised in M4c) |
+| M4 | LLM Enrichment Service | Enrichment events flow; results visible on entry |
+| M4b | Real CPU-only LLM | Replace enrichment stub with Qwen2.5-1.5B GGUF via llama-cpp-python (CPU-only, ADR-027) — *complete* |
+| M4c | Translation / Enrichment split | Pivot Translation to `deep_translator` (online free API); restrict LLM to source-language enrichment only (ADR-028) |
 | M5 | Anki Import Service | .apkg and .txt import with dedup and persistent import log |
 | M6 | Audio (Recording + TTS) | Record button works; TTS generation via async service |
 | M7 | Posts, Articles, Comments | Draft → review → publish flow; comments with @mentions |
@@ -180,6 +182,68 @@ website_menu_by_user_status,website_require_login \
 # 5. After completion (may take 30–120s on CPU): page shows synonyms, antonyms, examples, explanation
 # 6. Check language.enrichment record: status = completed, fields populated
 ```
+
+---
+
+## M4c — Translation / Enrichment responsibility split
+
+**Status:** Planned (branch `m4c`, follows M4b on `main`).
+
+**Motivation:** M4b deployed Qwen2.5-1.5B on the target server and produced demonstrably wrong Ukrainian translations (e.g. `strut → труси`, `arrogant → арган`, `vice versa → Віка універсальна`). A 1.5B local model cannot be trusted for translation, and upgrading to 3B or 8B is impractical on an 8 GiB AVX-only host (ADR-027). M4c formalises the split documented in ADR-028:
+
+- **LLM service** → enrichment only, always in the entry's source language.
+- **Translation service** → free online API wrapper (`deep_translator`) with provider fallback. Internet-dependent; offline commitment in SPEC §4.3 is dropped.
+
+**Goal:** Translation accuracy matches a production Google-Translate-quality baseline for en/uk/el in all six directions. No Odoo-side schema, event, or test changes. Enrichment behaviour is unchanged in practice (it was already passing `source_language`).
+
+**Work:**
+1. ADR-028 in `docs/DECISIONS.md` ✅ (already landed with this plan).
+2. `docs/SPEC.md`: amend §4.3 to describe the online-API translation path, record the internet dependency, and close OD-2 (Argos uk↔el) by removal. Amend §4.4 to state explicitly that enrichment is source-language-only.
+3. `services/translation/requirements.txt`: add `deep_translator==1.11.4`. Drop the Argos comment block from M3/ADR-024.
+4. `services/translation/main.py`: replace the current stub `_translate()` with a real implementation:
+   - Primary provider via `deep_translator.GoogleTranslator(source=src, target=tgt).translate(text)`.
+   - Timeout enforced with `socket.setdefaulttimeout()` or a requests-level timeout.
+   - On any provider exception → fallback to `MyMemoryTranslator` once, then mark the job `failed`.
+   - Log every provider switch so production can trace blocks / outages.
+   - Retain the existing event shape and the RabbitMQ consumer thread.
+5. `docker_compose/translation/docker-compose.yml`: add env vars `TRANSLATE_PROVIDER=google`, `TRANSLATE_FALLBACK_PROVIDER=mymemory`, `TRANSLATE_TIMEOUT_SECONDS=10`. Propagate to `env.example`.
+6. `docker_compose/translation/Dockerfile`: verify no extra build tooling is required (`deep_translator` is pure Python). Keep `python:3.11-slim`.
+7. `services/llm/main.py`: tighten `_SYSTEM_PROMPT` to "Output in the same language as the input text." The service already only ever receives `source_language`; this is defence-in-depth.
+8. Keep Odoo modules untouched. Do not touch `language.translation` or `language.enrichment` schemas, events, or tests.
+
+**Verification:**
+
+```bash
+# 1. Rebuild translation service with new deps
+make up-translation-no-cache
+curl http://localhost:8001/health
+# → {"status":"ok","service":"translation","provider":"google","ready":true}
+
+# 2. End-to-end via RabbitMQ — all six pairs
+for pair in "en uk" "en el" "uk en" "uk el" "el en" "el uk"; do
+  set -- $pair
+  docker exec rabbitmq rabbitmqadmin --username=guest --password=guest \
+    publish exchange=amq.default routing_key=translation.requested \
+    payload="{\"job_id\":\"m4c-$1-$2\",\"event_type\":\"translation.requested\",\"payload\":{\"entry_id\":9000,\"source_text\":\"apple\",\"source_language\":\"$1\",\"target_language\":\"$2\"}}" \
+    properties='{"content_type":"application/json"}'
+done
+# Fetch translation.completed, confirm real values, no [stub:…] prefix.
+
+# 3. Portal click-through (on dev host or server):
+#    Add entry "strut" (en), profile.learning_languages = [uk, el]
+#    → translation.uk and translation.el appear on the entry detail page
+#    → must be "розпірка/виставлятися" (not "труси") and a correct Greek rendering.
+
+# 4. Regression: existing 71 tests remain green.
+docker exec odoo odoo --config /etc/odoo/odoo.conf -d lexora \
+  --test-enable --no-http --stop-after-init -u language_translation,language_enrichment
+
+# 5. Provider-outage drill:
+#    Temporarily set TRANSLATE_PROVIDER=mymemory, restart service, re-run step 2.
+#    Confirm MyMemory path works. Restore the default.
+```
+
+**Acceptance:** Real en/uk/el translations for all six pairs; no stub output; Odoo-side tests green; provider swap demonstrated.
 
 ---
 

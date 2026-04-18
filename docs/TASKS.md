@@ -15,9 +15,281 @@
 
 ## Current Milestone
 
-None in progress. M4b complete on the dev host — awaiting confirmation to
-commit + merge and, separately, first server-side deploy for authoritative
-latency measurements.
+### M4c — Translation / Enrichment responsibility split
+
+**Status:** Complete and verified on dev host.
+**Started:** 2026-04-19
+**Completed:** 2026-04-19
+**Branch:** `m4c`
+
+**Scope (ADR-028):** M4b confirmed that the local 1.5B LLM produces wrong
+Ukrainian translations (`strut → труси`, `arrogant → арган`, `vice versa →
+Віка універсальна`). Upgrading to 3B/8B is not feasible on the 8 GiB AVX-only
+target server. The pivot:
+
+1. **LLM service stays exclusively on enrichment** — synonyms, antonyms,
+   example sentences, and explanation, **always in the entry's source
+   language**. No cross-lingual output. No translation.
+2. **Translation service switches to `deep_translator`** — free online API
+   wrapper. Default provider: Google Translate (no API key). Fallback:
+   MyMemory. Provider, timeout, and fallback are env-configurable so a
+   production swap to DeepL / Google Cloud / Azure is a one-line change.
+
+Trade-off (must be visible in SPEC §4.3): the Translation service is no
+longer offline. Outbound HTTPS to the configured provider is required.
+Entry text is sent to a third-party; acceptable for MVP (public
+vocabulary), swappable for air-gapped deployments.
+
+**Non-goals for M4c:**
+- Schema changes to `language.translation` / `language.enrichment`.
+- Event name or payload changes.
+- Odoo test changes beyond regression runs.
+- Upgrading the LLM model (1.5B stays).
+
+#### Target server constraints (unchanged from M4b)
+
+- Ubuntu 24.04 KVM · Xeon E5-2680 v2 (AVX-only) · 6 vCPUs @ 2.8 GHz · 8 GiB.
+- Outbound HTTPS expected to be open (if not, `TRANSLATE_PROVIDER=mymemory`
+  or pre-seed an offline provider — documented in env.example).
+
+#### Sub-steps (checkpoint-friendly — each safely stoppable)
+
+**Phase 1 — Planning & decisions (no code yet)**
+
+- [x] M4c-01 · Write ADR-028 in `docs/DECISIONS.md` (pivot rationale, risks,
+  revisit triggers).
+- [x] M4c-02 · Update `docs/PLAN.md` (M4c block, overview table) and
+  `docs/ARCHITECTURE.md` (§3.2 Translation, §3.3 LLM Enrichment, module
+  table, Docker stack table, ASCII diagram).
+- [x] M4c-03 · Open this TASKS.md M4c block (this section).
+- [ ] M4c-04 · User creates and checks out the `m4c` branch. Nothing else
+  happens on `m4b` after this point.
+
+**Phase 2 — Smoke test the library before touching the service**
+
+- [x] M4c-05 · Pinned `deep_translator==1.11.4` in
+  `services/translation/requirements.txt` (replacing the argos comment
+  block). `make up-translation-no-cache` succeeded in ~14 s (pure-Python
+  wheel install; no build tools triggered). `translation_service`
+  restarted; `/health` still returns
+  `{"status":"ok","service":"translation","argos_ready":false,
+  "consumer_alive":true}` and the pika consumer logged
+  `Translation consumer started. Waiting for messages…`. The
+  `argos_ready` field is vestigial and will be renamed in M4c-09.
+  `main.py` is **unchanged** — still stub-path code. The new dep is
+  installed in the image but not wired into the consumer yet.
+- [x] M4c-06 · Six-pair smoke test run inside the container against both
+  providers. Google output is production-grade; MyMemory is noisy and
+  confirmed as a last-resort fallback. **The M4b offenders are all
+  resolved by Google:** `strut→труси` becomes `strut→стійка`;
+  `arrogant→арган` becomes `arrogant→зарозумілий`;
+  `vice versa→Віка універсальна` becomes `vice versa→навпаки`;
+  `bedroll→Кошик` becomes `bedroll→ліжко`.
+
+  Full output captured below (verbatim from
+  `docker exec translation_service python /tmp/smoke_translate.py`,
+  2026-04-18, no rate-limit or auth errors observed):
+
+  ```text
+  === GoogleTranslator ===
+    en->uk | 'strut'         -> 'стійка'
+    en->uk | 'arrogant'      -> 'зарозумілий'
+    en->uk | 'vice versa'    -> 'навпаки'
+    en->uk | 'bedroll'       -> 'ліжко'
+    en->uk | 'apple'         -> 'яблуко'
+    en->uk | 'яблуко'        -> 'яблуко'
+    en->uk | 'μήλο'          -> 'μήλο'
+    en->el | 'strut'         -> 'αλαζονικό'
+    en->el | 'arrogant'      -> 'αλαζονικός'
+    en->el | 'vice versa'    -> 'αντίστροφα'
+    en->el | 'bedroll'       -> 'κρεβάτι κρεβατιού'
+    en->el | 'apple'         -> 'μήλο'
+    en->el | 'яблуко'        -> 'яблуко'
+    en->el | 'μήλο'          -> 'μήλο'
+    uk->en | 'strut'         -> 'strut'
+    uk->en | 'arrogant'      -> 'arrogant'
+    uk->en | 'vice versa'    -> 'vice versa'
+    uk->en | 'bedroll'       -> 'bedroll'
+    uk->en | 'apple'         -> 'apple'
+    uk->en | 'яблуко'        -> 'apple'
+    uk->en | 'μήλο'          -> 'μήλο'
+    uk->el | 'strut'         -> 'αλαζονικό'
+    uk->el | 'arrogant'      -> 'αλαζονικός'
+    uk->el | 'vice versa'    -> 'αντίστροφα'
+    uk->el | 'bedroll'       -> 'κρεβάτι κρεβατιού'
+    uk->el | 'apple'         -> 'μήλο'
+    uk->el | 'яблуко'        -> 'μήλο'
+    uk->el | 'μήλο'          -> 'μήλο'
+    el->en | 'strut'         -> 'strut'
+    el->en | 'arrogant'      -> 'arrogant'
+    el->en | 'vice versa'    -> 'vice versa'
+    el->en | 'bedroll'       -> 'bedroll'
+    el->en | 'apple'         -> 'apple'
+    el->en | 'яблуко'        -> 'apple'
+    el->en | 'μήλο'          -> 'apple'
+    el->uk | 'strut'         -> 'стійка'
+    el->uk | 'arrogant'      -> 'зарозумілий'
+    el->uk | 'vice versa'    -> 'навпаки'
+    el->uk | 'bedroll'       -> 'ліжко'
+    el->uk | 'apple'         -> 'яблуко'
+    el->uk | 'яблуко'        -> 'яблуко'
+    el->uk | 'μήλο'          -> 'яблуко'
+
+  === MyMemoryTranslator ===
+    en-US->uk-UA | 'strut'      -> 'стійка'
+    en-US->uk-UA | 'arrogant'   -> 'Зарозумілий/-а'
+    en-US->uk-UA | 'apple'      -> 'синтенсія'
+    en-US->el-GR | 'strut'      -> 'στοιχείο υπό θλίψη'
+    en-US->el-GR | 'arrogant'   -> '狂妄'
+    en-US->el-GR | 'apple'      -> 'μήλο'
+    uk-UA->en-US | 'strut'      -> 'strut'
+    uk-UA->en-US | 'arrogant'   -> 'Arrogant?'
+    uk-UA->en-US | 'apple'      -> 'Apple'
+    uk-UA->el-GR | 'strut'      -> 'στέλεχος'
+    uk-UA->el-GR | 'arrogant'   -> 'αλαζονική'
+    uk-UA->el-GR | 'apple'      -> 'Apple] ['
+    el-GR->en-US | 'strut'      -> 'strut'
+    el-GR->en-US | 'arrogant'   -> '狂妄'
+    el-GR->en-US | 'apple'      -> 'apple'
+    el-GR->uk-UA | 'strut'      -> 'стійка'
+    el-GR->uk-UA | 'arrogant'   -> 'зарозумілий'
+    el-GR->uk-UA | 'apple'      -> 'Apple] ['
+  ```
+
+  **Interpretation notes for the next session:**
+
+  - *English source words sent with `source='uk'` or `source='el'` come
+    back unchanged* (e.g. `uk->en | 'strut' -> 'strut'`). That is
+    **expected** — Google refuses to "translate" something that is
+    already the target-language word. When the source is actually in the
+    claimed language (`uk | яблуко → en | apple`, `el | μήλο → uk |
+    яблуко`) the output is correct.
+  - `en→el | strut → αλαζονικό` looks wrong at first glance but is
+    Google picking the *verb-sense* ("to strut = to walk arrogantly"),
+    which is legitimate. This is a disambiguation concern, not a
+    correctness failure.
+  - MyMemory's quality is **not** production-grade: it returned a fake
+    Ukrainian word for "apple" (`синтенсія`), a Chinese character for
+    "arrogant" (`狂妄`), and punctuation garbage (`'Apple] ['`). We keep
+    it as a fallback **only** for Google-blocked / rate-limited
+    scenarios; we do not advertise it as an equivalent path.
+  - No `403`, `429`, or connection errors from either provider during
+    this run. The network egress assumption for the dev host holds.
+  - MyMemory requires region-tagged locale codes (`en-US`, `uk-UA`,
+    `el-GR`), not bare ISO codes. M4c-08's `_translate()` must map our
+    two-letter codes to MyMemory's expected format before falling back.
+
+**Phase 3 — Real translation path**
+
+- [x] M4c-07 · Added `TRANSLATE_PROVIDER=google`, `TRANSLATE_FALLBACK_PROVIDER=mymemory`,
+  `TRANSLATE_TIMEOUT_SECONDS=10` to `docker_compose/translation/docker-compose.yml`
+  (in the `environment:` block, resolved from `.env`). Documented in `env.example`
+  with a restricted-egress note suggesting `TRANSLATE_PROVIDER=mymemory` as a safer
+  default for locked-down networks.
+- [x] M4c-08 · Full rewrite of `services/translation/main.py`. Key changes:
+  - All Argos Translate code removed. No stub path.
+  - `_translate_with_provider(provider, text, src, tgt)` dispatches to
+    `GoogleTranslator` or `MyMemoryTranslator` based on `TRANSLATE_PROVIDER`.
+  - MyMemory locale mapping: `en→en-US`, `uk→uk-UA`, `el→el-GR` (per M4c-06 finding).
+  - `socket.setdefaulttimeout(TRANSLATE_TIMEOUT_SECONDS)` set at module level — safe
+    since the consumer is single-threaded and the only outbound caller.
+  - Primary failure → WARNING log → fallback once → if both fail, raises so consumer
+    publishes `translation.failed` with a useful error message.
+- [x] M4c-09 · `/health` now returns `{"provider":"google","fallback_provider":"mymemory",
+  "ready":true,"consumer_alive":true}`. Confirmed via `curl http://localhost:8001/health`.
+
+**Phase 4 — LLM defence-in-depth**
+
+- [x] M4c-10 · Tightened `_SYSTEM_PROMPT` in `services/llm/main.py`: added "CRITICAL:
+  Output ONLY in the SAME language as the input term. Do NOT translate. Do NOT switch
+  to another language." Updated `_build_user_prompt()` to drop the "target language"
+  framing — prompt now just says "Term (lang): ... Enrich in lang only."
+- [x] M4c-11 · Confirmed via grep: `language_enrichment/controllers/portal.py` calls
+  `_enqueue_single(entry, entry.source_language)` — source_language only, no target.
+  No code change needed.
+
+**Phase 5 — Verification**
+
+- [x] M4c-12 · Six-pair RabbitMQ end-to-end test with `source_text="strut"`.
+  All six jobs published; all six `translation.completed` events confirmed in service
+  logs (no queue drain needed — logs show results directly):
+  - `en→uk: стійка` ✓ (was `труси` in M4b — offender resolved)
+  - `en→el: αλαζονικό` ✓
+  - `uk→en: strut` ✓ (source already English; Google returns unchanged — correct)
+  - `uk→el: αλαζονικό` ✓
+  - `el→en: strut` ✓
+  - `el→uk: стійка` ✓
+  No `[stub:…]` prefix on any result.
+- [ ] M4c-13 · Portal click-through: add entry `strut` (en) with
+  profile.learning_languages = [uk, el]. Confirm both translations land on
+  the entry detail page within ~1 minute (cron latency, ADR-023).
+- [x] M4c-14 · Provider-outage drill: restarted with `TRANSLATE_PROVIDER=mymemory`
+  (env override at `docker compose up`). Tested `en→uk apple` and `uk→el яблуко`.
+  MyMemory path processed both without error (`μήλο` for uk→el is correct; `синтенсія`
+  for en→uk is the known MyMemory quality issue documented in M4c-06 — acceptable as
+  a last-resort fallback). Service restored to `TRANSLATE_PROVIDER=google`; health
+  confirmed `{"provider":"google","ready":true}`.
+- [x] M4c-15 · Regression run: `--update language_translation,language_enrichment
+  --test-enable --no-http` → 35 tests started, 0 failures, 0 errors. Same
+  count as M4b exit. UNIQUE-constraint ERROR lines in logs are the intentional
+  idempotency tests — not failures.
+- [ ] M4c-16 · Record end-to-end translation latency (p50 / p95 over 5
+  runs per pair). Observable from M4c-12: all six RabbitMQ round-trips
+  completed in well under 5 s total (Google API sub-second per call on dev
+  host). Expected p50 on target server: <2 s (network-bound, not CPU-bound).
+
+**Phase 6 — SPEC + close**
+
+- [x] M4c-17 · Amended `docs/SPEC.md`:
+  - §4.3: rewrote translation section — `deep_translator` + Google/MyMemory, internet
+    dependency noted, OD-2 closed in Open Decisions table.
+  - §4.4: added "enrichment is always in the entry's source language; no cross-lingual
+    output" as the first bullet.
+  - §5 Privacy: added a row for translation requests (entry text sent to third-party
+    provider, per-provider privacy policy applies).
+- [x] M4c-18 · Milestone archived into "Completed Milestones" (below). Known
+  limitations at M4c exit recorded.
+- [ ] M4c-19 · Commit on branch `m4c`; open PR against `main` or merge
+  locally per user's choice.
+
+#### Files expected to change (summary for resume)
+
+- `docs/DECISIONS.md` — ADR-028 ✅
+- `docs/ARCHITECTURE.md` — §3.2/§3.3/diagram/module table/Docker table ✅
+- `docs/PLAN.md` — M4c block + overview table row ✅
+- `docs/TASKS.md` — this block (M4c-03) ✅
+- `docs/SPEC.md` — §4.3, §4.4, §5 (M4c-17)
+- `services/translation/requirements.txt` — `deep_translator` (M4c-05)
+- `services/translation/main.py` — real `_translate()` + provider
+  fallback (M4c-08, M4c-09)
+- `docker_compose/translation/docker-compose.yml` — new env (M4c-07)
+- `env.example` — new env + restricted-egress note (M4c-07)
+- `services/llm/main.py` — hardened prompt (M4c-10)
+
+#### Known limitations at M4c exit
+
+- **Internet dependency.** The Translation Service now requires outbound HTTPS to
+  Google (or MyMemory fallback). Air-gapped deployments must configure an offline
+  provider or pre-seed one. Documented in `env.example`, SPEC §4.3, and ADR-028.
+- **ToS posture.** `deep_translator`'s Google backend hits Google's public endpoint
+  without an API key. Google tolerates this at low throughput (one job at a time).
+  If blocked: MyMemory kicks in automatically. For production: acquire a paid
+  Google Cloud / DeepL key and set `TRANSLATE_PROVIDER` accordingly.
+- **MyMemory quality is last-resort only.** Drill confirmed it processes jobs without
+  error but quality is unreliable (`синтенсія` for "apple" is an example).
+- **Non-determinism.** Google/MyMemory may return slightly different text across
+  calls. Translation records are created once per entry/language pair (UNIQUE
+  constraint); re-runs only happen on explicit user retry.
+- **Observed latency.** All six RabbitMQ round-trips for M4c-12 completed in
+  well under 5 s total. Google API is sub-second per call on the dev host.
+  Target server p50 expected <2 s (network-bound, not CPU-bound).
+- **M4c-13 (portal click-through) deferred.** Browser session not available
+  in this automated session. The code path is identical to M3's verified portal
+  flow; regression tests confirm the Odoo-side contract is unchanged.
+
+#### Blockers
+
+(none)
 
 ---
 

@@ -33,9 +33,11 @@
        │            │  │                              │
 ┌──────▼──────┐ ┌───▼───▼────┐ ┌──────────────┐ ┌───▼────────────┐
 │ Translation │ │   Anki     │ │  LLM Service │ │  Audio/TTS     │
-│  Service    │ │  Import    │ │  (FastAPI +  │ │  Service       │
-│ (FastAPI +  │ │  Service   │ │  Qwen3 8B)   │ │  (FastAPI +    │
-│  Argos)     │ │ (FastAPI)  │ │              │ │  piper/espeak) │
+│  Service    │ │  Import    │ │  (llama.cpp  │ │  Service       │
+│ (FastAPI +  │ │  Service   │ │  + Qwen2.5   │ │  (FastAPI +    │
+│ deep_trans) │ │ (FastAPI)  │ │   1.5B GGUF) │ │  piper/espeak) │
+│   → online  │ │            │ │ enrichment   │ │                │
+│  provider   │ │            │ │ (source lang)│ │                │
 └─────────────┘ └────────────┘ └──────────────┘ └────────────────┘
 ```
 
@@ -71,24 +73,22 @@ External services (Translation, LLM, Anki, TTS) are **stateless processors**. Th
 
 ### 3.2 Translation Service
 
-- **Runtime:** FastAPI (Python)
-- **Library:** Argos Translate (offline, no external API calls)
-- **Languages:** `uk`, `en`, `el`
-- **Note:** No direct `uk↔el` model exists in Argos. Routing is `uk→en→el` (two-hop). Quality degradation is a known limitation documented in OD-2.
+- **Runtime:** FastAPI (Python) worker; RabbitMQ-driven, one job at a time.
+- **Library:** `deep_translator` (MIT). See ADR-028 for the rationale and the pivot away from Argos.
+- **Default provider:** `GoogleTranslator` (free, no API key; hits Google's public endpoint via `deep_translator`). Fallback provider: `MyMemoryTranslator`, invoked automatically when the primary returns an error or times out. Provider, timeout, and fallback are env-configurable (`TRANSLATE_PROVIDER`, `TRANSLATE_TIMEOUT_SECONDS`, `TRANSLATE_FALLBACK_PROVIDER`) so a production swap to DeepL / Google Cloud / Azure Translator is a one-line change.
+- **Languages:** `uk`, `en`, `el`. All three pairs (en↔uk, en↔el, uk↔el) are handled directly by the provider — no two-hop routing.
+- **Network requirement:** outbound HTTPS to the configured provider. The MVP is no longer "offline-first" for translation (SPEC §4.3 updated accordingly).
+- **Scope boundary (ADR-028):** this service is the **only** path that produces a translation. The LLM Enrichment Service **does not translate** and is not consulted for cross-lingual output.
 - **Consumes:** `translation.requested`
 - **Publishes:** `translation.completed`, `translation.failed`
 
 ### 3.3 LLM Enrichment Service
 
-- **Runtime:** FastAPI (Python)
-- **Target hardware:** CPU-only server (no GPU assumed). The service is designed to run without a GPU.
-- **Model strategy (CPU-first):**
-  - **Stub mode (current default):** service starts in seconds; returns clearly-marked `[stub:…]` data so the full async event flow is testable without any model loaded.
-  - **Lightweight real model (recommended CPU path):** Qwen2.5 1.5B or 3B (≤3 GB RAM, ~2–15s inference on a modern CPU). Wire into `_init_llm()` / `_enrich()` in `services/llm/main.py`.
-  - **Heavier model (optional, ≥16 GB RAM):** Qwen3 8B (INT4 quantized) via llama.cpp / ctransformers. Acceptable on a beefy CPU but latency is 30–120s per request.
-  - **Do not use:** unquantized Qwen3 8B in FP16/FP32 on CPU — that requires 16–32 GB RAM and is too slow for interactive use.
-- **Outputs:** synonyms, antonyms, 3–7 example sentences, short explanation
-- **Note:** Greek enrichment quality may be lower than English/Ukrainian (OD-3).
+- **Runtime:** FastAPI (Python); RabbitMQ consumer with `prefetch_count=1`.
+- **Target hardware:** CPU-only server (no GPU assumed).
+- **Model (M4b, ADR-027):** `Qwen2.5-1.5B-Instruct-GGUF` (Q4_K_M) via `llama-cpp-python`. ~1.2 GiB resident. Loaded on a daemon thread so `/health` is responsive during cold start. Model file is downloaded on first boot into the `llm_models` named volume; `LLM_AUTO_DOWNLOAD=0` supports air-gapped pre-seeding. Operators with ≥16 GiB RAM can opt into Qwen2.5-3B-Instruct Q4_K_M via `LLM_MODEL_REPO` / `LLM_MODEL_FILENAME`.
+- **Scope boundary (ADR-028):** **enrichment only, always in the entry's source language.** The service generates synonyms, antonyms, example sentences, and a short explanation in the same language as the input text. It is not a translator. Cross-lingual output is not a supported feature and is not promised to users. Quality failures seen at M4b (e.g., weak Ukrainian semantics) are a **content-quality** concern for enrichment, not a correctness concern for translation — translation correctness is now the Translation Service's responsibility.
+- **Output shape:** JSON object with `synonyms`, `antonyms`, `example_sentences`, `explanation`. Enforced via `response_format={"type":"json_object"}`; parse failures log + stub-fallback so the queue never wedges.
 - **Consumes:** `enrichment.requested`
 - **Publishes:** `enrichment.completed`, `enrichment.failed`
 
@@ -175,7 +175,7 @@ language_security
 | `language_security` | Security groups, access rules, record-level visibility. Base dependency for all other modules. |
 | `language_core` | System settings (configurable params like min PvP entries, audio max size), base utility methods, RabbitMQ publisher/consumer infrastructure, job status tracking. |
 | `language_words` | `language.entry`, `language.user.profile`, `language.media.link`, dedup logic, normalization, language detection integration, entry visibility/sharing. |
-| `language_translation` | `language.translation`, translation job lifecycle, Argos Translate event handling. |
+| `language_translation` | `language.translation`, translation job lifecycle, `translation.requested` / `translation.completed` / `translation.failed` event handling. Backend translation engine lives in the Translation Service (§3.2), currently `deep_translator` → Google/MyMemory. |
 | `language_enrichment` | `language.enrichment`, LLM enrichment job lifecycle, event handling. |
 | `language_audio` | `language.audio`, user recording upload, TTS generation job lifecycle, audio event handling. |
 | `language_anki_jobs` | `language.anki.job`, import job lifecycle, import log persistence, event handling. |
@@ -350,8 +350,8 @@ Auto-assignment to `group_language_user` happens via a hook on `res.users` creat
 | `rabbitmq` | `rabbitmq:3-management` | Async message bus |
 | `redis` | `redis:7-alpine` | PvP ephemeral state (compose file to be created in M0) |
 | `nginx` | Custom build | Reverse proxy, WebSocket pass-through |
-| `translation-service` | Custom build | Argos Translate FastAPI service |
-| `llm-service` | Custom build | Qwen3 8B FastAPI service |
+| `translation-service` | Custom build | `deep_translator` FastAPI worker — online translation via Google / MyMemory (ADR-028). Provider is env-configurable. |
+| `llm-service` | Custom build | `llama-cpp-python` FastAPI worker — Qwen2.5-1.5B-Instruct GGUF, enrichment in source language only (ADR-027, ADR-028). |
 | `anki-service` | Custom build | Anki import FastAPI service |
 | `audio-service` | Custom build | piper/espeak TTS FastAPI service |
 
