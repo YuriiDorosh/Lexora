@@ -4,18 +4,23 @@ Consumes ``enrichment.requested`` from RabbitMQ, generates structured
 enrichment data, and publishes ``enrichment.completed`` or
 ``enrichment.failed``.
 
-Real implementation uses a local LLM (Qwen3 8B).  When the model is not
-loaded (dev / CI), the service falls back to a clearly-marked stub so the
-async event flow remains testable end-to-end without loading multi-GB weights.
+Real implementation uses a local CPU-only LLM via ``llama-cpp-python``
+against a quantized GGUF model (ADR-027).  Default model is Qwen2.5-
+1.5B-Instruct Q4_K_M, sized for an 8 GiB target server.  Operators with
+more RAM can opt into 3B (or any other GGUF) via the LLM_MODEL_REPO /
+LLM_MODEL_FILENAME environment variables.
 
-Stub payload format (status key in /health):
-    llm_ready: false
-    consumer_alive: true
+If the model file is missing and ``LLM_AUTO_DOWNLOAD=1`` (default), it is
+pulled from Hugging Face on first start via ``huggingface_hub``.  If the
+download or load fails for any reason, the service keeps running in stub
+mode so the RabbitMQ consumer never dies; /health honestly reports
+``llm_ready=false`` in that case.
 """
 
 import json
 import logging
 import os
+import re
 import threading
 import time
 from contextlib import asynccontextmanager
@@ -40,33 +45,178 @@ QUEUE_COMPLETED = "enrichment.completed"
 QUEUE_FAILED = "enrichment.failed"
 
 # ---------------------------------------------------------------------------
-# LLM initialisation (optional — graceful fallback to stub)
+# LLM configuration (from environment / docker-compose)
 # ---------------------------------------------------------------------------
 
+LLM_MODEL_REPO = os.getenv("LLM_MODEL_REPO", "Qwen/Qwen2.5-1.5B-Instruct-GGUF")
+LLM_MODEL_FILENAME = os.getenv(
+    "LLM_MODEL_FILENAME", "qwen2.5-1.5b-instruct-q4_k_m.gguf"
+)
+LLM_MODEL_DIR = os.getenv("LLM_MODEL_DIR", "/models")
+LLM_N_CTX = int(os.getenv("LLM_N_CTX", "2048"))
+LLM_N_THREADS = int(os.getenv("LLM_N_THREADS", "0"))  # 0 = auto
+LLM_MAX_TOKENS = int(os.getenv("LLM_MAX_TOKENS", "512"))
+LLM_AUTO_DOWNLOAD = os.getenv("LLM_AUTO_DOWNLOAD", "1") == "1"
+
+LANG_NAMES = {"en": "English", "uk": "Ukrainian", "el": "Greek"}
+
+# ---------------------------------------------------------------------------
+# Model loading (CPU-only, ADR-027)
+# ---------------------------------------------------------------------------
+
+_llm = None  # llama_cpp.Llama instance once loaded
 _llm_ready = False
 
 
-def _init_llm():
-    """Attempt to load a local LLM model.  Returns True if successful.
+def _resolve_model_path() -> str:
+    """Return absolute path to the GGUF file, downloading if needed.
 
-    CPU-first strategy (no GPU assumed):
-    - Lightweight path (recommended): Qwen2.5 1.5B or 3B via transformers (≤3 GB RAM).
-      Install: pip install transformers torch --index-url https://download.pytorch.org/whl/cpu
-      Then load with AutoModelForCausalLM and return True.
-    - Heavier path (≥16 GB RAM): Qwen3 8B INT4 via llama-cpp-python.
-      Install: pip install llama-cpp-python
-      Then load a .gguf quantized checkpoint and return True.
-    - Do NOT use unquantized FP16/FP32 Qwen3 8B on CPU — it requires 16–32 GB RAM
-      and inference takes minutes, not seconds.
-
-    Kept as stub (returns False) so the service starts in <1 second in dev/CI.
-    In production: implement the load logic above, set _llm_ready = True, and
-    use the model in _enrich() replacing the _stub_enrich() fallback.
+    Looks up ``<LLM_MODEL_DIR>/<LLM_MODEL_FILENAME>`` first.  If absent and
+    auto-download is enabled, pulls the file from the Hugging Face repo via
+    ``huggingface_hub.hf_hub_download`` into ``LLM_MODEL_DIR``.
+    Raises if the file cannot be obtained.
     """
-    return False
+    os.makedirs(LLM_MODEL_DIR, exist_ok=True)
+    target = os.path.join(LLM_MODEL_DIR, LLM_MODEL_FILENAME)
+    if os.path.isfile(target):
+        return target
+
+    if not LLM_AUTO_DOWNLOAD:
+        raise FileNotFoundError(
+            f"Model file {target} missing and LLM_AUTO_DOWNLOAD=0 — "
+            "pre-seed the llm_models volume or set LLM_AUTO_DOWNLOAD=1."
+        )
+
+    from huggingface_hub import hf_hub_download  # noqa: PLC0415
+
+    _logger.info(
+        "Downloading model %s/%s → %s (this can take a while on first boot)",
+        LLM_MODEL_REPO, LLM_MODEL_FILENAME, LLM_MODEL_DIR,
+    )
+    downloaded = hf_hub_download(
+        repo_id=LLM_MODEL_REPO,
+        filename=LLM_MODEL_FILENAME,
+        local_dir=LLM_MODEL_DIR,
+    )
+    _logger.info("Model download complete: %s", downloaded)
+    return downloaded
 
 
-_llm_ready = _init_llm()
+def _init_llm():
+    """Load the GGUF model via llama-cpp-python.
+
+    Returns True on success.  On any exception (missing file, bad format,
+    OOM, etc.) logs the cause and returns False so the service keeps
+    running in stub mode.  /health reports the actual state.
+    """
+    global _llm  # noqa: PLW0603
+    try:
+        model_path = _resolve_model_path()
+        from llama_cpp import Llama  # noqa: PLC0415
+
+        kwargs = {
+            "model_path": model_path,
+            "n_ctx": LLM_N_CTX,
+            "verbose": False,
+        }
+        if LLM_N_THREADS > 0:
+            kwargs["n_threads"] = LLM_N_THREADS
+
+        _logger.info(
+            "Loading LLM model=%s n_ctx=%d n_threads=%s",
+            os.path.basename(model_path),
+            LLM_N_CTX,
+            LLM_N_THREADS or "auto",
+        )
+        _llm = Llama(**kwargs)
+        _logger.info("LLM model loaded successfully.")
+        return True
+    except Exception as exc:  # noqa: BLE001
+        _logger.warning(
+            "LLM initialisation failed (%s) — staying in stub mode.", exc,
+        )
+        return False
+
+
+# ---------------------------------------------------------------------------
+# Prompt + JSON extraction
+# ---------------------------------------------------------------------------
+
+_SYSTEM_PROMPT = (
+    "You are a concise vocabulary-enrichment assistant. "
+    "You respond with a SINGLE JSON object and nothing else. "
+    "The JSON object must have exactly these keys: "
+    '"synonyms" (array of 3-6 short strings), '
+    '"antonyms" (array of 2-4 short strings, can be empty if none exist), '
+    '"example_sentences" (array of 3-5 short sentences using the term in context), '
+    '"explanation" (a one-paragraph string, 1-3 sentences). '
+    "All values must be written in the requested target language. "
+    "Keep every string short. Do not add commentary, markdown, or code fences."
+)
+
+
+def _build_user_prompt(source_text: str, source_language: str, language: str) -> str:
+    src = LANG_NAMES.get(source_language, source_language)
+    tgt = LANG_NAMES.get(language, language)
+    return (
+        f"Source term ({src}): {source_text!r}\n"
+        f"Target language for every output value: {tgt}.\n\n"
+        "Return the JSON object now."
+    )
+
+
+_JSON_OBJECT_RE = re.compile(r"\{.*\}", re.DOTALL)
+
+
+def _parse_enrichment_json(raw: str) -> dict:
+    """Parse the model's JSON reply.  Raises ValueError on unusable output.
+
+    Handles small-model quirks: stray prose around the JSON, single-quoted
+    keys, trailing commas.  If strict ``json.loads`` succeeds we prefer it;
+    otherwise we fall back to a best-effort extraction of the outermost
+    ``{...}`` block.
+    """
+    text = (raw or "").strip()
+    try:
+        parsed = json.loads(text)
+    except Exception:  # noqa: BLE001
+        match = _JSON_OBJECT_RE.search(text)
+        if not match:
+            raise ValueError(f"no JSON object in model output: {text[:200]!r}") from None
+        candidate = match.group(0)
+        candidate = re.sub(r",\s*([}\]])", r"\1", candidate)  # trailing commas
+        parsed = json.loads(candidate)
+
+    if not isinstance(parsed, dict):
+        raise ValueError(f"model output was not a JSON object: {type(parsed).__name__}")
+    return parsed
+
+
+def _coerce_result(parsed: dict, source_text: str) -> dict:
+    """Normalise model output into the shape language.enrichment expects."""
+
+    def _as_str_list(v):
+        if isinstance(v, list):
+            return [str(x).strip() for x in v if str(x).strip()]
+        if isinstance(v, str) and v.strip():
+            return [v.strip()]
+        return []
+
+    def _as_str(v):
+        if isinstance(v, str):
+            return v.strip()
+        if v is None:
+            return ""
+        return str(v).strip()
+
+    return {
+        "synonyms": _as_str_list(parsed.get("synonyms")),
+        "antonyms": _as_str_list(parsed.get("antonyms")),
+        "example_sentences": _as_str_list(parsed.get("example_sentences")),
+        "explanation": _as_str(parsed.get("explanation"))
+        or f"Enrichment for {source_text!r} (no explanation generated).",
+    }
+
 
 # ---------------------------------------------------------------------------
 # Enrichment logic
@@ -74,11 +224,43 @@ _llm_ready = _init_llm()
 
 
 def _enrich(source_text: str, source_language: str, language: str) -> dict:
-    """Generate enrichment data.  Falls back to stub if LLM not loaded."""
-    if _llm_ready:
-        # Real LLM inference path (not yet implemented)
-        raise NotImplementedError("Real LLM inference not wired up yet.")
+    """Generate enrichment data.  Falls back to stub on any failure."""
+    if not _llm_ready or _llm is None:
+        return _stub_enrich(source_text, source_language, language)
 
+    user_prompt = _build_user_prompt(source_text, source_language, language)
+
+    last_exc = None
+    for attempt in range(2):
+        try:
+            completion = _llm.create_chat_completion(
+                messages=[
+                    {"role": "system", "content": _SYSTEM_PROMPT},
+                    {"role": "user", "content": user_prompt},
+                ],
+                response_format={"type": "json_object"},
+                max_tokens=LLM_MAX_TOKENS,
+                temperature=0.3,
+            )
+            raw = completion["choices"][0]["message"]["content"]
+            parsed = _parse_enrichment_json(raw)
+            return _coerce_result(parsed, source_text)
+        except ValueError as exc:
+            # JSON parse failure — do NOT retry, a second run probably also
+            # produces garbage.  Log and stub out.
+            _logger.warning(
+                "LLM JSON parse failed (attempt %d): %s — falling back to stub.",
+                attempt + 1, exc,
+            )
+            return _stub_enrich(source_text, source_language, language)
+        except Exception as exc:  # noqa: BLE001
+            last_exc = exc
+            _logger.warning(
+                "LLM generation error (attempt %d): %s", attempt + 1, exc,
+            )
+            time.sleep(1)
+
+    _logger.error("LLM generation failed after retries: %s — falling back to stub.", last_exc)
     return _stub_enrich(source_text, source_language, language)
 
 
@@ -193,21 +375,37 @@ def _consumer_thread():
 
 
 # ---------------------------------------------------------------------------
+# Model loader thread — keeps FastAPI responsive while the model loads
+# ---------------------------------------------------------------------------
+
+
+def _loader_thread():
+    """Run _init_llm() off the request path so /health is immediately usable."""
+    global _llm_ready  # noqa: PLW0603
+    _llm_ready = _init_llm()
+
+
+# ---------------------------------------------------------------------------
 # FastAPI application
 # ---------------------------------------------------------------------------
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    t = threading.Thread(target=_consumer_thread, daemon=True, name="enrichment-consumer")
-    t.start()
+    loader = threading.Thread(target=_loader_thread, daemon=True, name="llm-loader")
+    loader.start()
+    consumer = threading.Thread(target=_consumer_thread, daemon=True, name="enrichment-consumer")
+    consumer.start()
     yield
 
 
 app = FastAPI(
     title="Lexora LLM Enrichment Service",
-    description="Local LLM enrichment service (Qwen3 8B). Stub mode when model not loaded.",
-    version="1.0.0",
+    description=(
+        "Local CPU-only LLM enrichment service (llama-cpp-python + Qwen2.5 GGUF). "
+        "Falls back to stub when the model cannot be loaded."
+    ),
+    version="1.1.0",
     lifespan=lifespan,
 )
 
@@ -219,4 +417,6 @@ def health():
         "service": "llm",
         "llm_ready": _llm_ready,
         "consumer_alive": _consumer_alive,
+        "model_repo": LLM_MODEL_REPO,
+        "model_filename": LLM_MODEL_FILENAME,
     }

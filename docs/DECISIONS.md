@@ -395,3 +395,10 @@ Options: (A) JSON Char field, (B) three Boolean fields, (C) Many2many to a looku
 - If first-boot download is too flaky → pre-seed the `llm_models` volume via an ops script (`huggingface-cli download …` on the host, then copy into the volume).
 - If p95 latency exceeds ~40 s on the target host → consider increasing `n_threads`, reducing `n_ctx`, or disabling memory-mapped loading (`use_mmap=False` is heavier on RAM but skips page-in stalls).
 - If Ivy Bridge AVX-only throughput turns out to be worse than projected → the model can be re-quantized to Q4_0 (~10 % faster than Q4_K_M on older CPUs, ~5 % lower quality).
+
+**Local verification results (M4b-15 / M4b-16 / M4b-18, dev host — NOT the target server):**
+- First-start cold download of `qwen2.5-1.5b-instruct-q4_k_m.gguf` from Hugging Face → ~90 s (~1.1 GiB payload). Load into `llama.cpp` completes shortly after; `/health` flips `llm_ready:false → true`.
+- Warm restart (model already present in the `llm_models` volume): `llm_ready:true` in ~1 s.
+- `apple` / `en`: ~14 s end-to-end round-trip through RabbitMQ, valid JSON, real synonyms / antonyms / 3 example sentences / 1 explanation paragraph. No `[stub:…]` prefix.
+- `яблуко` / `uk`: ~6.6–7 s round-trip. JSON structure valid. Quality caveat: the 1.5B model repeated a placeholder example sentence ("Яблоко засушено") and rendered the explanation in Russian rather than Ukrainian — consistent with a small multilingual model and already documented in SPEC §4.4 and OD-3. Structure/pipeline is production-valid; quality is the 3B upgrade trigger.
+- Expected server numbers (E5-2680 v2, AVX-only, 2.8 GHz, 6 vCPUs): p50 ≈ 15–40 s per enrichment; record the first real measurement once deployed.
