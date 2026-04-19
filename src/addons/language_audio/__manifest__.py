@@ -10,6 +10,7 @@
         'security/ir.model.access.csv',
         'data/ir_cron_audio.xml',
         'views/language_audio_views.xml',
+        'views/portal_audio.xml',
     ],
     'installable': True,
     'auto_install': False,

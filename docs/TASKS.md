@@ -140,21 +140,132 @@ model ~145 MB). Three `audio_type` values: `recorded` (user mic), `generated`
 
 **Phase 2 — Odoo publishing (enqueue from portal)**
 
-- [ ] M6-08 · TTS enqueue method `_enqueue_tts(entry, language)` on `language.audio`:
-  - Checks for existing `audio_type='generated'` record for this entry+language;
-    if `status='completed'`, it is reused (lazy — no new job). If `status='failed'`
-    or missing, creates a new record (or resets existing to `pending`) and publishes
-    `audio.generation.requested`.
-  - Payload: `job_id`, `entry_id`, `source_text`, `language` (ISO code), `tts_engine`
-    hint (from env, default `edge-tts`).
-  - Calls `RabbitMQPublisher(self.env).publish('audio.generation.requested', payload, job_id)`.
-  - Sets `status='processing'` on the audio record after publish.
-- [ ] M6-09 · Transcription enqueue method `_enqueue_transcription(audio_record)`:
-  - Takes an existing `language.audio` record (must have `attachment_id` set).
-  - Reads `attachment_id.datas` (base64), publishes `audio.transcription.requested`
-    with `job_id`, `audio_id`, `language`, `audio_data_b64`.
-  - Updates audio record `status='processing'` and clears `transcription` field.
-- [ ] M6-10 · Portal controller
+- [x] M6-08 · TTS enqueue method `_enqueue_tts(entry, language)` on `language.audio`:
+  (Implemented in Phase 1 — see language_audio.py `_enqueue_tts`.)
+- [x] M6-09 · `_enqueue_transcription(audio_record)` implemented in language_audio.py.
+
+**Phase 4 — Portal UI (M6-10, M6-11, M6-17)**
+
+- [x] M6-10 · Portal controller (`src/addons/language_audio/controllers/portal.py`).
+  Routes implemented:
+
+  **`POST /my/audio/upload/<int:entry_id>`** — multipart audio file upload.
+  - Validates ownership: `entry.owner_id.id == request.env.user.id`, else 403.
+  - Reads system param `language.audio.max_upload_bytes` (default 10 MB = 10,485,760).
+  - Rejects files > max size with JSON `{"status":"error","message":"File too large"}`.
+  - Accepts MIME types: `audio/mpeg`, `audio/wav`, `audio/ogg`, `audio/webm`,
+    `audio/mp4`, `audio/aac` (and any starting with `audio/`).
+  - Creates `ir.attachment` via sudo with `res_model='language.entry'`, `res_id=entry.id`.
+  - Reads `language` POST param (defaults to `entry.source_language`).
+  - Calls `LanguageAudio.create(...)` with `audio_type='recorded'`, `status='completed'`,
+    `attachment_id=attachment.id`, `file_size_bytes=len(file_data)`. The `create()`
+    override in `language_audio.py` handles in-place update if a prior recording exists.
+  - Returns JSON `{"status":"ok","audio_id":<id>,"entry_id":<entry_id>}` so the
+    browser JS can show a fresh `<audio>` player without a full page reload.
+  - On any exception: returns JSON `{"status":"error","message":str(exc)}` with HTTP 500.
+
+  **`POST /my/audio/generate/<int:entry_id>`** — enqueue TTS job.
+  - Validates ownership.
+  - Reads `language` POST param (defaults to `entry.source_language`).
+  - Calls `LanguageAudio._enqueue_tts(entry, language)`.
+  - Redirects to `/my/vocabulary/<entry_id>`.
+
+  **`POST /my/audio/transcribe/<int:audio_id>`** — enqueue STT job.
+  - Looks up `language.audio` by id; validates ownership via `audio.entry_id.owner_id`.
+  - Guard: if `audio.attachment_id` is not set, redirect with `?error=no_audio` query.
+  - Calls `LanguageAudio._enqueue_transcription(audio_record)`.
+  - Redirects to `/my/vocabulary/<entry_id>`.
+
+  **`GET /my/audio/<int:audio_id>/stream`** — serve audio file.
+  - Validates ownership.
+  - Reads `audio.attachment_id.datas` (base64 string), decodes to bytes.
+  - Determines MIME type from `audio.attachment_id.mimetype` (fallback `audio/mpeg`).
+  - Returns `werkzeug.wrappers.Response` with `Content-Type` header and raw bytes.
+  - Sets `Content-Disposition: inline` so browser plays inline, not downloads.
+  - `Cache-Control: private, max-age=3600` (attachments are immutable for a given id).
+
+- [x] M6-11 · `src/addons/language_audio/controllers/__init__.py` created.
+  Manifest `__manifest__.py` updated: added `'controllers'` source dir via `__init__.py`
+  imports and listed `views/portal_audio.xml` in `data`.
+
+- [x] M6-17 · QWeb template (`src/addons/language_audio/views/portal_audio.xml`).
+  Template id: `portal_entry_audio_section`. Inherits
+  `language_words.portal_vocabulary_detail`. Injection target: `xpath` on
+  `//hr[contains(@class,'my-3')]` with `position="before"` — audio section appears
+  between translations and the enrichment/hr block. This matches the enrichment
+  module's own pattern (which injects `position="after"` the hr), giving:
+  Translations → Audio → hr → Enrichment → Media Links.
+
+  **Template logic (all self-contained via `t-set`, no new controller variables):**
+
+  ```
+  t-set _recorded_audio  = entry.audio_ids.filtered(lambda a:
+      a.audio_type == 'recorded' and a.language == entry.source_language)
+  t-set _generated_audio = entry.audio_ids.filtered(lambda a:
+      a.audio_type == 'generated' and a.language == entry.source_language)
+  t-set _any_audio = _recorded_audio or _generated_audio
+  ```
+
+  **Section heading:** "Pronunciation" with a thin top separator.
+
+  **A) Recorded audio sub-section:**
+  - If `_recorded_audio` exists with `status='completed'` and `attachment_id`:
+    `<audio controls class="w-100 mb-2">` pointing to
+    `/my/audio/<id>/stream`. Below player: transcription text if
+    `_recorded_audio[0].transcription` is non-empty (styled as muted italic).
+    "Check pronunciation" (transcribe) form-button: visible when
+    `transcription_status not in ('processing', 'pending')`. Grayed-out spinner
+    button when `transcription_status in ('processing', 'pending')`.
+  - Upload/replace section: `<form method="post" enctype="multipart/form-data">`
+    posting to `/my/audio/upload/<entry_id>`. Contains:
+    `<input type="file" name="audio_file" accept="audio/*" capture="microphone"
+     class="d-none" id="audio-upload-<entry_id>">` (hidden, triggered by button).
+    Visible `<label for="audio-upload-...">` styled as `btn btn-sm btn-outline-secondary`.
+    Label text: "🎤 Record / Upload" if no recording exists, "↺ Re-record" if it does.
+    JS: `<script>` tag (inline, scoped) that submits the parent form automatically
+    on `change` event of the file input — so picking a file triggers the upload
+    without a separate "submit" click. One line of vanilla JS, no dependencies.
+
+  **B) Generated TTS sub-section:**
+  - Heading row: "AI Pronunciation" + language badge.
+  - If `_generated_audio` with `status='completed'` and `attachment_id`:
+    `<audio controls class="w-100">` pointing to `/my/audio/<id>/stream`.
+    "Regenerate" form-button (POST `/my/audio/generate/<entry_id>`).
+  - If `status in ('processing', 'pending')`: spinner + "Generating…" text.
+  - If `status == 'failed'`: red badge + error text + "Retry" form-button.
+  - If no generated audio yet: "Generate pronunciation" form-button
+    (POST `/my/audio/generate/<entry_id>` with `language=<source_language>`).
+    Note text: "Generated by edge-tts — plays immediately once ready (~5 s)."
+
+  **Design trade-offs recorded:**
+  - Used `<form>` + file `<input>` with `auto-submit on change` JS instead of
+    the browser MediaRecorder API. Rationale: MediaRecorder produces WebM/Opus
+    blobs that require JS to assemble and POST as FormData — complex, fragile
+    across browsers, and requires a separate JS event flow. The `<input type="file"
+    capture="microphone">` approach lets the OS handle recording natively on
+    mobile (opens the microphone recorder app) and on desktop opens the file picker
+    — both paths produce a real audio file that the browser can POST as multipart.
+    This is simpler, more compatible, and requires only ~4 lines of JS.
+  - Inline `<script>` scoped to the form to avoid global JS conflicts with Odoo's
+    own assets. No jQuery required.
+  - Audio player width `w-100` (full card width) for readability.
+  - Transcription shown below the player in a `<blockquote>` element styled as
+    `border-start border-2 border-info ps-3 fst-italic text-muted`.
+
+**Phase 3 — Audio service**
+
+- [x] M6-12 · `services/audio/requirements.txt`: `edge-tts==6.1.9`, `faster-whisper==1.0.3` ✅
+- [x] M6-13 · `docker_compose/audio/Dockerfile`: `ffmpeg`, `espeak-ng`, `HF_HOME` env ✅
+- [x] M6-14 · `docker_compose/audio/docker-compose.yml`: `audio_models` volume, all env vars ✅
+- [x] M6-15 · `services/audio/main.py`: full implementation — edge-tts async, espeak-ng
+  subprocess fallback, faster-whisper STT, RabbitMQ consumer on daemon thread,
+  `/health` with `whisper_ready` flag ✅
+- [x] M6-16 · `env.example`: `TTS_ENGINE`, `TTS_FALLBACK_ENGINE`, `WHISPER_MODEL`,
+  `AUDIO_TRANSCRIPTION_ENABLED`, `AUDIO_MAX_DURATION_SECONDS` ✅
+
+**Phase 4 — Portal controller (original placeholder — see expanded block above)**
+
+- [x] M6-10 · Portal controller
   (`src/addons/language_audio/controllers/portal.py`).
   Routes:
   - `POST /my/audio/upload/<int:entry_id>` — multipart upload; validates file
