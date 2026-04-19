@@ -23,6 +23,7 @@ class LanguageDuel(models.Model):
         ('open', 'Open'),
         ('ongoing', 'Ongoing'),
         ('finished', 'Finished'),
+        ('cancel', 'Cancelled'),
     ], default='open', required=True, index=True)
     winner_id = fields.Many2one('res.users', string='Winner', ondelete='set null')
 
@@ -108,13 +109,15 @@ class LanguageDuel(models.Model):
         if self.state != 'ongoing':
             return
 
-        # Tally from lines
+        # Use sudo so record-rule filtering on duel.line does not distort tallies
+        Line = self.env['language.duel.line'].sudo()
+        all_lines = Line.search([('duel_id', '=', self.id)])
         challenger_correct = sum(
-            1 for l in self.line_ids
+            1 for l in all_lines
             if l.player_id.id == self.challenger_id.id and l.correct
         )
         opponent_correct = sum(
-            1 for l in self.line_ids
+            1 for l in all_lines
             if self.opponent_id and l.player_id.id == self.opponent_id.id and l.correct
         )
 
@@ -164,8 +167,72 @@ class LanguageDuel(models.Model):
             _logger.debug('XP transfer skipped (gamification not installed)', exc_info=True)
 
     def _rounds_submitted_by(self, user_id):
-        """Count duel lines already submitted by this user."""
-        return sum(1 for l in self.line_ids if l.player_id.id == user_id)
+        """Count duel lines submitted by this user (sudo bypasses record rules)."""
+        return self.env['language.duel.line'].sudo().search_count([
+            ('duel_id', '=', self.id),
+            ('player_id', '=', user_id),
+        ])
 
     def _has_completed_rounds(self, user_id):
         return self._rounds_submitted_by(user_id) >= self.rounds_total
+
+    def action_cancel(self):
+        """Cancel an open challenge (challenger only)."""
+        self.ensure_one()
+        if self.state != 'open':
+            raise UserError('Only open challenges can be cancelled.')
+        self.write({'state': 'cancel'})
+        return self
+
+    # ------------------------------------------------------------------
+    # Bot support
+    # ------------------------------------------------------------------
+
+    def _get_or_create_bot_user(self):
+        """Return the Lexora Bot system user, creating it if absent.
+
+        Must be active=True so Odoo allows it as a Many2one target.
+        active_test=False ensures we find it even if it was previously archived.
+        """
+        User = self.env['res.users'].sudo().with_context(active_test=False)
+        bot = User.search([('login', '=', 'lexora_bot@system')], limit=1)
+        if bot:
+            if not bot.active:
+                bot.write({'active': True})
+            return bot
+        return User.create({
+            'name': 'Lexora Bot',
+            'login': 'lexora_bot@system',
+            'email': 'lexora_bot@system',
+            'active': True,
+        })
+
+    def action_summon_bot(self):
+        """Fill opponent slot with the Lexora Bot and pre-generate its answers."""
+        self.ensure_one()
+        if self.state != 'open':
+            raise UserError('Only open challenges can summon the bot.')
+        if self.challenger_id.id != self.env.user.id:
+            raise UserError('Only the challenger can summon the bot.')
+
+        bot = self._get_or_create_bot_user()
+        self.write({
+            'opponent_id': bot.id,
+            'state': 'ongoing',
+            'start_date': fields.Datetime.now(),
+        })
+
+        # Generate bot answers (70 % accuracy)
+        entries = self._select_round_entries(self.challenger_id.id, self.rounds_total)
+        Line = self.env['language.duel.line'].sudo()
+        for i, entry in enumerate(entries):
+            correct = random.random() < 0.70
+            Line.create({
+                'duel_id': self.id,
+                'player_id': bot.id,
+                'entry_id': entry.id,
+                'round_number': i + 1,
+                'correct': correct,
+                'answer_given': '[bot]',
+            })
+        return self

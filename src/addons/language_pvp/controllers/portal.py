@@ -260,6 +260,9 @@ class ArenaPortal(CustomerPortal):
             'answer_given': answer_given,
         })
 
+        # Invalidate cache so _rounds_submitted_by sees the new line
+        duel.invalidate_recordset()
+
         # Auto-finish when both players done
         if duel.opponent_id:
             challenger_done = duel._has_completed_rounds(duel.challenger_id.id)
@@ -267,4 +270,46 @@ class ArenaPortal(CustomerPortal):
             if challenger_done and opponent_done:
                 duel.action_finish_duel()
 
+        return request.redirect('/my/arena/%d' % duel_id)
+
+    # ------------------------------------------------------------------
+    # Cancel challenge  POST /my/arena/<id>/cancel
+    # ------------------------------------------------------------------
+
+    @http.route('/my/arena/<int:duel_id>/cancel', type='http', auth='user',
+                website=True, methods=['POST'])
+    def arena_cancel(self, duel_id, **post):
+        uid = request.env.user.id
+        duel = request.env['language.duel'].browse(duel_id)
+        if not duel.exists():
+            return request.not_found()
+        if duel.challenger_id.id != uid:
+            return request.redirect('/my/arena?error=not_your_challenge')
+        try:
+            duel.action_cancel()
+        except UserError as exc:
+            return request.redirect(
+                '/my/arena?error=%s' % http.url_quote(str(exc.args[0]))
+            )
+        return request.redirect('/my/arena')
+
+    # ------------------------------------------------------------------
+    # Summon bot  POST /my/arena/<id>/summon_bot
+    # ------------------------------------------------------------------
+
+    @http.route('/my/arena/<int:duel_id>/summon_bot', type='http', auth='user',
+                website=True, methods=['POST'])
+    def arena_summon_bot(self, duel_id, **post):
+        uid = request.env.user.id
+        duel = request.env['language.duel'].browse(duel_id)
+        if not duel.exists():
+            return request.not_found()
+        if duel.challenger_id.id != uid:
+            return request.redirect('/my/arena?error=not_your_challenge')
+        try:
+            duel.action_summon_bot()
+        except UserError as exc:
+            return request.redirect(
+                '/my/arena/%d?error=%s' % (duel_id, http.url_quote(str(exc.args[0])))
+            )
         return request.redirect('/my/arena/%d' % duel_id)

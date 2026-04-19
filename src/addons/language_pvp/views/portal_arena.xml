@@ -127,11 +127,20 @@
                                                 <t t-set="_my_rounds" t-value="duel._rounds_submitted_by(uid)"/>
                                                 <t t-esc="_my_rounds"/> / <t t-esc="duel.rounds_total"/>
                                             </td>
-                                            <td>
+                                            <td class="d-flex gap-1">
                                                 <a t-attf-href="/my/arena/#{duel.id}"
                                                    class="btn btn-sm btn-outline-primary">
                                                     Play →
                                                 </a>
+                                                <t t-if="duel.challenger_id.id == uid and duel.state == 'open'">
+                                                    <form t-attf-action="/my/arena/#{duel.id}/cancel" method="post" class="d-inline">
+                                                        <input type="hidden" name="csrf_token"
+                                                               t-att-value="request.csrf_token()"/>
+                                                        <button type="submit" class="btn btn-sm btn-outline-danger">
+                                                            Cancel
+                                                        </button>
+                                                    </form>
+                                                </t>
                                             </td>
                                         </tr>
                                     </t>
@@ -344,8 +353,15 @@
                 </t>
 
                 <t t-elif="duel.state == 'open' and duel.challenger_id.id == uid">
-                    <div class="alert alert-info">
-                        Your challenge is open. Share the link or wait for someone to join.
+                    <div class="alert alert-info d-flex align-items-center justify-content-between">
+                        <span>Your challenge is open. Share the link or wait for someone to join.</span>
+                        <form t-attf-action="/my/arena/#{duel.id}/summon_bot" method="post" class="ms-3 flex-shrink-0">
+                            <input type="hidden" name="csrf_token"
+                                   t-att-value="request.csrf_token()"/>
+                            <button type="submit" class="btn btn-sm btn-warning">
+                                🤖 Challenge Lexora Bot
+                            </button>
+                        </form>
                     </div>
                 </t>
 

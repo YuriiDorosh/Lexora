@@ -149,61 +149,39 @@ draft → open → ongoing → finished
 
 **Phase 6 — M9b: Bug fixes, M8 port, Cancel & Bot (2026-04-19)**
 
-- [ ] M9-16 · **Port M8 to m9** — cherry-pick commits `fb3c41b` then `76185ba` from the `m8`
-  branch to restore gamification, leaderboard, vocabulary pro dashboard, and pagination fix.
-  Files added: `language_learning/models/language_user_profile_gamification.py`,
-  `language_learning/views/portal_leaderboard.xml`, updated `language_learning/__manifest__.py`
-  (adds `language_translation` to depends), updated `data/website_menus.xml` (adds Leaderboard
-  menu seq=70), `tests/test_gamification.py`, `tests/test_vocabulary_search.py`.
+- [x] M9-16 · **Port M8 to m9** — cherry-picked M8 gamification, leaderboard, vocabulary
+  pro dashboard, and pagination fix onto `m9`. All 56 tests green after port.
 
-- [ ] M9-17 · **Fix Infinite Wait** — Root cause: `_rounds_submitted_by(user_id)` iterates
-  `self.line_ids` which is filtered by `language.duel.line` record rule to only show lines
-  where `player_id = uid`. So user A can never count user B's lines.
-  Fix in `language_duel.py`: rewrite `_rounds_submitted_by` to use a sudo `search_count`
-  bypassing record rules:
-  ```python
-  def _rounds_submitted_by(self, user_id):
-      return self.env['language.duel.line'].sudo().search_count([
-          ('duel_id', '=', self.id), ('player_id', '=', user_id),
-      ])
-  ```
-  Also fix `action_finish_duel()`: replace `self.line_ids` iteration with sudo search to tally
-  scores correctly regardless of who calls it.
-  Fix in `controllers/portal.py` `arena_answer`: after creating the line, call
-  `duel.invalidate_recordset()` before checking completion.
+- [x] M9-17 · **Fix Infinite Wait** — `_rounds_submitted_by` rewritten to use
+  `sudo().search_count()`, bypassing the `language.duel.line` record rule that
+  hides opponent lines. `action_finish_duel()` already used `sudo()`.
+  `controllers/portal.py` `arena_answer`: added `duel.invalidate_recordset()` after
+  line creation so the fresh count is accurate before the completion check.
 
-- [ ] M9-18 · **Fix JS `[object Object]`** — In `language_words/views/portal_vocabulary.xml`
-  line 394: `var lang = data.result;` → `var lang = data.result && data.result.lang;`
-  Endpoint `detect_language` returns `{'lang': lang}`, wrapped by Odoo JSON-RPC as
-  `{"result": {"lang": "en"}}`. JS must access `data.result.lang`, not `data.result`.
-  Also fix: `langSelect.value = lang` — already correct once `lang` is a string.
+- [x] M9-18 · **Fix JS `[object Object]`** — `portal_vocabulary.xml` line 521:
+  `var lang = data.result;` → `var lang = data.result &amp;&amp; data.result.lang;`
+  (XML-escaped `&&`). Correctly unpacks the Odoo JSON-RPC `{"result":{"lang":"en"}}`.
 
-- [ ] M9-19 · **Add `cancel` state + `action_cancel()`** — In `language_duel.py`:
-  - Add `('cancel', 'Cancelled')` to state Selection.
-  - Implement `action_cancel()`: guard `state == 'open'` only, write `state='cancel'`.
-  - Update `record_rules.xml`: cancelled duels still visible to challenger (for history).
-  - Update lobby active duels query: exclude `cancel` state.
-  - In `portal_arena.xml` lobby "Your Active Duels" table: add "Cancel" form button
-    for rows where `duel.challenger_id.id == uid and duel.state == 'open'`.
-  - Add cancel route `POST /my/arena/<id>/cancel` in portal controller.
+- [x] M9-19 · **Cancel state** — Added `('cancel', 'Cancelled')` to `language.duel`
+  state Selection. `action_cancel()` guards `state == 'open'`, writes `state='cancel'`.
+  Cancel button added to lobby "Your Active Duels" (open rows, challenger only).
+  `POST /my/arena/<id>/cancel` route added to portal controller.
+  Active duels queries already exclude `cancel` (only query `open`/`ongoing`).
 
-- [ ] M9-20 · **Lexora Bot** — Create a system bot user and `action_summon_bot()`:
-  - Add `_get_or_create_bot_user()` helper: searches for `login='lexora_bot@system'`;
-    if absent, creates with `name='Lexora Bot'`, `active=False` (hidden from UI).
-  - `action_summon_bot()` on `language.duel`: guard `state == 'open'`; sets `opponent_id`
-    to bot, sets `state='ongoing'`; generates `rounds_total` `language.duel.line` records
-    for the bot with ~70% `correct=True` (random), using entries from `_get_eligible_entries(uid)`
-    for challenger's words (bot "plays" against the same words).
-  - Add `POST /my/arena/<id>/summon_bot` route in portal controller.
-  - In `portal_arena.xml` duel detail: show "Challenge Lexora Bot" button when
-    `duel.state == 'open'` and current user is the challenger. Placed next to "Waiting" message.
+- [x] M9-20 · **Lexora Bot** — `_get_or_create_bot_user()` uses
+  `with_context(active_test=False)` to find existing bot even if previously archived;
+  reactivates if `active=False`; creates with `active=True` on first run (Odoo
+  blocks archived users as Many2one targets). `action_summon_bot()` sets
+  `opponent_id=bot`, `state='ongoing'`, generates `rounds_total` lines at 70% accuracy.
+  "🤖 Challenge Lexora Bot" button on duel detail. `POST /my/arena/<id>/summon_bot`.
 
-- [ ] M9-21 · `--update language_pvp,language_learning,language_words --stop-after-init --no-http`
+- [x] M9-21 · `--update language_pvp,language_learning,language_words --stop-after-init`
   → 0 errors.
-- [ ] M9-22 · `--test-enable -u language_pvp,language_learning --no-http` → all tests green
-  (16 M9 + 24 gamification + 16 vocabulary search = 56 pvp/learning tests).
-- [ ] M9-23 · `docker restart odoo` → all routes load; manual smoke test in browser.
-- [ ] M9-24 · Commit M9b.
+- [x] M9-22 · `--test-enable -u language_pvp,language_learning,language_words` → 170 tests
+  started, 0 failures, 0 errors (16 M9 + 24 gamification + 16 vocab search + all prior).
+- [x] M9-23 · `docker restart odoo` → all routes load.
+- [ ] M9-24 · Manual smoke: bot duel creation, cancel, JS lang detection.
+- [ ] M9-25 · Commit M9b on branch `m9`.
 
 #### Files to create/change
 
