@@ -220,35 +220,45 @@ def _transcribe(audio_bytes: bytes, language: str) -> str:
 # Job processors
 # ---------------------------------------------------------------------------
 
-def _process_generation_job(payload: dict) -> dict:
-    job_id = payload.get('job_id', '')
+def _process_generation_job(job_id: str, payload: dict) -> dict:
+    """Generate TTS audio for the given entry.
+
+    payload keys (from Odoo's inner payload dict):
+        source_text, language, entry_id
+    """
     source_text = payload.get('source_text', '')
     language = payload.get('language', 'en')
-    _logger.info('TTS job: job_id=%s text=%r lang=%s', job_id, source_text[:50], language)
+    _logger.info('TTS job: job_id=%s text=%r lang=%s', job_id, source_text[:80], language)
+
+    if not source_text.strip():
+        raise ValueError(f'source_text is empty for job_id={job_id} — nothing to synthesize')
 
     mp3_bytes, engine = _generate_tts(source_text, language)
     audio_b64 = base64.b64encode(mp3_bytes).decode('utf-8')
     _logger.info('TTS complete: job_id=%s engine=%s size=%d bytes', job_id, engine, len(mp3_bytes))
     return {
-        'job_id': job_id,
         'audio_b64': audio_b64,
         'tts_engine': engine,
         'file_size_bytes': len(mp3_bytes),
     }
 
 
-def _process_transcription_job(payload: dict) -> dict:
-    job_id = payload.get('job_id', '')
+def _process_transcription_job(job_id: str, payload: dict) -> dict:
+    """Transcribe audio bytes via faster-whisper.
+
+    payload keys (from Odoo's inner payload dict):
+        audio_id, language, audio_data_b64
+    """
     audio_id = payload.get('audio_id')
     language = payload.get('language', 'en')
     audio_b64 = payload.get('audio_data_b64', '')
-    _logger.info('STT job: job_id=%s audio_id=%s lang=%s', job_id, audio_id, language)
+    _logger.info('STT job: job_id=%s audio_id=%s lang=%s audio_b64_len=%d',
+                 job_id, audio_id, language, len(audio_b64))
 
     audio_bytes = base64.b64decode(audio_b64)
     transcript = _transcribe(audio_bytes, language)
-    _logger.info('STT complete: job_id=%s chars=%d', job_id, len(transcript))
+    _logger.info('STT complete: job_id=%s chars=%d transcript=%r', job_id, len(transcript), transcript[:80])
     return {
-        'job_id': job_id,
         'audio_id': audio_id,
         'transcription': transcript,
     }
@@ -258,11 +268,27 @@ def _process_transcription_job(payload: dict) -> dict:
 # RabbitMQ consumer
 # ---------------------------------------------------------------------------
 
-def _publish(channel, routing_key: str, body: dict):
+def _publish(channel, routing_key: str, job_id: str, payload: dict):
+    """Declare the result queue and publish with the standard Odoo envelope.
+
+    Odoo's RabbitMQConsumer.drain() expects:
+        {"job_id": <str>, "event_type": <str>, "payload": <dict>}
+
+    The audio service previously published a flat dict without declaring the
+    queue first, causing two bugs:
+      1. RabbitMQ silently drops messages to non-existent queues (default exchange).
+      2. Odoo's consumer read message.get('payload', {}) → always empty → no audio data.
+    """
+    channel.queue_declare(queue=routing_key, durable=True)
+    message = {
+        'job_id': job_id,
+        'event_type': routing_key,
+        'payload': payload,
+    }
     channel.basic_publish(
         exchange='',
         routing_key=routing_key,
-        body=json.dumps(body, ensure_ascii=False).encode(),
+        body=json.dumps(message, ensure_ascii=False).encode(),
         properties=pika.BasicProperties(
             delivery_mode=2,
             content_type='application/json',
@@ -271,37 +297,49 @@ def _publish(channel, routing_key: str, body: dict):
 
 
 def _handle_message(channel, method, _properties, body):
+    """Dispatch an incoming RabbitMQ message to the appropriate job processor.
+
+    Odoo's RabbitMQPublisher wraps every message as:
+        {"job_id": <str>, "event_type": <str>, "payload": <dict>}
+
+    We extract job_id from the top-level envelope and pass the inner
+    payload dict to the job processor.  This matches the same pattern
+    used by services/translation/main.py.
+    """
     routing_key = method.routing_key
     _logger.info('Message received: routing_key=%s body_len=%d', routing_key, len(body))
     try:
-        payload = json.loads(body)
+        message = json.loads(body)
     except Exception as exc:
         _logger.error('Failed to parse JSON on %s: %s | body=%r', routing_key, exc, body[:200])
         channel.basic_ack(delivery_tag=method.delivery_tag)
         return
 
-    job_id = payload.get('job_id', '')
-    _logger.info('Processing job_id=%s on queue=%s', job_id, routing_key)
+    # Standard Odoo envelope — job_id at top level, inner fields under 'payload'
+    job_id = message.get('job_id', '')
+    payload = message.get('payload', {})
+    _logger.info('Processing job_id=%s on queue=%s | inner_payload_keys=%s',
+                 job_id, routing_key, list(payload.keys()))
 
     try:
         if routing_key == 'audio.generation.requested':
-            result = _process_generation_job(payload)
-            _publish(channel, 'audio.generation.completed', result)
+            result = _process_generation_job(job_id, payload)
+            _publish(channel, 'audio.generation.completed', job_id, result)
             _logger.info('Published audio.generation.completed for job_id=%s', job_id)
         elif routing_key == 'audio.transcription.requested':
-            result = _process_transcription_job(payload)
-            _publish(channel, 'audio.transcription.completed', result)
+            result = _process_transcription_job(job_id, payload)
+            _publish(channel, 'audio.transcription.completed', job_id, result)
             _logger.info('Published audio.transcription.completed for job_id=%s', job_id)
         else:
             _logger.warning('Unknown routing key: %s — acking and skipping', routing_key)
     except Exception as exc:
         _logger.error('Job FAILED job_id=%s queue=%s: %s', job_id, routing_key, exc, exc_info=True)
         fail_key = routing_key.replace('.requested', '.failed')
-        error_payload = {'job_id': job_id, 'error': str(exc)}
+        error_result = {'error': str(exc)}
         if routing_key == 'audio.transcription.requested':
-            error_payload['audio_id'] = payload.get('audio_id')
+            error_result['audio_id'] = payload.get('audio_id')
         try:
-            _publish(channel, fail_key, error_payload)
+            _publish(channel, fail_key, job_id, error_result)
             _logger.info('Published %s for job_id=%s', fail_key, job_id)
         except Exception as pub_exc:
             _logger.error('Could not publish failure event %s: %s', fail_key, pub_exc)
