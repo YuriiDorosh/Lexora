@@ -111,18 +111,27 @@ threading.Thread(target=_init_whisper, daemon=True, name='whisper-loader').start
 # ---------------------------------------------------------------------------
 
 async def _edge_tts_async(text: str, language: str) -> bytes:
-    """Generate MP3 via edge-tts Communicate.stream(). Returns raw MP3 bytes."""
+    """Generate MP3 via edge-tts Communicate.stream(). Returns raw MP3 bytes.
+
+    Times out after 45 seconds so a blocked network call doesn't stall the consumer.
+    """
     import edge_tts  # noqa: PLC0415
     voice = _EDGE_VOICES.get(language, _EDGE_VOICES['en'])
+    _logger.info('edge-tts: voice=%s text=%r', voice, text[:60])
     communicate = edge_tts.Communicate(text, voice)
     buf = io.BytesIO()
-    async for chunk in communicate.stream():
-        if chunk['type'] == 'audio':
-            buf.write(chunk['data'])
+
+    async def _stream():
+        async for chunk in communicate.stream():
+            if chunk['type'] == 'audio':
+                buf.write(chunk['data'])
+
+    await asyncio.wait_for(_stream(), timeout=45.0)
     buf.seek(0)
     data = buf.read()
     if not data:
         raise RuntimeError('edge-tts returned empty audio')
+    _logger.info('edge-tts: produced %d bytes', len(data))
     return data
 
 
@@ -263,38 +272,52 @@ def _publish(channel, routing_key: str, body: dict):
 
 def _handle_message(channel, method, _properties, body):
     routing_key = method.routing_key
+    _logger.info('Message received: routing_key=%s body_len=%d', routing_key, len(body))
     try:
         payload = json.loads(body)
     except Exception as exc:
-        _logger.error('Failed to parse message on %s: %s', routing_key, exc)
+        _logger.error('Failed to parse JSON on %s: %s | body=%r', routing_key, exc, body[:200])
         channel.basic_ack(delivery_tag=method.delivery_tag)
         return
+
+    job_id = payload.get('job_id', '')
+    _logger.info('Processing job_id=%s on queue=%s', job_id, routing_key)
 
     try:
         if routing_key == 'audio.generation.requested':
             result = _process_generation_job(payload)
             _publish(channel, 'audio.generation.completed', result)
+            _logger.info('Published audio.generation.completed for job_id=%s', job_id)
         elif routing_key == 'audio.transcription.requested':
             result = _process_transcription_job(payload)
             _publish(channel, 'audio.transcription.completed', result)
+            _logger.info('Published audio.transcription.completed for job_id=%s', job_id)
         else:
-            _logger.warning('Unknown routing key: %s', routing_key)
+            _logger.warning('Unknown routing key: %s — acking and skipping', routing_key)
     except Exception as exc:
-        _logger.error('Job failed for %s: %s', routing_key, exc, exc_info=True)
-        job_id = payload.get('job_id', '')
+        _logger.error('Job FAILED job_id=%s queue=%s: %s', job_id, routing_key, exc, exc_info=True)
         fail_key = routing_key.replace('.requested', '.failed')
         error_payload = {'job_id': job_id, 'error': str(exc)}
         if routing_key == 'audio.transcription.requested':
             error_payload['audio_id'] = payload.get('audio_id')
         try:
             _publish(channel, fail_key, error_payload)
+            _logger.info('Published %s for job_id=%s', fail_key, job_id)
         except Exception as pub_exc:
-            _logger.error('Could not publish failure event: %s', pub_exc)
+            _logger.error('Could not publish failure event %s: %s', fail_key, pub_exc)
     finally:
         channel.basic_ack(delivery_tag=method.delivery_tag)
+        _logger.info('ACKed delivery_tag=%s for job_id=%s', method.delivery_tag, job_id)
 
 
 def _consumer_loop():
+    """Push-based RabbitMQ consumer for audio generation and transcription jobs.
+
+    heartbeat=600: TTS + Whisper jobs can take 30–120 s on slow CPU.
+    The 60 s default causes pika to close the connection mid-job;
+    600 s gives safe headroom. The internal Docker network is stable,
+    so a large heartbeat value is safe.
+    """
     global _consumer_alive
     queues = ['audio.generation.requested', 'audio.transcription.requested']
     while True:
@@ -305,9 +328,13 @@ def _consumer_loop():
                 port=RABBITMQ_PORT,
                 virtual_host=RABBITMQ_VHOST,
                 credentials=creds,
-                heartbeat=60,
+                heartbeat=600,
                 blocked_connection_timeout=300,
+                connection_attempts=3,
+                retry_delay=2,
             )
+            _logger.info('Audio consumer: connecting to RabbitMQ at %s:%d vhost=%s',
+                         RABBITMQ_HOST, RABBITMQ_PORT, RABBITMQ_VHOST)
             connection = pika.BlockingConnection(params)
             channel = connection.channel()
             channel.basic_qos(prefetch_count=1)
@@ -315,11 +342,11 @@ def _consumer_loop():
                 channel.queue_declare(queue=q, durable=True)
                 channel.basic_consume(queue=q, on_message_callback=_handle_message)
             _consumer_alive = True
-            _logger.info('Audio consumer started. Listening on %s', queues)
+            _logger.info('Audio consumer ready. Listening on queues: %s', queues)
             channel.start_consuming()
         except Exception as exc:
             _consumer_alive = False
-            _logger.error('Audio consumer error: %s — reconnecting in 5 s', exc)
+            _logger.error('Audio consumer disconnected: %s — reconnecting in 5 s', exc)
             time.sleep(5)
 
 
