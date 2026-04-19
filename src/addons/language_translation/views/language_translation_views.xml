@@ -65,4 +65,31 @@
               action="action_language_translation"
               sequence="30"/>
 
+    <!-- ============================================================
+         Inject Translations tab into language.entry backend form
+         (translation_ids field is defined on language.entry by this module)
+    ============================================================ -->
+    <record id="view_language_entry_form_translation_tab" model="ir.ui.view">
+        <field name="name">language.entry.form.translation_tab</field>
+        <field name="model">language.entry</field>
+        <field name="inherit_id" ref="language_words.view_language_entry_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//notebook/page[last()]" position="after">
+                <page string="Translations">
+                    <field name="translation_ids">
+                        <list decoration-success="status == 'completed'"
+                              decoration-warning="status in ('pending', 'processing')"
+                              decoration-danger="status == 'failed'">
+                            <field name="target_language"/>
+                            <field name="translated_text"/>
+                            <field name="status"/>
+                            <field name="job_id" optional="hide"/>
+                            <field name="error_message" optional="hide"/>
+                        </list>
+                    </field>
+                </page>
+            </xpath>
+        </field>
+    </record>
+
 </odoo>

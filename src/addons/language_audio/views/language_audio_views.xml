@@ -86,7 +86,7 @@
         <field name="model">language.entry</field>
         <field name="inherit_id" ref="language_words.view_language_entry_form"/>
         <field name="arch" type="xml">
-            <xpath expr="//notebook/page[1]" position="before">
+            <xpath expr="//notebook/page[last()]" position="after">
                 <page string="Audio">
                     <field name="audio_ids">
                         <list decoration-success="status == 'completed'"
