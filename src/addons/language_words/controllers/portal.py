@@ -28,6 +28,13 @@ ITEMS_PER_PAGE = 20
 # "English" instead of "en" without embedding logic in each template.
 LANG_NAMES = {'en': 'English', 'uk': 'Ukrainian', 'el': 'Greek'}
 
+# Ordered list used to compute which translation buttons to show on the detail page.
+SUPPORTED_LANGS = [
+    {'code': 'en', 'name': 'English'},
+    {'code': 'uk', 'name': 'Ukrainian'},
+    {'code': 'el', 'name': 'Greek'},
+]
+
 
 def _try_detect_language(text: str):
     """Return 'en', 'uk', 'el', or None.
@@ -163,11 +170,19 @@ class VocabularyPortal(CustomerPortal):
         profile = request.env['language.user.profile'].search(
             [('user_id', '=', request.env.uid)], limit=1
         )
+        # Languages that have no translation record yet (excluding source language).
+        existing_lang_codes = {t.target_language for t in entry.translation_ids}
+        missing_translation_langs = [
+            lang for lang in SUPPORTED_LANGS
+            if lang['code'] != entry.source_language
+            and lang['code'] not in existing_lang_codes
+        ]
         return request.render('language_words.portal_vocabulary_detail', {
             'entry': entry,
             'page_name': 'vocabulary',
             'lang_names': LANG_NAMES,
             'user_profile': profile,
+            'missing_translation_langs': missing_translation_langs,
         })
 
     # ------------------------------------------------------------------

@@ -69,6 +69,38 @@
                         </select>
                     </div>
 
+                    <!-- Destination language (optional — for immediate translation) -->
+                    <div class="mb-3">
+                        <label class="form-label fw-medium" for="target_language_id">
+                            Destination language <span class="text-muted fw-normal">(optional)</span>
+                        </label>
+                        <select class="form-select" id="target_language_id" name="target_language_id">
+                            <option value="">— skip (queue translations automatically) —</option>
+                            <t t-foreach="languages" t-as="lrec">
+                                <option t-att-value="lrec.id"><t t-esc="lrec.name"/> (<t t-esc="lrec.code"/>)</option>
+                            </t>
+                        </select>
+                        <div class="form-text">
+                            If the <em>back side</em> of your cards is already translated, select its
+                            language here. Translation records will be created immediately from the
+                            Anki data — no async service needed — and entries will be
+                            <strong>PvP-eligible right away</strong>.
+                        </div>
+                    </div>
+
+                    <!-- PvP Eligible intent flag -->
+                    <div class="mb-3 form-check">
+                        <input type="checkbox" class="form-check-input" id="is_pvp_eligible"
+                               name="is_pvp_eligible" value="1"/>
+                        <label class="form-check-label fw-medium" for="is_pvp_eligible">
+                            Mark import as PvP eligible
+                        </label>
+                        <div class="form-text">
+                            Records your intent. Entries become PvP eligible automatically when a
+                            Destination Language is selected above and translation records are created.
+                        </div>
+                    </div>
+
                     <!-- Field mapping (advanced, .apkg only) -->
                     <div class="mb-3">
                         <details>
@@ -245,6 +277,27 @@
                                     <t t-esc="job.source_language_id.name"/>
                                 </t>
                                 <t t-else="">—</t>
+                            </dd>
+
+                            <dt class="col-sm-4 text-muted">Destination language</dt>
+                            <dd class="col-sm-8">
+                                <t t-if="job.target_language_id">
+                                    <span class="badge bg-success"><t t-esc="job.target_language_id.name"/></span>
+                                    <span class="text-muted small ms-1">translations created immediately</span>
+                                </t>
+                                <t t-else="">
+                                    <span class="text-muted">— queued via translation service</span>
+                                </t>
+                            </dd>
+
+                            <dt class="col-sm-4 text-muted">PvP eligible</dt>
+                            <dd class="col-sm-8">
+                                <t t-if="job.is_pvp_eligible">
+                                    <span class="badge bg-success">⚡ Yes</span>
+                                </t>
+                                <t t-else="">
+                                    <span class="text-muted small">No</span>
+                                </t>
                             </dd>
 
                             <dt class="col-sm-4 text-muted">Entry type</dt>

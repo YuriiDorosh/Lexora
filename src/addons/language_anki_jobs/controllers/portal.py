@@ -62,6 +62,7 @@ class AnkiPortal(CustomerPortal):
             'languages': languages,
             'entry_types': ENTRY_TYPES,
             'error': None,
+            'post': {},
         })
 
     def _handle_upload(self, post, languages):
@@ -87,6 +88,7 @@ class AnkiPortal(CustomerPortal):
                 'languages': languages,
                 'entry_types': ENTRY_TYPES,
                 'error': error,
+                'post': post,
             })
 
         file_bytes = uploaded.read()
@@ -96,6 +98,15 @@ class AnkiPortal(CustomerPortal):
         entry_type = post.get('entry_type', 'word')
         field_mapping_raw = post.get('field_mapping', '{}') or '{}'
 
+        # Optional: destination language for immediate translations + PvP eligibility.
+        tgt_lang_id_raw = post.get('target_language_id', '').strip()
+        tgt_lang_id = int(tgt_lang_id_raw) if tgt_lang_id_raw else False
+        is_pvp_eligible = bool(post.get('is_pvp_eligible'))
+
+        # Validate: target language must differ from source language.
+        if tgt_lang_id and tgt_lang_id == src_lang_id:
+            tgt_lang_id = False
+
         try:
             Job = request.env['language.anki.job']
             job = Job.create({
@@ -104,6 +115,8 @@ class AnkiPortal(CustomerPortal):
                 'file_data': file_b64,
                 'file_name': uploaded.filename,
                 'source_language_id': src_lang_id,
+                'target_language_id': tgt_lang_id,
+                'is_pvp_eligible': is_pvp_eligible,
                 'entry_type': entry_type,
                 'field_mapping': field_mapping_raw,
                 'user_id': request.env.uid,
@@ -118,6 +131,7 @@ class AnkiPortal(CustomerPortal):
                 'languages': languages,
                 'entry_types': ENTRY_TYPES,
                 'error': f'Import failed: {exc}',
+                'post': post,
             })
 
         return request.redirect(f'/my/anki/jobs/{job.id}')
