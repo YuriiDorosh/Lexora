@@ -62,6 +62,11 @@ XP history table, duel analytics, recent duels list, and "My Profile" navbar lin
   table created; seed hook ran; dashboard template registered.
 - [x] M10-10 · `--test-enable -u language_learning,language_pvp` → 0 failures, 0 errors.
 - [x] M10-11 · `docker restart odoo` → both modules load in 0.00s; routes registered.
+- [x] M10-11b · Bug fix: `portal_dashboard.xml` progress bar used `'width:%d%' % value`
+  (incomplete format — `ValueError` on render). Fixed to `'width:%d%%' % value`.
+  Root cause: stale DB template; fixed by re-running `--update language_learning` +
+  `docker restart odoo`. Global search confirmed no other `t-att-style` expressions
+  use `%`-formatting with an unescaped `%` (other files use `.format()` safely).
 - [ ] M10-12 · Manual smoke: `/my/dashboard` renders; bot duel creates win/loss log entries;
   XP history shows transactions; "My Profile" link appears in navbar.
 - [ ] M10-13 · Commit M10 on branch `m9`.
