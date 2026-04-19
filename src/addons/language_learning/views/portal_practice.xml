@@ -1,0 +1,195 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <template id="portal_practice" name="Daily Practice">
+        <t t-call="portal.portal_layout">
+            <t t-set="breadcrumbs_searchbar" t-value="False"/>
+
+            <div class="container py-4">
+                <div class="row justify-content-center">
+                    <div class="col-md-8 col-lg-6">
+
+                        <div class="d-flex align-items-center mb-4">
+                            <h2 class="mb-0 me-3">Daily Practice</h2>
+                            <span class="badge bg-primary fs-6" t-esc="total_due"/>
+                            <span class="text-muted ms-2">cards due</span>
+                        </div>
+
+                        <!-- No cards due -->
+                        <t t-if="not cards">
+                            <div class="card border-0 shadow-sm text-center py-5">
+                                <div class="card-body">
+                                    <div class="display-1 mb-3">🎉</div>
+                                    <h4 class="text-success">All caught up!</h4>
+                                    <p class="text-muted mb-4">
+                                        No cards are due for review right now.
+                                        Come back tomorrow to keep your streak going.
+                                    </p>
+                                    <a href="/my/vocabulary" class="btn btn-outline-primary">
+                                        Browse vocabulary
+                                    </a>
+                                </div>
+                            </div>
+                        </t>
+
+                        <!-- Flashcard for the first due card -->
+                        <t t-if="cards">
+                            <t t-set="card" t-value="cards[0]"/>
+                            <t t-set="entry" t-value="card.entry_id"/>
+
+                            <!-- Progress bar -->
+                            <div class="mb-3">
+                                <div class="d-flex justify-content-between small text-muted mb-1">
+                                    <span>Card 1 of <t t-esc="total_due"/></span>
+                                    <span>
+                                        <span class="badge"
+                                              t-att-class="'bg-info' if card.state == 'new' else 'bg-warning text-dark' if card.state == 'learning' else 'bg-success'"
+                                              t-esc="card.state.capitalize()"/>
+                                    </span>
+                                </div>
+                                <div class="progress" style="height:6px;">
+                                    <div class="progress-bar bg-primary" role="progressbar"
+                                         t-att-style="'width:{}%'.format(round((total_due - total_due) / max(total_due, 1) * 100))"/>
+                                </div>
+                            </div>
+
+                            <!-- Flashcard -->
+                            <div class="card shadow border-0 mb-4" id="flashcard">
+                                <!-- Front: source text -->
+                                <div class="card-body text-center py-5">
+                                    <p class="text-muted small mb-2">
+                                        <t t-esc="entry.source_language.upper()"/>
+                                    </p>
+                                    <h2 class="fw-bold mb-1" t-esc="entry.source_text"/>
+                                    <span class="badge bg-light text-dark border"
+                                          t-esc="entry.type.capitalize()"/>
+                                </div>
+
+                                <!-- Reveal translations on click -->
+                                <div class="card-footer bg-transparent text-center" id="reveal-area">
+                                    <button class="btn btn-outline-secondary" id="btn-reveal"
+                                            onclick="document.getElementById('translations-area').classList.remove('d-none'); this.classList.add('d-none');">
+                                        Show answer
+                                    </button>
+
+                                    <div class="d-none py-3" id="translations-area">
+                                        <t t-foreach="entry.translation_ids" t-as="tr">
+                                            <t t-if="tr.status == 'completed'">
+                                                <div class="mb-2">
+                                                    <span class="badge bg-secondary me-2"
+                                                          t-esc="tr.target_language.upper()"/>
+                                                    <span class="fs-5" t-esc="tr.translated_text"/>
+                                                </div>
+                                            </t>
+                                        </t>
+                                        <t t-if="not entry.translation_ids.filtered(lambda t: t.status == 'completed')">
+                                            <p class="text-muted fst-italic">No translations available yet.</p>
+                                        </t>
+
+                                        <!-- Enrichment snippet if available -->
+                                        <t t-set="_enr" t-value="entry.enrichment_ids.filtered(lambda e: e.status == 'completed' and e.language == entry.source_language)"/>
+                                        <t t-if="_enr">
+                                            <hr class="my-3"/>
+                                            <p class="text-muted small fst-italic" t-esc="_enr[0].explanation"/>
+                                        </t>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Grade buttons (hidden until answer revealed) -->
+                            <div class="card border-0 shadow-sm" id="grade-area">
+                                <div class="card-body py-3">
+                                    <p class="text-muted text-center small mb-3">How well did you remember?</p>
+                                    <div class="row g-2">
+                                        <div class="col-6 col-sm-3">
+                                            <form method="post"
+                                                  t-att-action="'/my/practice/review/' + str(card.id)">
+                                                <input type="hidden" name="csrf_token"
+                                                       t-att-value="request.csrf_token()"/>
+                                                <input type="hidden" name="grade" value="0"/>
+                                                <button type="submit"
+                                                        class="btn btn-danger w-100 fw-semibold">
+                                                    Again
+                                                    <small class="d-block text-white-50 fw-normal">&lt;1 day</small>
+                                                </button>
+                                            </form>
+                                        </div>
+                                        <div class="col-6 col-sm-3">
+                                            <form method="post"
+                                                  t-att-action="'/my/practice/review/' + str(card.id)">
+                                                <input type="hidden" name="csrf_token"
+                                                       t-att-value="request.csrf_token()"/>
+                                                <input type="hidden" name="grade" value="1"/>
+                                                <button type="submit"
+                                                        class="btn btn-warning w-100 fw-semibold">
+                                                    Hard
+                                                    <small class="d-block text-dark fw-normal">+short</small>
+                                                </button>
+                                            </form>
+                                        </div>
+                                        <div class="col-6 col-sm-3">
+                                            <form method="post"
+                                                  t-att-action="'/my/practice/review/' + str(card.id)">
+                                                <input type="hidden" name="csrf_token"
+                                                       t-att-value="request.csrf_token()"/>
+                                                <input type="hidden" name="grade" value="2"/>
+                                                <button type="submit"
+                                                        class="btn btn-success w-100 fw-semibold">
+                                                    Good
+                                                    <small class="d-block text-white-50 fw-normal">+days</small>
+                                                </button>
+                                            </form>
+                                        </div>
+                                        <div class="col-6 col-sm-3">
+                                            <form method="post"
+                                                  t-att-action="'/my/practice/review/' + str(card.id)">
+                                                <input type="hidden" name="csrf_token"
+                                                       t-att-value="request.csrf_token()"/>
+                                                <input type="hidden" name="grade" value="3"/>
+                                                <button type="submit"
+                                                        class="btn btn-primary w-100 fw-semibold">
+                                                    Easy
+                                                    <small class="d-block text-white-50 fw-normal">+longer</small>
+                                                </button>
+                                            </form>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Upcoming cards summary -->
+                            <t t-if="total_due > 1">
+                                <div class="mt-4">
+                                    <p class="text-muted small text-center mb-2">Remaining in queue</p>
+                                    <div class="d-flex flex-wrap gap-2 justify-content-center">
+                                        <t t-foreach="cards[1:6]" t-as="upcoming">
+                                            <span class="badge bg-light text-dark border px-3 py-2"
+                                                  t-esc="upcoming.entry_id.source_text"/>
+                                        </t>
+                                        <t t-if="total_due > 6">
+                                            <span class="badge bg-light text-muted border px-3 py-2">
+                                                +<t t-esc="total_due - 6"/> more
+                                            </span>
+                                        </t>
+                                    </div>
+                                </div>
+                            </t>
+
+                        </t><!-- end t-if cards -->
+                    </div>
+                </div>
+            </div>
+        </t>
+    </template>
+
+    <!-- Portal home widget -->
+    <template id="portal_my_home_practice" name="Practice Link on Portal Home"
+              inherit_id="portal.portal_my_home" priority="30">
+        <xpath expr="//div[hasclass('o_portal_docs')]" position="inside">
+            <t t-call="portal.portal_docs_entry">
+                <t t-set="title">Daily Practice</t>
+                <t t-set="url">/my/practice</t>
+                <t t-set="placeholder_count">0</t>
+            </t>
+        </xpath>
+    </template>
+</odoo>
