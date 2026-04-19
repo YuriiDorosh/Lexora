@@ -398,7 +398,68 @@ model ~145 MB). Three `audio_type` values: `recorded` (user mic), `generated`
 - Modules updated with `--update language_translation,language_audio --no-http`.
 - Odoo restarted with `docker restart odoo`.
 
-**Bug 2 — TTS/STT stuck in "Processing" (service hanging).**
+**Bug 2b — TTS/STT stuck in "Processing": 3 protocol bugs in audio service (commit 10d722d).**
+
+Root causes found by running `docker logs audio_service` + `rabbitmqadmin list queues`:
+
+1. **Inbound payload extraction (source_text always empty)**
+   Odoo's `RabbitMQPublisher.publish()` wraps every message as:
+   `{"job_id":..., "event_type":..., "payload":{source_text, language, ...}}`
+   The audio service was doing `payload = json.loads(body)` and then
+   `source_text = payload.get('source_text', '')` → always `''` because
+   `source_text` is under `payload['payload']`, not at the top level.
+   Fix: `payload = message.get('payload', {})` before job processors (matches
+   the same pattern used by `services/translation/main.py`).
+
+2. **Result queues never declared — messages silently dropped**
+   `_publish()` called `basic_publish()` without `queue_declare()` first.
+   RabbitMQ silently drops messages to non-existent queues (default exchange).
+   `audio.generation.completed` / `audio.transcription.completed` never appeared
+   in `rabbitmqadmin list queues` — the drop was confirmed by this command.
+   Fix: `channel.queue_declare(queue=routing_key, durable=True)` before publish.
+
+3. **Result envelope format mismatch (audio data lost even if queue existed)**
+   Odoo's `RabbitMQConsumer.drain()` expects `{"job_id":..., "payload":{...}}`.
+   Audio service was publishing a flat dict → `payload = message.get('payload',{})`
+   returned `{}` → `_handle_generation_completed` found the record but no
+   `audio_b64` → `status='completed'` with no attachment.
+   Fix: `_publish()` now wraps in standard Odoo envelope.
+
+4. **Whisper fails to load: `No module named 'requests'`**
+   `faster-whisper` uses `huggingface_hub` which needs `requests` to download
+   the model. Added `requests>=2.31.0` to `services/audio/requirements.txt`.
+   After rebuild: `faster-whisper model=base ready` ✓
+
+**Diagnostic commands for future debugging:**
+```bash
+# Check which queues exist and how many messages are waiting
+docker exec rabbitmq rabbitmqadmin list queues name messages
+
+# Watch audio service process a job in real time
+make logs-audio
+
+# Manually publish a TTS test job
+docker exec rabbitmq rabbitmqadmin --username=guest --password=guest \
+  publish exchange=amq.default routing_key=audio.generation.requested \
+  payload='{"job_id":"test-01","event_type":"audio.generation.requested","payload":{"source_text":"hello","language":"en","entry_id":1}}' \
+  properties='{"content_type":"application/json","delivery_mode":2}'
+
+# Force Odoo to drain result queues immediately (don't wait 1 min)
+docker exec odoo odoo-bin shell -d lexora -c /etc/odoo/odoo.conf << 'EOF'
+env['language.audio'].action_consume_results()
+env.cr.commit()
+EOF
+```
+
+**Verified after fix:**
+- Published `audio.generation.requested` for `source_text='apple'/lang=en`
+- Service log: `inner_payload_keys=['source_text','language',...]` ✓ (was empty before)
+- `audio.generation.completed` queue appeared with 1 message (was absent before)
+- Cron drained it within 1 minute
+- Edge-tts gets 403 from Microsoft on this network — espeak-ng fallback activates,
+  produces valid audio. Expected: portal TTS shows espeak quality on dev host.
+
+**Bug 2 (original) — heartbeat=60 → service disconnect during long jobs.**
 - Root cause 1: `heartbeat=60` in the pika `BlockingConnection`. TTS via edge-tts
   takes 2–10 s (network-bound); Whisper STT on CPU takes 5–60 s. During
   `_handle_message()` execution, pika's event loop is blocked and heartbeats are
