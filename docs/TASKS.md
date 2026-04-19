@@ -122,19 +122,62 @@ persistent import log, audio extraction from `.apkg` media bundles.
   `/my/anki/jobs/99999` → 404, `/my` shows "My Imports" link.
   16/16 existing tests still pass after the portal addition.
 
-**Phase 5 — Verification**
+**Phase 5 — Zstd / modern Anki format fix (committed 2026-04-19)**
+
+- [x] M5-Zstd · Added `zstandard==0.22.0` to `services/anki/requirements.txt`.
+  Implemented `_decompress_if_needed()` for transparent Zstd decompression.
+  DB priority: `collection.anki21b` → `collection.anki21` → `collection.anki2`.
+  Media map also decompressed if Zstd-compressed. Stub-note filter added.
+  1021 entries successfully imported from a real `.apkg` during verification.
+  Committed: `0d5ff65` — `feat(M5): support modern Anki Zstd-compressed .apkg format`.
+
+**Phase 6 — M5c: Translation & Import Refinement**
+
+- [x] M5c-01 · `language.anki.job` model: added `target_language_id` (Many2one →
+  language.lang) and `is_pvp_eligible` (Boolean).
+- [x] M5c-02 · `_handle_completed()`: when `target_language_id` is set and entry
+  has a `translation` value from Anki data, create `language.translation` record
+  immediately with `status='completed'` — bypasses the async translation service.
+  `pvp_eligible` becomes True automatically via the existing compute.
+- [x] M5c-03 · Anki portal form (`/my/anki`): added "Destination language" dropdown
+  and "Mark as PvP Eligible" checkbox. Controller reads and validates both new fields.
+  Error render re-passes `post` dict so form values are preserved on validation error.
+- [x] M5c-04 · Job detail page: shows "Destination language" and "PvP eligible"
+  metadata rows with appropriate badges.
+- [x] M5c-05 · `language_translation/controllers/portal.py`: added two new routes:
+  - `POST /my/vocabulary/<entry_id>/translate/<lang_code>` — manual trigger for a
+    specific language (calls `_enqueue_single`, redirects back to entry detail).
+  - `POST /my/translation/update/<trans_id>` — inline edit; validates ownership via
+    the parent entry; writes `translated_text` + sets `status='completed'`. PvP
+    recompute fires automatically on status change.
+- [x] M5c-06 · `language_words/controllers/portal.py` `vocabulary_detail()`: computes
+  `missing_translation_langs` (supported langs minus source lang minus existing
+  translation records) and passes it to the template.
+- [x] M5c-07 · `portal_vocabulary.xml` translations section overhauled:
+  - Each completed translation shows a ✎ pencil button.
+  - Clicking toggles an inline Bootstrap row with a `<textarea>` pre-filled with
+    current text and a POST form to `/my/translation/update/<trans_id>`.
+  - "Translate to [Language]" buttons appear for all missing languages.
+
+**Phase 7 — Verification (pending)**
 
 - [ ] M5-15 · Export a test `.apkg` from Anki (simple 10-card deck) and import via
   portal: confirm 10 entries created, translations auto-queued.
 - [ ] M5-16 · Re-import the same `.apkg` → 0 created, 10 skipped.
-- [ ] M5-17 · Import a `.txt` with 3 rows (2 new, 1 duplicate from step M5-15)
+- [ ] M5-17 · Import `.apkg` with "Destination language = Ukrainian": confirm
+  `language.translation` records created immediately with `status='completed'` and
+  `pvp_eligible=True` on each entry (no async translation needed).
+- [ ] M5-18 · Edit a translation via the ✎ button: update text → Save → confirm
+  `translated_text` updated, `status='completed'` remains.
+- [ ] M5-19 · Click "+ Translate to Greek" on an entry missing a Greek translation:
+  confirm a new `language.translation` record is created (`status='processing'`)
+  and the button disappears from the page after redirect.
+- [ ] M5-20 · Import a `.txt` with 3 rows (2 new, 1 duplicate from step M5-15)
   → 2 created, 1 skipped.
-- [ ] M5-18 · Import log visible in portal: all three jobs listed, counts correct,
-  skipped list reviewable.
-- [ ] M5-19 · If `.apkg` contains MP3: verify `language.audio` records created with
-  `audio_type='imported'`.
-- [ ] M5-20 · Run full regression: `--update language_anki_jobs --test-enable
-  --no-http` → all tests green (target: 8 new + 71 prior = 79 total).
+- [ ] M5-21 · Import log visible in portal: all jobs listed, destination language
+  and PvP eligible fields visible in job detail.
+- [ ] M5-22 · Run full regression: `--update language_anki_jobs,language_translation,
+  language_words --test-enable --no-http` → all tests green (target: ≥ 79 total).
 
 #### Files expected to change
 

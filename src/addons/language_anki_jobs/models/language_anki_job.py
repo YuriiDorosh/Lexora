@@ -73,6 +73,21 @@ class LanguageAnkiJob(models.Model):
         ondelete='restrict',
         help='Language of the source text in the imported deck (confirmed by user at import time).',
     )
+    target_language_id = fields.Many2one(
+        comodel_name='language.lang',
+        string='Destination Language',
+        ondelete='restrict',
+        help='Language of the translation / back-side text in the deck. '
+             'When set, translation records are created immediately from the Anki '
+             'data instead of being queued to the translation service.',
+    )
+    is_pvp_eligible = fields.Boolean(
+        string='Mark as PvP Eligible',
+        default=False,
+        help='Record the user intent that imported entries should be PvP-eligible. '
+             'Entries become eligible automatically when Destination Language is set '
+             'and completed translation records are created from the Anki data.',
+    )
     entry_type = fields.Selection(
         selection=ENTRY_TYPE_SELECTION,
         string='Default Entry Type',
@@ -198,7 +213,20 @@ class LanguageAnkiJob(models.Model):
         skipped_details = list(parse_errors)
 
         source_lang_code = job.source_language_id.code
+        target_lang_code = job.target_language_id.code if job.target_language_id else None
         created_entry_map = {}  # audio_filename → entry_id for audio linking
+
+        # Lazy: language.translation may not be loaded in tests that only install
+        # language_anki_jobs.  Only resolve when target_language_id is actually set.
+        TransModel = None
+        if target_lang_code:
+            try:
+                TransModel = self.env['language.translation'].sudo()
+            except KeyError:
+                _logger.warning(
+                    'language.translation not available — skipping direct translation creation'
+                )
+                target_lang_code = None
 
         for entry_vals_raw in entries:
             source_text = entry_vals_raw.get('source_text', '').strip()
@@ -214,6 +242,7 @@ class LanguageAnkiJob(models.Model):
                 'created_from': 'anki_import',
             }
             audio_filename = entry_vals_raw.get('audio_filename')
+            translation_text = entry_vals_raw.get('translation', '').strip()
 
             try:
                 with self.env.cr.savepoint():
@@ -221,6 +250,26 @@ class LanguageAnkiJob(models.Model):
                     count_created += 1
                     if audio_filename:
                         created_entry_map[audio_filename] = entry.id
+
+                    # Create a completed translation record immediately from the
+                    # Anki back-side text, bypassing the translation service.
+                    if target_lang_code and translation_text and target_lang_code != source_lang_code:
+                        existing_trans = TransModel.search([
+                            ('entry_id', '=', entry.id),
+                            ('target_language', '=', target_lang_code),
+                        ], limit=1)
+                        if not existing_trans:
+                            TransModel.create({
+                                'entry_id': entry.id,
+                                'target_language': target_lang_code,
+                                'translated_text': translation_text,
+                                'status': 'completed',
+                            })
+                            _logger.debug(
+                                'anki.import: created direct translation for entry %d → %s',
+                                entry.id, target_lang_code,
+                            )
+
             except ValidationError:
                 count_skipped += 1
                 skipped_details.append({
