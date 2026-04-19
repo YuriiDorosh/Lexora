@@ -86,6 +86,25 @@
         <field name="search_view_id" ref="view_language_review_search"/>
     </record>
 
+    <!-- Stat button on language.entry backend form -->
+    <record id="view_language_entry_form_review_button" model="ir.ui.view">
+        <field name="name">language.entry.form.review_stat_button</field>
+        <field name="model">language.entry</field>
+        <field name="inherit_id" ref="language_words.view_language_entry_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//sheet/div[hasclass('oe_title')]" position="before">
+                <div class="oe_button_box" name="button_box">
+                    <button type="object"
+                            name="action_open_review_cards"
+                            class="oe_stat_button"
+                            icon="fa-graduation-cap">
+                        <field name="review_card_count" widget="statinfo" string="SRS Cards"/>
+                    </button>
+                </div>
+            </xpath>
+        </field>
+    </record>
+
     <!-- Menu -->
     <menuitem id="menu_language_review"
               name="Review Cards"

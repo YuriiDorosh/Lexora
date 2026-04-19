@@ -1,0 +1,147 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <template id="portal_leaderboard" name="XP Leaderboard">
+        <t t-call="portal.portal_layout">
+            <div class="container py-4">
+                <div class="row justify-content-center">
+                    <div class="col-lg-9">
+
+                        <div class="d-flex align-items-baseline gap-3 mb-4">
+                            <h2 class="mb-0">Leaderboard</h2>
+                            <span class="text-muted small"><t t-esc="total"/> practitioners ranked</span>
+                        </div>
+
+                        <!-- Current user's rank card (if in top rankings or has XP) -->
+                        <t t-if="my_profile and my_profile.xp_total > 0">
+                            <div class="card border-primary mb-4 shadow-sm">
+                                <div class="card-body py-2 px-3">
+                                    <div class="d-flex align-items-center gap-3">
+                                        <div class="text-primary fw-bold fs-4" style="min-width:2.5rem; text-align:center">
+                                            #<t t-esc="my_rank or '–'"/>
+                                        </div>
+                                        <div class="flex-grow-1">
+                                            <div class="fw-semibold">You</div>
+                                            <div class="d-flex gap-3 small text-muted align-items-center">
+                                                <span><t t-esc="my_profile.xp_total"/> XP</span>
+                                                <t t-set="_my_lvl" t-value="my_profile.level"/>
+                                                <span class="badge rounded-pill"
+                                                      t-att-class="'bg-danger text-white' if _my_lvl >= 20 else ('bg-warning text-dark' if _my_lvl >= 10 else ('bg-info text-white' if _my_lvl >= 5 else 'bg-primary text-white'))">
+                                                    Lv <t t-esc="_my_lvl"/>
+                                                </span>
+                                                <span>🔥 <t t-esc="my_profile.current_streak"/>d streak</span>
+                                            </div>
+                                            <!-- Level progress bar -->
+                                            <div class="progress mt-1" style="height:4px;">
+                                                <div class="progress-bar bg-primary"
+                                                     t-att-style="'width:{}%'.format(my_profile.level_progress_pct)"/>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </t>
+
+                        <!-- No entries yet -->
+                        <t t-if="not ranked">
+                            <div class="card border-0 shadow-sm text-center py-5">
+                                <div class="card-body">
+                                    <div class="display-1 mb-3">🏆</div>
+                                    <h4>No practitioners yet</h4>
+                                    <p class="text-muted mb-4">Be the first to earn XP by practicing your vocabulary!</p>
+                                    <a href="/my/practice" class="btn btn-primary">Start practicing</a>
+                                </div>
+                            </div>
+                        </t>
+
+                        <!-- Leaderboard table -->
+                        <t t-if="ranked">
+                            <div class="card border-0 shadow-sm">
+                                <div class="table-responsive">
+                                    <table class="table table-hover align-middle mb-0">
+                                        <thead class="table-light">
+                                            <tr>
+                                                <th style="width:3.5rem" class="text-center">Rank</th>
+                                                <th>Practitioner</th>
+                                                <th class="text-center" style="width:7rem">Level</th>
+                                                <th class="text-end" style="width:6rem">XP</th>
+                                                <th class="text-center" style="width:7rem">Streak</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <t t-foreach="ranked" t-as="row">
+                                                <tr t-att-class="'table-primary fw-semibold' if row['is_me'] else ''">
+                                                    <td class="text-center">
+                                                        <t t-if="row['rank'] == 1">🥇</t>
+                                                        <t t-elif="row['rank'] == 2">🥈</t>
+                                                        <t t-elif="row['rank'] == 3">🥉</t>
+                                                        <t t-else="">#<t t-esc="row['rank']"/></t>
+                                                    </td>
+                                                    <td>
+                                                        <span t-esc="row['profile'].user_id.name"/>
+                                                        <t t-if="row['is_me']">
+                                                            <span class="badge bg-primary ms-2 small">You</span>
+                                                        </t>
+                                                    </td>
+                                                    <td class="text-center">
+                                                        <t t-set="_lvl" t-value="row['profile'].level"/>
+                                                        <span class="badge rounded-pill"
+                                                              t-att-class="'bg-danger text-white' if _lvl >= 20 else ('bg-warning text-dark' if _lvl >= 10 else ('bg-info text-white' if _lvl >= 5 else 'bg-primary text-white'))">
+                                                            Lv <t t-esc="_lvl"/>
+                                                        </span>
+                                                        <div class="progress mt-1" style="height:3px;">
+                                                            <div class="progress-bar"
+                                                                 t-att-class="'bg-danger' if _lvl >= 20 else ('bg-warning' if _lvl >= 10 else ('bg-info' if _lvl >= 5 else 'bg-primary'))"
+                                                                 t-att-style="'width:{}%'.format(row['profile'].level_progress_pct)"/>
+                                                        </div>
+                                                    </td>
+                                                    <td class="text-end fw-bold">
+                                                        <t t-esc="row['profile'].xp_total"/>
+                                                        <span class="text-muted fw-normal small">XP</span>
+                                                    </td>
+                                                    <td class="text-center">
+                                                        <t t-if="row['profile'].current_streak > 0">
+                                                            🔥 <t t-esc="row['profile'].current_streak"/>d
+                                                        </t>
+                                                        <t t-else="">
+                                                            <span class="text-muted">–</span>
+                                                        </t>
+                                                    </td>
+                                                </tr>
+                                            </t>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+
+                            <!-- Pager -->
+                            <div class="mt-3" t-if="pager['page_count'] > 1">
+                                <t t-call="portal.pager" t-if="pager">
+                                    <t t-set="pager" t-value="pager"/>
+                                </t>
+                            </div>
+                        </t>
+
+                        <div class="mt-4 text-center">
+                            <a href="/my/practice" class="btn btn-outline-primary me-2">Practice Now</a>
+                            <a href="/my" class="btn btn-outline-secondary">My Home</a>
+                        </div>
+
+                    </div>
+                </div>
+            </div>
+        </t>
+    </template>
+
+    <!-- Portal home widget for leaderboard -->
+    <template id="portal_my_home_leaderboard" name="Leaderboard — Portal Home Widget"
+              inherit_id="portal.portal_my_home" priority="35">
+        <xpath expr="//div[hasclass('o_portal_docs')]" position="inside">
+            <t t-call="portal.portal_docs_entry">
+                <t t-set="title">Leaderboard</t>
+                <t t-set="url" t-value="'/my/leaderboard'"/>
+                <t t-set="text">XP rankings</t>
+                <t t-set="placeholder_count">leaderboard_count</t>
+            </t>
+        </xpath>
+    </template>
+</odoo>

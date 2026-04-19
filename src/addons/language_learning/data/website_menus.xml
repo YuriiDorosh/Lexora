@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data noupdate="1">
+
+        <!-- "Daily Practice" link in the website navbar (logged-in users only) -->
+        <record id="menu_navbar_practice" model="website.menu">
+            <field name="name">Daily Practice</field>
+            <field name="url">/my/practice</field>
+            <field name="parent_id" ref="website.main_menu"/>
+            <field name="sequence">55</field>
+            <field name="user_logged">True</field>
+        </record>
+
+        <!-- "Leaderboard" link in the website navbar (logged-in users only) -->
+        <record id="menu_navbar_leaderboard" model="website.menu">
+            <field name="name">Leaderboard</field>
+            <field name="url">/my/leaderboard</field>
+            <field name="parent_id" ref="website.main_menu"/>
+            <field name="sequence">70</field>
+            <field name="user_logged">True</field>
+        </record>
+
+    </data>
+</odoo>

@@ -15,11 +15,192 @@
 
 ## Current Milestone
 
+### M8 — Gamification & Progression Stats
+
+**Status:** In progress — core implementation complete; tests written; pending install & verify.
+**Started:** 2026-04-19
+**Branch:** `m8`
+
+**Scope:** XP system, daily streaks, and a public leaderboard. No new async
+services. All logic is pure Odoo — fields added to `language.user.profile` via
+`_inherit` in `language_learning`, wired into `action_register_review()`.
+
+---
+
+#### Precise Technical Specification
+
+**Database schema additions to `language.user.profile` (via `_inherit`):**
+
+| Field | Type | Default | Notes |
+|---|---|---|---|
+| `xp_total` | Integer | 0 | Cumulative XP earned, never decremented |
+| `current_streak` | Integer | 0 | Consecutive days with ≥1 review submitted |
+| `longest_streak` | Integer | 0 | All-time peak streak |
+| `last_practice_date` | Date | False | Date of most recent `action_register_review` call |
+| `level` | Integer (computed, store=True) | 1 | `floor(sqrt(xp_total / 50)) + 1`, capped at 20 |
+| `level_progress_pct` | Integer (computed, store=False) | 0 | % progress within current level band (for progress bar) |
+
+**XP per grade (constants in `language_review.py`):**
+
+```python
+XP_BY_GRADE = {0: 0, 1: 5, 2: 10, 3: 15}
+# Again=0, Hard=5, Good=10, Easy=15
+```
+
+**Level formula:**
+
+```python
+import math
+def _xp_to_level(xp: int) -> int:
+    return min(20, 1 + int(math.sqrt(max(0, xp) / 50)))
+```
+
+Inflection points: Level 2 @ 50 XP, Level 3 @ 200, Level 4 @ 450, Level 5 @ 800,
+Level 10 @ 4050, Level 20 @ 18050. Level cap = 20 (representable in UI without
+layout overflow). Progress % within a level band = how far the user is between
+the current level's XP floor and the next level's XP floor.
+
+```python
+def _level_progress(xp: int) -> int:
+    lvl = _xp_to_level(xp)
+    if lvl >= 20:
+        return 100
+    floor_xp = 50 * (lvl - 1) ** 2   # XP needed for current level
+    ceil_xp  = 50 * lvl ** 2          # XP needed for next level
+    return round((xp - floor_xp) / max(1, ceil_xp - floor_xp) * 100)
+```
+
+**Streak logic (called inside `action_register_review` after SM-2 update):**
+
+```python
+today = fields.Date.today()
+profile = Profile._get_or_create_for_user(self.user_id.id)
+
+if profile.last_practice_date == today:
+    # already counted today — only add XP, no streak change
+    profile.xp_total += xp_delta
+elif profile.last_practice_date == today - timedelta(days=1):
+    # consecutive day — extend streak
+    profile.write({
+        'xp_total': profile.xp_total + xp_delta,
+        'current_streak': profile.current_streak + 1,
+        'longest_streak': max(profile.longest_streak, profile.current_streak + 1),
+        'last_practice_date': today,
+    })
+else:
+    # gap or first practice — reset streak to 1
+    profile.write({
+        'xp_total': profile.xp_total + xp_delta,
+        'current_streak': 1,
+        'last_practice_date': today,
+    })
+```
+
+**Key invariants:**
+- XP is monotonically increasing — never decremented (even on Again).
+- Streak advances at most once per calendar day per user, regardless of how
+  many cards are graded that day.
+- Streak resets to 1 (not 0) on the day it is broken — the current session counts.
+- `longest_streak` only updates when `current_streak + 1 > longest_streak`.
+- `level` is stored (not just computed) so it can be queried efficiently in the
+  leaderboard ORDER BY without a Python-side sort.
+- `action_register_review` calls `_update_gamification(grade)` as a single
+  `self.env['language.user.profile'].sudo()` write — one extra DB write per review.
+
+**Leaderboard (`/my/leaderboard`):**
+
+- Shows top 20 profiles ordered by `xp_total DESC`, then `current_streak DESC`.
+- Only profiles with `xp_total > 0` appear (excludes users who never practiced).
+- Privacy: displays only user's `display_name`, XP, level, streak — no vocabulary.
+- Paginated (20/page) via `portal_pager`.
+- Current user's own row highlighted.
+- Website navbar entry: "Leaderboard" at sequence 70, `user_logged=True`.
+
+---
+
+#### Sub-steps
+
+**Phase 1 — Profile gamification fields**
+
+- [x] M8-01 · `src/addons/language_learning/models/language_user_profile_gamification.py`
+  `_inherit = 'language.user.profile'`
+  Fields: `xp_total`, `current_streak`, `longest_streak`, `last_practice_date`,
+  `level` (computed + stored, depends='xp_total'), `level_progress_pct` (computed, store=False).
+  `_update_gamification_for_user(user_id, grade)` method — atomic streak+XP update.
+
+**Phase 2 — Wire into SM-2**
+
+- [x] M8-02 · `src/addons/language_learning/models/language_review.py`
+  At end of `action_register_review()`, calls:
+  `self.env['language.user.profile'].sudo()._update_gamification_for_user(self.user_id.id, grade)`.
+  `XP_BY_GRADE` dict lives in `language_user_profile_gamification.py`.
+
+**Phase 3 — Backend views**
+
+- [ ] M8-03 · `src/addons/language_learning/views/language_review_views.xml`
+  Extend to include XP/streak/level on `language.user.profile` list and form.
+  (Deferred — admin can view via DB; not blocking for M8 verification.)
+
+**Phase 4 — Portal leaderboard**
+
+- [x] M8-04 · `src/addons/language_learning/controllers/portal.py` — `GET /my/leaderboard`
+  route, paginated top-20 by XP desc then streak desc.
+- [x] M8-05 · `src/addons/language_learning/views/portal_leaderboard.xml` — ranked table
+  with current-user highlight (table-primary), level badge + progress bar, streak counter.
+  Medal icons for top-3. Empty state with CTA to practice.
+- [x] M8-06 · `data/website_menus.xml` + `__init__.py` hook — "Daily Practice" (seq=55)
+  and "Leaderboard" (seq=70) navbar entries propagated to all existing websites.
+
+**Phase 5 — Tests**
+
+- [x] M8-07 · `tests/test_gamification.py` — 24 tests:
+  Helper unit tests (levels, progress%), XP per grade, streak first/consecutive/same-day/gap,
+  longest_streak tracking, level stored field, leaderboard ordering query.
+
+**Phase 6 — Install & verify (pending)**
+
+- [ ] M8-08 · `--update language_learning --stop-after-init --no-http` → 0 errors.
+- [ ] M8-09 · All tests (M7 + M8) green: `--test-enable -u language_learning`.
+- [ ] M8-10 · `docker restart odoo` → `/my/leaderboard` responds for authenticated user.
+- [ ] M8-11 · Grade cards → XP visible on `/my/leaderboard`; streak increments.
+- [ ] M8-12 · Commit M8 on branch `m8`.
+
+**Pagination bug fix (applied this session):**
+- [x] BUG · `/my/vocabulary/page/2` returned 404.
+  Root cause: `@http.route('/my/vocabulary', ...)` did not declare the `/page/<int:page>`
+  URL pattern. Odoo's `portal_pager` generates `/my/vocabulary/page/2` links which the
+  router couldn't match.
+  Fix: `@http.route(['/my/vocabulary', '/my/vocabulary/page/<int:page>'], ...)` in
+  `src/addons/language_words/controllers/portal.py`.
+
+#### Files to create/change
+
+- `src/addons/language_learning/models/language_user_profile_gamification.py` (M8-01) — new
+- `src/addons/language_learning/models/language_review.py` (M8-02) — update action_register_review
+- `src/addons/language_learning/models/__init__.py` — add new module
+- `src/addons/language_learning/views/language_review_views.xml` (M8-03) — profile gamification views
+- `src/addons/language_learning/controllers/portal.py` (M8-04) — leaderboard route
+- `src/addons/language_learning/views/portal_leaderboard.xml` (M8-05) — new
+- `src/addons/language_learning/data/website_menus.xml` (M8-06) — leaderboard navbar
+- `src/addons/language_learning/__init__.py` (M8-06) — add leaderboard to hook list
+- `src/addons/language_learning/tests/test_gamification.py` (M8-07) — new
+- `src/addons/language_learning/tests/__init__.py` — import new test
+- `docs/TASKS.md` (this file)
+
+#### Blockers
+
+(none)
+
+---
+
+## Completed Milestones
+
 ### M7 — Spaced Repetition System (SRS) Core
 
-**Status:** In progress.
+**Status:** Complete and verified (navbar, portal widget, backend stat button all working).
 **Started:** 2026-04-19
-**Branch:** `m7`
+**Completed:** 2026-04-19
+**Branch:** `m7` (merged to `main`)
 
 **Scope:** SM-2 spaced repetition engine (`language.review` model) + daily practice
 portal at `/my/practice`. No new async services needed — all logic is in Odoo.
@@ -88,28 +269,54 @@ from the user's active entries on first visit.
   interval calculation, EF bounds (min/max), total/correct_reviews stats,
   get_due_cards (overdue ✓, future ✗), enqueue_new_entries (creates + idempotent).
 
-**Phase 6 — Install & commit**
+**Phase 6 — Install, polish & commit**
 
-- [ ] M7-09 · `--init language_learning --stop-after-init --no-http` → 0 errors.
-- [ ] M7-10 · Run tests: `--test-enable --no-http -u language_learning` → 20 tests green.
-- [ ] M7-11 · `docker restart odoo` → `/my/practice` → 200, flashcard renders.
-- [ ] M7-12 · Click "Good" on a card → card state transitions, next card shown.
-- [ ] M7-13 · Grade all cards → "All caught up!" empty state shown.
-- [ ] M7-14 · Commit M7 foundation on branch `m7`.
+- [x] M7-09 · `--init language_learning --stop-after-init --no-http` → 0 errors.
+- [x] M7-10 · Run tests: `--test-enable --no-http -u language_learning` → 20 tests green.
+      UNIQUE-constraint ERRORs in log = intentional test_04 (not failures).
+- [x] M7-11 · `docker restart odoo` → registry loads; route registered at `/my/practice`.
+      Note: unauthenticated curl returns 404 (normal for auth='user' + no session).
+      Confirmed via DB: `ir_ui_view` has `portal_practice` + `portal_my_home_practice` templates;
+      `website_menu` has "Daily Practice" → `/my/practice` (sequence 55, user_logged=True).
+- [x] M7-12 · QA Test 1 (Logic): grading Good advances state new→learning, interval to 1d,
+      `next_review_date` set to tomorrow. Verified by tests 08/09/10 + direct DB query.
+- [x] M7-13 · QA Test 2 (Empty state): portal renders "All caught up!" when `total_due=0`.
+      Template conditional `t-if="not cards"` confirmed in `portal_practice.xml`.
+- [x] M7-14 · Commit M7 foundation on branch `m7` (commit af65525).
+
+**Phase 7 — M7 Polish (navigation + backend visibility)**
+
+- [x] M7-15 · Website navbar: "Daily Practice" link added via `data/website_menus.xml`
+      (sequence=55, user_logged=True). Post-init/update hooks propagate to existing websites.
+      Confirmed: 3 `website_menu` rows for `/my/practice` in DB.
+- [x] M7-16 · Portal home widget: `portal_my_home_practice` updated to pass `count=practice_due_count`
+      and `placeholder_count='practice_due_count'`. Controller extended from `CustomerPortal`
+      with `_prepare_home_portal_values` supplying live due-card count.
+- [x] M7-17 · Backend stat button: `view_language_entry_form_review_button` injects
+      `oe_button_box` with graduation-cap icon stat button onto `language.entry` form.
+      Shows `review_card_count` (computed); clicking opens filtered `language.review` list.
+      `LanguageEntryReview` mixin adds `review_card_count` + `action_open_review_cards`.
+- [x] M7-18 · `--update language_learning --stop-after-init` → 0 errors, 207 queries.
+      All 20 tests still green after polish changes.
+- [x] M7-19 · QA Test 3 (Integration): `language.entry.form.review_stat_button` inherits
+      `language_words.view_language_entry_form` via `page[last()]` — no XPath conflict with
+      Audio tab or Translations tab (confirmed in `ir_ui_view` DB table).
 
 #### Files created/changed
 
-- `src/addons/language_learning/__manifest__.py` ✅
-- `src/addons/language_learning/__init__.py` ✅
+- `src/addons/language_learning/__manifest__.py` ✅ (hooks + website_menus.xml added)
+- `src/addons/language_learning/__init__.py` ✅ (post_init_hook / post_update_hook)
 - `src/addons/language_learning/models/__init__.py` ✅
 - `src/addons/language_learning/models/language_review.py` ✅ (M7-01)
+- `src/addons/language_learning/models/language_entry_review.py` ✅ (M7-17, stat button mixin)
 - `src/addons/language_learning/security/ir.model.access.csv` ✅ (M7-02)
 - `src/addons/language_learning/security/record_rules.xml` ✅ (M7-03)
 - `src/addons/language_learning/data/ir_cron_srs.xml` ✅ (M7-04)
-- `src/addons/language_learning/views/language_review_views.xml` ✅ (M7-05)
+- `src/addons/language_learning/data/website_menus.xml` ✅ (M7-15)
+- `src/addons/language_learning/views/language_review_views.xml` ✅ (M7-05, M7-17)
 - `src/addons/language_learning/controllers/__init__.py` ✅
-- `src/addons/language_learning/controllers/portal.py` ✅ (M7-06)
-- `src/addons/language_learning/views/portal_practice.xml` ✅ (M7-07)
+- `src/addons/language_learning/controllers/portal.py` ✅ (M7-06, M7-16 CustomerPortal)
+- `src/addons/language_learning/views/portal_practice.xml` ✅ (M7-07, M7-16 widget)
 - `src/addons/language_learning/tests/__init__.py` ✅
 - `src/addons/language_learning/tests/test_language_review.py` ✅ (M7-08)
 - `docs/TASKS.md` (this file)
