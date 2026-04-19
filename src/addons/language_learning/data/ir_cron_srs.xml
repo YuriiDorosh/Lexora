@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- Optional daily cron to pre-enqueue new cards for active users.
+         The portal controller also enqueues on first visit, so this is
+         a background quality-of-life cron only. -->
+    <record id="ir_cron_srs_enqueue_new" model="ir.cron">
+        <field name="name">Lexora: SRS Enqueue New Review Cards</field>
+        <field name="model_id" ref="model_language_review"/>
+        <field name="state">code</field>
+        <field name="code">model.enqueue_new_entries()</field>
+        <field name="interval_number">1</field>
+        <field name="interval_type">days</field>
+        <field name="active" eval="False"/>
+    </record>
+</odoo>

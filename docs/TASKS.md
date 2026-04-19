@@ -15,11 +15,119 @@
 
 ## Current Milestone
 
-### M6 — Audio (Recording + TTS + STT)
+### M7 — Spaced Repetition System (SRS) Core
 
 **Status:** In progress.
 **Started:** 2026-04-19
-**Branch:** `m6`
+**Branch:** `m7`
+
+**Scope:** SM-2 spaced repetition engine (`language.review` model) + daily practice
+portal at `/my/practice`. No new async services needed — all logic is in Odoo.
+Portal shows one flashcard at a time (source text → reveal translations), four grade
+buttons (Again/Hard/Good/Easy), and a queue of upcoming cards. Cards are auto-created
+from the user's active entries on first visit.
+
+**SM-2 algorithm (locked for M7):**
+- `EF` ease factor: default 2.5, min 1.3, max 3.5
+- `n` repetitions: consecutive correct answers (grade ≥ 2)
+- `I` interval in days: 1 → 4 → round(prev×EF)
+- grade 0 (Again): n=0, I=1, EF unchanged, state=learning
+- grade 1 (Hard): n unchanged, I=max(1,round(I×1.2)), EF-=0.15
+- grade 2 (Good): n+=1, I=_next_interval(n,ef,I), EF unchanged
+- grade 3 (Easy): n+=1, I=round(_next_interval()×1.3), EF+=0.15, state=review
+- State machine: `new` → `learning` → `review`
+
+**Key invariants:**
+- UNIQUE(user_id, entry_id) — one card per user per entry
+- Cards are owned by the user; record rule restricts visibility to `user_id = uid`
+- `enqueue_new_entries()` idempotent — skips entries that already have a card
+- Portal controller enqueues on every GET so first-visit cards appear immediately
+- `get_due_cards()` order: state desc (learning → new → review), then next_review_date asc
+
+#### Sub-steps
+
+**Phase 1 — Odoo model**
+
+- [x] M7-01 · `language.review` model (`src/addons/language_learning/models/language_review.py`)
+  Fields: entry_id, user_id, state (new/learning/review), next_review_date,
+  last_review_date, repetitions, interval, ease_factor, total_reviews,
+  correct_reviews, accuracy (computed, store=False).
+  UNIQUE(user_id, entry_id) SQL constraint.
+  `action_register_review(grade)` — full SM-2.
+  `_next_interval(n, ef, prev_interval)` static helper.
+  `get_due_cards(user_id, limit)`, `get_or_create_card(entry, user_id)`,
+  `enqueue_new_entries(user_id, batch)`.
+
+**Phase 2 — Security & data**
+
+- [x] M7-02 · `security/ir.model.access.csv` — Language Users: read/write/create; Admins: full CRUD.
+- [x] M7-03 · `security/record_rules.xml` — owner-only record rule for Language Users.
+- [x] M7-04 · `data/ir_cron_srs.xml` — daily cron for background enqueue (inactive by default).
+
+**Phase 3 — Backend views**
+
+- [x] M7-05 · `views/language_review_views.xml` — list/form/search + `Lexora → Review Cards`
+  menuitem (admin-only, sequence=60). List decorated by state (info/warning/success).
+
+**Phase 4 — Portal**
+
+- [x] M7-06 · `controllers/portal.py`
+  - `GET /my/practice` — enqueues new cards, fetches due cards, renders template.
+  - `POST /my/practice/review/<card_id>` — validates ownership, calls `action_register_review(grade)`, redirects.
+- [x] M7-07 · `views/portal_practice.xml`
+  - Empty state ("All caught up!" with link to vocabulary).
+  - Flashcard: source text → "Show answer" button → translations revealed + enrichment snippet.
+  - Four grade buttons (Again/Hard/Good/Easy) as separate POST forms.
+  - Upcoming cards preview (next 5 entry names).
+  - Portal home widget: "Daily Practice" link inheriting `portal.portal_my_home`.
+
+**Phase 5 — Tests**
+
+- [x] M7-08 · `tests/test_language_review.py` — 20 tests covering:
+  Default state/EF/repetitions, UNIQUE constraint, grades 0/1/2/3 state transitions,
+  interval calculation, EF bounds (min/max), total/correct_reviews stats,
+  get_due_cards (overdue ✓, future ✗), enqueue_new_entries (creates + idempotent).
+
+**Phase 6 — Install & commit**
+
+- [ ] M7-09 · `--init language_learning --stop-after-init --no-http` → 0 errors.
+- [ ] M7-10 · Run tests: `--test-enable --no-http -u language_learning` → 20 tests green.
+- [ ] M7-11 · `docker restart odoo` → `/my/practice` → 200, flashcard renders.
+- [ ] M7-12 · Click "Good" on a card → card state transitions, next card shown.
+- [ ] M7-13 · Grade all cards → "All caught up!" empty state shown.
+- [ ] M7-14 · Commit M7 foundation on branch `m7`.
+
+#### Files created/changed
+
+- `src/addons/language_learning/__manifest__.py` ✅
+- `src/addons/language_learning/__init__.py` ✅
+- `src/addons/language_learning/models/__init__.py` ✅
+- `src/addons/language_learning/models/language_review.py` ✅ (M7-01)
+- `src/addons/language_learning/security/ir.model.access.csv` ✅ (M7-02)
+- `src/addons/language_learning/security/record_rules.xml` ✅ (M7-03)
+- `src/addons/language_learning/data/ir_cron_srs.xml` ✅ (M7-04)
+- `src/addons/language_learning/views/language_review_views.xml` ✅ (M7-05)
+- `src/addons/language_learning/controllers/__init__.py` ✅
+- `src/addons/language_learning/controllers/portal.py` ✅ (M7-06)
+- `src/addons/language_learning/views/portal_practice.xml` ✅ (M7-07)
+- `src/addons/language_learning/tests/__init__.py` ✅
+- `src/addons/language_learning/tests/test_language_review.py` ✅ (M7-08)
+- `docs/TASKS.md` (this file)
+
+#### Blockers
+
+(none)
+
+---
+
+## Completed Milestones
+
+### M6 — Audio (Recording + TTS + STT)
+
+**Status:** Complete and verified on server (TTS via espeak-ng fallback, STT via faster-whisper base model).
+**Started:** 2026-04-19
+**Completed:** 2026-04-19
+**Branch:** `m6` (merged to `main`)
 
 **Scope:** End-to-end audio pipeline — user-recorded audio upload stored as
 `ir.attachment`; TTS generation via `edge-tts` (online, free, no API key,
