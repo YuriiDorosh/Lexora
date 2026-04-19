@@ -36,6 +36,13 @@ from contextlib import asynccontextmanager
 import pika
 from fastapi import FastAPI
 
+try:
+    import zstandard as _zstd
+    _ZSTD_AVAILABLE = True
+except ImportError:
+    _zstd = None  # type: ignore[assignment]
+    _ZSTD_AVAILABLE = False
+
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s %(message)s")
 _logger = logging.getLogger("anki-service")
 
@@ -55,6 +62,25 @@ QUEUE_FAILED = "anki.import.failed"
 
 # Regex: matches [sound:filename.ext] tags embedded in Anki card fields.
 _SOUND_RE = re.compile(r'\[sound:([^\]]+)\]', re.IGNORECASE)
+
+# Stub note text Anki embeds as the only card in an incompatible export.
+_STUB_NOTE_FRAGMENT = 'please update to the latest anki'
+
+ZSTD_MAGIC = b'\x28\xB5\x2F\xFD'
+SQLITE_MAGIC = b'SQLite format 3\x00'
+
+
+def _decompress_if_needed(data: bytes, label: str) -> bytes:
+    """Decompress Zstd-compressed bytes; return plain bytes unchanged."""
+    if data[:4] != ZSTD_MAGIC:
+        return data
+    if not _ZSTD_AVAILABLE:
+        raise RuntimeError(
+            f'{label} is Zstd-compressed but the "zstandard" package is not installed. '
+            'Add zstandard==0.22.0 to requirements.txt and rebuild the image.'
+        )
+    _logger.info('%s: Zstd-compressed — decompressing…', label)
+    return _zstd.ZstdDecompressor().decompress(data, max_output_size=512 * 1024 * 1024)
 
 _AUDIO_EXTENSIONS = {'.mp3', '.ogg', '.wav', '.m4a', '.flac'}
 
@@ -174,6 +200,11 @@ def _detect_field_indices(cur: sqlite3.Cursor, field_mapping: dict) -> tuple[int
 def _parse_apkg(file_bytes: bytes, field_mapping: dict) -> tuple[list, dict, list]:
     """Parse an Anki .apkg file.
 
+    Supports both classic SQLite databases and the modern Anki format where
+    collection.anki21b / the media file are Zstd-compressed.
+
+    DB priority: collection.anki21b (Zstd) → collection.anki21 → collection.anki2.
+
     Returns (entries, audio_data, parse_errors).
       entries    — list of {"source_text", "translation"?, "audio_filename"?}
       audio_data — {"filename.mp3": "<base64>"}
@@ -192,28 +223,41 @@ def _parse_apkg(file_bytes: bytes, field_mapping: dict) -> tuple[list, dict, lis
             with zipfile.ZipFile(zip_path, 'r') as zf:
                 zip_names = set(zf.namelist())
 
-                # --- Media map: {"0": "audio.mp3", "1": "image.jpg", ...} ---
+                # --- Media map (may itself be Zstd-compressed in newer Anki) ---
                 media_map: dict[str, str] = {}
                 if 'media' in zip_names:
                     try:
-                        media_map = json.loads(zf.read('media').decode('utf-8'))
+                        raw_media = zf.read('media')
+                        raw_media = _decompress_if_needed(raw_media, 'media')
+                        media_map = json.loads(raw_media.decode('utf-8'))
                     except Exception as exc:
                         _logger.warning('Could not read media map: %s', exc)
                 # Reverse map: filename → zip key
                 rev_media = {v: k for k, v in media_map.items()}
 
-                # --- Locate collection DB ---
+                # --- Locate collection DB (priority: anki21b > anki21 > anki2) ---
                 db_name = next(
-                    (n for n in ('collection.anki21', 'collection.anki2') if n in zip_names),
+                    (n for n in ('collection.anki21b', 'collection.anki21', 'collection.anki2')
+                     if n in zip_names),
                     None,
                 )
                 if db_name is None:
-                    parse_errors.append({'reason': 'No collection.anki2(1) found in archive'})
+                    parse_errors.append({'reason': 'No collection database found in archive'})
+                    return entries, audio_data, parse_errors
+
+                _logger.info('Using collection DB: %s', db_name)
+                db_bytes = zf.read(db_name)
+                db_bytes = _decompress_if_needed(db_bytes, db_name)
+
+                if db_bytes[:16] != SQLITE_MAGIC:
+                    parse_errors.append({
+                        'reason': f'{db_name} is not a valid SQLite database after decompression'
+                    })
                     return entries, audio_data, parse_errors
 
                 db_path = os.path.join(tmpdir, 'collection.db')
                 with open(db_path, 'wb') as fh:
-                    fh.write(zf.read(db_name))
+                    fh.write(db_bytes)
 
                 # --- Query notes ---
                 conn = sqlite3.connect(db_path)
@@ -232,7 +276,15 @@ def _parse_apkg(file_bytes: bytes, field_mapping: dict) -> tuple[list, dict, lis
                 )
 
                 for row_num, row in enumerate(rows, 1):
-                    fields = row['flds'].split('\x1f')
+                    flds_raw = row['flds']
+
+                    # Skip the "Please update Anki" stub note that Anki injects
+                    # into incompatible exports when the deck contains no real cards.
+                    if _STUB_NOTE_FRAGMENT in flds_raw.lower():
+                        _logger.debug('Row %d: skipping Anki stub note', row_num)
+                        continue
+
+                    fields = flds_raw.split('\x1f')
                     try:
                         src_raw = fields[src_idx] if src_idx < len(fields) else ''
                         src_text, src_audio = _clean_field(src_raw)
@@ -281,6 +333,10 @@ def _parse_apkg(file_bytes: bytes, field_mapping: dict) -> tuple[list, dict, lis
 
         except zipfile.BadZipFile:
             parse_errors.append({'reason': 'Invalid .apkg file (not a valid zip archive)'})
+        except RuntimeError as exc:
+            # Raised by _decompress_if_needed when zstandard is missing.
+            parse_errors.append({'reason': str(exc)})
+            _logger.error('apkg parse failed: %s', exc)
         except Exception as exc:
             parse_errors.append({'reason': f'Unexpected error parsing .apkg: {exc}'})
             _logger.error('apkg parse failed: %s', exc)
