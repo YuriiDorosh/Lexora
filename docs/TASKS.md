@@ -62,13 +62,16 @@ XP history table, duel analytics, recent duels list, and "My Profile" navbar lin
   table created; seed hook ran; dashboard template registered.
 - [x] M10-10 · `--test-enable -u language_learning,language_pvp` → 0 failures, 0 errors.
 - [x] M10-11 · `docker restart odoo` → both modules load in 0.00s; routes registered.
-- [x] M10-11b · Bug fix: `portal_dashboard.xml` progress bar `ValueError: incomplete format`.
-  Root cause: Odoo stores `arch_db` (jsonb) separately from `arch_fs`. `--update` only
-  re-writes `arch_db` when Odoo detects a checksum change; the initial commit had `%d%`
-  stored in `arch_db` and `--update` did not overwrite it. Fixed with a direct psql
-  `UPDATE ir_ui_view SET arch_db = to_jsonb(REPLACE(...))` + `docker restart odoo`.
-  Disk file `portal_dashboard.xml` has always been correct (`%d%%`).
-  Global search confirmed no other `t-att-style` uses unescaped `%` formatting.
+- [x] M10-11b · Bug fix: `portal_dashboard.xml` progress bar — two-stage fix.
+  Stage 1 `ValueError: incomplete format`: `arch_db` held `%d%` because `--update`
+  only overwrites `arch_db` on checksum change; initial install captured the bad value.
+  Stage 2 `ValueError: can only parse strings`: first repair attempt used
+  `to_jsonb(REPLACE(arch_db::text,...))` which double-encodes the jsonb object as a JSON
+  string (jsonb_typeof=string), corrupting the structure Odoo's XML parser expects.
+  Final fix: `(arch_db #>> '{}')::jsonb` — extracts the inner text and re-casts to a
+  proper jsonb object (jsonb_typeof=object) with `%d%%` intact, then `docker restart`.
+  Lesson: for in-place jsonb text edits use `(REPLACE(col::text,...)::jsonb)`, never
+  `to_jsonb(text)` which wraps rather than parses.
 - [ ] M10-12 · Manual smoke: `/my/dashboard` renders; bot duel creates win/loss log entries;
   XP history shows transactions; "My Profile" link appears in navbar.
 - [ ] M10-13 · Commit M10 on branch `m9`.
