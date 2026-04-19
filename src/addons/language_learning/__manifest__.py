@@ -5,7 +5,7 @@
     'summary': 'Spaced Repetition System (SM-2) for vocabulary review. M7.',
     'author': 'Lexora',
     'license': 'LGPL-3',
-    'depends': ['language_words', 'portal'],
+    'depends': ['language_words', 'language_translation', 'portal'],
     'data': [
         'security/ir.model.access.csv',
         'security/record_rules.xml',
