@@ -199,13 +199,18 @@ class LanguageDuel(models.Model):
                             'duel_id': self.id,
                         })
 
-            # Record duel participation toward daily streak for both players
+        except Exception:
+            _logger.debug('XP transfer skipped (gamification not installed)', exc_info=True)
+
+        # Record duel participation toward daily streak — runs unconditionally
+        # so a gamification failure above never silently blocks streak tracking.
+        try:
+            Profile = self.env['language.user.profile'].sudo()
             if hasattr(Profile, '_record_duel_activity'):
                 for uid in filter(None, [challenger_id, opponent_id]):
                     Profile._record_duel_activity(uid)
-
         except Exception:
-            _logger.debug('XP transfer skipped (gamification not installed)', exc_info=True)
+            _logger.warning('Streak update failed after duel %d', self.id, exc_info=True)
 
     def _rounds_submitted_by(self, user_id):
         """Count duel lines submitted by this user (sudo bypasses record rules)."""

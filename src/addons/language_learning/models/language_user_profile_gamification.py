@@ -160,11 +160,11 @@ class LanguageUserProfileGamification(models.Model):
         if profile.last_practice_date == today:
             return  # streak already counted for today
 
-        lp = profile.last_practice_date
-        if lp == today - timedelta(days=1):
+        lp = profile.last_practice_date  # may be False for brand-new users
+        if lp and lp == today - timedelta(days=1):
             new_streak = profile.current_streak + 1
         else:
-            new_streak = 1
+            new_streak = 1  # first ever activity, or gap
 
         profile.write({
             'current_streak':     new_streak,
