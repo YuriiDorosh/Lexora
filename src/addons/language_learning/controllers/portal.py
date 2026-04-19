@@ -11,6 +11,17 @@ _logger = logging.getLogger(__name__)
 GRADE_LABELS = {0: 'Again', 1: 'Hard', 2: 'Good', 3: 'Easy'}
 LEADERBOARD_PAGE_SIZE = 20
 
+LANG_NAMES = {'en': 'English', 'uk': 'Ukrainian', 'el': 'Greek'}
+
+REASON_LABELS = {
+    'duel_win':  'Duel Win',
+    'duel_loss': 'Duel Loss',
+    'duel_draw': 'Duel Draw',
+    'practice':  'Practice',
+    'bonus':     'Bonus',
+    'initial':   'Initial Balance',
+}
+
 
 class PracticePortal(CustomerPortal):
 
@@ -121,4 +132,62 @@ class PracticePortal(CustomerPortal):
             'total': total,
             'my_rank': my_rank,
             'my_profile': my_profile,
+        })
+
+    # ------------------------------------------------------------------
+    # GET /my/dashboard — XP command centre
+    # ------------------------------------------------------------------
+
+    @http.route('/my/dashboard', type='http', auth='user', website=True, methods=['GET'])
+    def user_dashboard(self, **kw):
+        uid = request.env.user.id
+        Profile = request.env['language.user.profile'].sudo()
+
+        profile = Profile.search([('user_id', '=', uid)], limit=1)
+
+        # XP history — last 20 entries for this user
+        xp_logs = request.env['language.xp.log'].sudo().search(
+            [('user_id', '=', uid)], limit=20,
+        )
+
+        # Global rank
+        my_rank = None
+        if profile and profile.xp_total > 0:
+            my_rank = Profile.search_count([('xp_total', '>', profile.xp_total)]) + 1
+
+        # Duel stats — graceful if language_pvp not installed
+        duel_wins = duel_losses = duel_draws = duel_total = 0
+        recent_duels = []
+        if 'language.duel' in request.env.registry:
+            Duel = request.env['language.duel'].sudo()
+            finished = [
+                ('state', '=', 'finished'),
+                '|',
+                ('challenger_id', '=', uid),
+                ('opponent_id', '=', uid),
+            ]
+            duel_wins    = Duel.search_count(finished + [('winner_id', '=', uid)])
+            duel_losses  = Duel.search_count(
+                finished + [('winner_id', '!=', False), ('winner_id', '!=', uid)]
+            )
+            duel_draws   = Duel.search_count(finished + [('winner_id', '=', False)])
+            duel_total   = duel_wins + duel_losses + duel_draws
+            recent_duels = Duel.search(finished, limit=5, order='end_date desc')
+
+        win_rate_pct = round(duel_wins / duel_total * 100) if duel_total else 0
+
+        return request.render('language_learning.portal_user_dashboard', {
+            'page_name':    'dashboard',
+            'profile':      profile,
+            'xp_logs':      xp_logs,
+            'my_rank':      my_rank,
+            'reason_labels': REASON_LABELS,
+            'duel_wins':    duel_wins,
+            'duel_losses':  duel_losses,
+            'duel_draws':   duel_draws,
+            'duel_total':   duel_total,
+            'win_rate_pct': win_rate_pct,
+            'recent_duels': recent_duels,
+            'lang_names':   LANG_NAMES,
+            'uid':          uid,
         })

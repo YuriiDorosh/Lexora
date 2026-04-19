@@ -20,5 +20,14 @@
             <field name="user_logged">True</field>
         </record>
 
+        <!-- "My Profile" link in the website navbar (logged-in users only) -->
+        <record id="menu_navbar_dashboard" model="website.menu">
+            <field name="name">My Profile</field>
+            <field name="url">/my/dashboard</field>
+            <field name="parent_id" ref="website.main_menu"/>
+            <field name="sequence">65</field>
+            <field name="user_logged">True</field>
+        </record>
+
     </data>
 </odoo>

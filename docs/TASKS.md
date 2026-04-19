@@ -15,10 +15,78 @@
 
 ## Current Milestone
 
-### M9 — PvP Arena: Asynchronous Word Duels
+### M10 — Personal Dashboard & XP Analytics
 
 **Status:** In progress.
 **Started:** 2026-04-19
+**Branch:** `m9`
+
+**Scope:** XP transaction logging, `/my/dashboard` portal with stats header,
+XP history table, duel analytics, recent duels list, and "My Profile" navbar link.
+
+---
+
+#### Sub-steps
+
+- [x] M10-01 · `language.xp.log` model (`language_learning/models/language_xp_log.py`).
+  Fields: `user_id`, `amount` (int, +/-), `reason` (selection), `duel_id` (Integer soft-ref),
+  `date`, `note`. Ordered `date desc, id desc`.
+
+- [x] M10-02 · XP log wired into `_update_gamification_for_user`: creates a `practice` log
+  entry for every non-zero XP award (both the streak-update path and the same-day path).
+
+- [x] M10-03 · XP log wired into `language_duel._transfer_xp`: creates `duel_win` and
+  `duel_loss` log entries. Uses `'language.xp.log' in self.env.registry` guard so duel module
+  stays decoupled from `language_learning` in its manifest.
+
+- [x] M10-04 · Security — `ir.model.access.csv`: Language Users can read own logs (no
+  write/create from portal); Admins full CRUD. `record_rules.xml`: owner-only read rule.
+
+- [x] M10-05 · `post_update_hook` / `post_init_hook` seed: `_seed_xp_logs(env)` creates
+  one `initial` log entry for each profile with `xp_total > 0` that has no existing entries.
+
+- [x] M10-06 · `/my/dashboard` portal route added to `language_learning/controllers/portal.py`.
+  Queries: profile, last-20 XP logs, global rank, duel stats (wins/losses/draws/win rate),
+  last-5 finished duels. `language.duel` access guarded by `registry` check for loose coupling.
+
+- [x] M10-07 · `views/portal_dashboard.xml` — dashboard template + portal home widget.
+  Stats header (level badge + progress bar, total XP, global rank, streak fire icon).
+  XP history table (date | reason + duel link | +/- amount, colour-coded).
+  Duel analytics card (W/L/D counters + win-rate progress bar).
+  Recent duels list (last 5, W/L/D badge, link to `/my/arena/<id>`).
+
+- [x] M10-08 · "My Profile" navbar entry (seq=65) added to `website_menus.xml` and
+  `__init__.py` `_NAVBAR_MENUS` list. Propagated by `post_init_hook` / `post_update_hook`.
+
+- [x] M10-09 · `--update language_learning --stop-after-init` → 0 errors; `language.xp.log`
+  table created; seed hook ran; dashboard template registered.
+- [x] M10-10 · `--test-enable -u language_learning,language_pvp` → 0 failures, 0 errors.
+- [x] M10-11 · `docker restart odoo` → both modules load in 0.00s; routes registered.
+- [ ] M10-12 · Manual smoke: `/my/dashboard` renders; bot duel creates win/loss log entries;
+  XP history shows transactions; "My Profile" link appears in navbar.
+- [ ] M10-13 · Commit M10 on branch `m9`.
+
+#### Files changed
+
+- `language_learning/models/language_xp_log.py` (new)
+- `language_learning/models/__init__.py` (add import)
+- `language_learning/models/language_user_profile_gamification.py` (log practice XP)
+- `language_pvp/models/language_duel.py` (log duel XP in `_transfer_xp`)
+- `language_learning/security/ir.model.access.csv` (xp_log access rows)
+- `language_learning/security/record_rules.xml` (xp_log owner rule)
+- `language_learning/controllers/portal.py` (`/my/dashboard` route)
+- `language_learning/views/portal_dashboard.xml` (new)
+- `language_learning/data/website_menus.xml` ("My Profile" entry)
+- `language_learning/__init__.py` (_seed_xp_logs + navbar entry)
+- `language_learning/__manifest__.py` (portal_dashboard.xml in data)
+
+---
+
+### M9 — PvP Arena: Asynchronous Word Duels
+
+**Status:** Complete and verified.
+**Started:** 2026-04-19
+**Completed:** 2026-04-19
 **Branch:** `m9`
 
 **Scope:** Asynchronous PvP duel system inside `language_pvp`. Players stake XP,

@@ -148,21 +148,45 @@ class LanguageDuel(models.Model):
 
     def _transfer_xp(self, winner_id):
         """Transfer XP between winner and loser. No-op if gamification not installed."""
-        if not winner_id or not self.xp_staked:
+        if not self.xp_staked:
             return
         try:
             Profile = self.env['language.user.profile'].sudo()
-            loser_id = (
-                self.opponent_id.id
-                if winner_id == self.challenger_id.id
-                else self.challenger_id.id
-            )
+            loser_id = None
+            if winner_id:
+                loser_id = (
+                    self.opponent_id.id
+                    if winner_id == self.challenger_id.id
+                    else self.challenger_id.id
+                )
+            else:
+                # Draw — no XP transfer but still log
+                return
+
             winner_profile = Profile.search([('user_id', '=', winner_id)], limit=1)
-            loser_profile = Profile.search([('user_id', '=', loser_id)], limit=1)
+            loser_profile  = Profile.search([('user_id', '=', loser_id)],  limit=1)
+
             if winner_profile and hasattr(winner_profile, 'xp_total'):
                 winner_profile.xp_total += self.xp_staked
             if loser_profile and hasattr(loser_profile, 'xp_total'):
                 loser_profile.xp_total = max(0, loser_profile.xp_total - self.xp_staked)
+
+            # XP transaction log (soft dep — skip if model absent)
+            if 'language.xp.log' in self.env.registry:
+                Log = self.env['language.xp.log'].sudo()
+                Log.create({
+                    'user_id': winner_id,
+                    'amount':  self.xp_staked,
+                    'reason':  'duel_win',
+                    'duel_id': self.id,
+                })
+                if loser_id:
+                    Log.create({
+                        'user_id': loser_id,
+                        'amount':  -self.xp_staked,
+                        'reason':  'duel_loss',
+                        'duel_id': self.id,
+                    })
         except Exception:
             _logger.debug('XP transfer skipped (gamification not installed)', exc_info=True)
 

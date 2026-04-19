@@ -110,6 +110,12 @@ class LanguageUserProfileGamification(models.Model):
             # Already practiced today — only award XP, streak unchanged
             if xp_delta:
                 profile.write({'xp_total': profile.xp_total + xp_delta})
+                self.env['language.xp.log'].sudo().create({
+                    'user_id': user_id,
+                    'amount': xp_delta,
+                    'reason': 'practice',
+                    'date': fields.Datetime.now(),
+                })
             return
 
         new_streak = profile.current_streak
@@ -132,3 +138,10 @@ class LanguageUserProfileGamification(models.Model):
             user_id, grade, xp_delta,
             profile.xp_total, new_streak, profile.longest_streak,
         )
+        if xp_delta:
+            self.env['language.xp.log'].sudo().create({
+                'user_id': user_id,
+                'amount': xp_delta,
+                'reason': 'practice',
+                'date': fields.Datetime.now(),
+            })
