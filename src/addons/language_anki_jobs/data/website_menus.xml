@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Website navbar menu items for the Lexora learning tools.
+
+    These records are added to the "Default Main Menu" (website_id=False),
+    which serves as the template for new websites created after this module
+    is installed.  For databases that already have website records, the
+    post_init_hook / post_update_hook in __init__.py propagates the same
+    menus to every existing website automatically.
+
+    Both entries use user_logged=True so they only appear to authenticated
+    users (provided by the website_menu_by_user_status OCA addon, already
+    installed in this stack).
+-->
+<odoo>
+    <data noupdate="1">
+
+        <!-- "My Vocabulary" link in the website navbar -->
+        <record id="menu_navbar_vocabulary" model="website.menu">
+            <field name="name">My Vocabulary</field>
+            <field name="url">/my/vocabulary</field>
+            <field name="parent_id" ref="website.main_menu"/>
+            <field name="sequence">50</field>
+            <field name="user_logged">True</field>
+        </record>
+
+        <!-- "Import Anki" link in the website navbar -->
+        <record id="menu_navbar_anki" model="website.menu">
+            <field name="name">Import Anki</field>
+            <field name="url">/my/anki</field>
+            <field name="parent_id" ref="website.main_menu"/>
+            <field name="sequence">60</field>
+            <field name="user_logged">True</field>
+        </record>
+
+    </data>
+</odoo>
