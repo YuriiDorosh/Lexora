@@ -68,10 +68,15 @@ XP history table, duel analytics, recent duels list, and "My Profile" navbar lin
   Stage 2 `ValueError: can only parse strings`: first repair attempt used
   `to_jsonb(REPLACE(arch_db::text,...))` which double-encodes the jsonb object as a JSON
   string (jsonb_typeof=string), corrupting the structure Odoo's XML parser expects.
-  Final fix: `(arch_db #>> '{}')::jsonb` — extracts the inner text and re-casts to a
-  proper jsonb object (jsonb_typeof=object) with `%d%%` intact, then `docker restart`.
-  Lesson: for in-place jsonb text edits use `(REPLACE(col::text,...)::jsonb)`, never
-  `to_jsonb(text)` which wraps rather than parses.
+  Third repair: `(arch_db #>> '{}')::jsonb` fixed the type (object), but the extracted
+  content was verified via `substring(arch_db::text ...)` to STILL contain `%d%`.
+  Root cause of the persistent bug: `REPLACE(col::text, ...)::jsonb` is correct but
+  `to_jsonb(REPLACE(...))` is wrong — `to_jsonb(text)` wraps as a JSON string, while
+  `::jsonb` parses the text as JSON. The `#>> '{}'` unwrap only undid the wrapping,
+  leaving the original bad value underneath.
+  Final fix: `REPLACE(arch_db::text, 'width:%d%', 'width:%d%%')::jsonb` — plain `::jsonb`
+  cast re-parses the replaced text correctly. Verified via regex `width:%d[^%]` = false
+  and direct `substring()` showing `width:%d%%'`. `docker restart` to flush QWeb cache.
 - [x] M10-11c · Bug fix: streak logic decoupled from XP balance.
   Root cause: `_transfer_xp` updated XP directly but never called gamification logic,
   so duel activity (win/loss/draw) did not update `last_practice_date` or streak.
