@@ -1,0 +1,186 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!--
+        Inject the Audio / Pronunciation section into the entry detail page.
+        Injection point: BEFORE the <hr class="my-3"/> separator, so the order is:
+          Translations → Audio → hr → Enrichment → Media Links.
+
+        Template is self-contained: all audio state is derived from entry.audio_ids
+        using t-set + inline lambdas — no new controller variables required.
+        This avoids the Python hot-reload issue discovered in M5c (TASKS.md).
+
+        Upload UX: <input type="file" capture="microphone"> + auto-submit JS
+        (instead of MediaRecorder API). Rationale: the OS handles recording
+        natively; the file arrives as standard multipart; cross-browser compatible;
+        ~4 lines of JS required vs. complex blob assembly for MediaRecorder.
+    -->
+    <template id="portal_entry_audio_section"
+              inherit_id="language_words.portal_vocabulary_detail"
+              name="Entry Detail — Audio Section">
+
+        <xpath expr="//hr[contains(@class,'my-3')]" position="before">
+
+            <!-- Derive audio state inline so no controller change is needed. -->
+            <t t-set="_rec" t-value="entry.audio_ids.filtered(lambda a: a.audio_type == 'recorded' and a.language == entry.source_language)"/>
+            <t t-set="_rec" t-value="_rec[0] if _rec else False"/>
+            <t t-set="_gen" t-value="entry.audio_ids.filtered(lambda a: a.audio_type == 'generated' and a.language == entry.source_language)"/>
+            <t t-set="_gen" t-value="_gen[0] if _gen else False"/>
+
+            <div class="mb-3">
+                <h6 class="text-uppercase text-muted small fw-bold mb-2">Pronunciation</h6>
+
+                <!-- ═══════════════════════════════════════════════
+                     A) User recording
+                ═══════════════════════════════════════════════ -->
+                <div class="mb-3">
+                    <div class="d-flex align-items-center gap-2 mb-1">
+                        <span class="small fw-medium text-secondary">Your recording</span>
+                        <t t-if="_rec and _rec.status == 'completed' and _rec.attachment_id">
+                            <span class="badge bg-success" style="font-size:0.65rem">✓ saved</span>
+                        </t>
+                    </div>
+
+                    <!-- Existing recording player -->
+                    <t t-if="_rec and _rec.status == 'completed' and _rec.attachment_id">
+                        <audio controls="controls" class="w-100 mb-2"
+                               t-att-src="'/my/audio/%d/stream' % _rec.id"
+                               preload="none"/>
+
+                        <!-- Transcription result -->
+                        <t t-if="_rec.transcription">
+                            <blockquote class="border-start border-2 border-info ps-3 fst-italic text-muted small mb-2">
+                                <t t-esc="_rec.transcription"/>
+                            </blockquote>
+                        </t>
+
+                        <!-- Transcription trigger -->
+                        <t t-if="_rec.transcription_status not in ('processing', 'pending')">
+                            <form t-att-action="'/my/audio/transcribe/%d' % _rec.id"
+                                  method="post" class="d-inline">
+                                <input type="hidden" name="csrf_token" t-att-value="request.csrf_token()"/>
+                                <button type="submit" class="btn btn-sm btn-outline-info me-2">
+                                    <t t-if="not _rec.transcription">🔍 Check pronunciation</t>
+                                    <t t-else="">↺ Re-transcribe</t>
+                                </button>
+                            </form>
+                        </t>
+                        <t t-if="_rec.transcription_status in ('processing', 'pending')">
+                            <button class="btn btn-sm btn-outline-secondary me-2" disabled="disabled">
+                                <span class="spinner-border spinner-border-sm me-1"
+                                      role="status" aria-hidden="true"/>
+                                Transcribing…
+                            </button>
+                        </t>
+                        <t t-if="_rec.transcription_status == 'failed'">
+                            <span class="text-danger small me-2">
+                                Transcription failed
+                                <t t-if="_rec.transcription_error"> — <t t-esc="_rec.transcription_error"/></t>
+                            </span>
+                        </t>
+                    </t>
+
+                    <!-- Processing / pending state -->
+                    <t t-if="_rec and _rec.status in ('processing', 'pending')">
+                        <div class="text-muted small mb-2">
+                            <span class="spinner-border spinner-border-sm me-1"
+                                  role="status" aria-hidden="true"/>
+                            Saving recording…
+                        </div>
+                    </t>
+
+                    <!-- Upload / Record button -->
+                    <form t-att-action="'/my/audio/upload/%d' % entry.id"
+                          method="post"
+                          enctype="multipart/form-data"
+                          t-att-id="'audio-upload-form-%d' % entry.id">
+                        <input type="hidden" name="csrf_token" t-att-value="request.csrf_token()"/>
+                        <input type="hidden" name="language" t-att-value="entry.source_language"/>
+                        <input type="file"
+                               name="audio_file"
+                               accept="audio/*"
+                               capture="microphone"
+                               class="d-none"
+                               t-att-id="'audio-file-input-%d' % entry.id"/>
+                        <label t-att-for="'audio-file-input-%d' % entry.id"
+                               class="btn btn-sm btn-outline-secondary">
+                            <t t-if="not _rec or _rec.status != 'completed'">🎤 Record / Upload</t>
+                            <t t-else="">↺ Re-record</t>
+                        </label>
+                        <!-- Auto-submit on file selection so the user doesn't need a second click -->
+                        <script>
+                            (function() {
+                                var inp = document.getElementById('audio-file-input-<t t-esc="entry.id"/>');
+                                if (inp) { inp.addEventListener('change', function() { inp.form.submit(); }); }
+                            })();
+                        </script>
+                    </form>
+                </div>
+
+                <!-- ═══════════════════════════════════════════════
+                     B) Generated TTS
+                ═══════════════════════════════════════════════ -->
+                <div>
+                    <div class="d-flex align-items-center gap-2 mb-1">
+                        <span class="small fw-medium text-secondary">AI pronunciation</span>
+                        <span class="badge bg-secondary" style="font-size:0.65rem">
+                            <t t-esc="lang_names.get(entry.source_language, entry.source_language)"/>
+                        </span>
+                        <t t-if="_gen and _gen.status == 'completed'">
+                            <span class="badge bg-success" style="font-size:0.65rem">✓ ready</span>
+                        </t>
+                    </div>
+
+                    <!-- Completed TTS player -->
+                    <t t-if="_gen and _gen.status == 'completed' and _gen.attachment_id">
+                        <audio controls="controls" class="w-100 mb-2"
+                               t-att-src="'/my/audio/%d/stream' % _gen.id"
+                               preload="none"/>
+                        <form t-att-action="'/my/audio/generate/%d' % entry.id"
+                              method="post" class="d-inline">
+                            <input type="hidden" name="csrf_token" t-att-value="request.csrf_token()"/>
+                            <input type="hidden" name="language" t-att-value="entry.source_language"/>
+                            <button type="submit" class="btn btn-sm btn-outline-secondary">↺ Regenerate</button>
+                        </form>
+                    </t>
+
+                    <!-- In-progress TTS -->
+                    <t t-if="_gen and _gen.status in ('processing', 'pending')">
+                        <div class="text-muted small mb-2">
+                            <span class="spinner-border spinner-border-sm me-1"
+                                  role="status" aria-hidden="true"/>
+                            Generating pronunciation… (results in ~1 min)
+                        </div>
+                    </t>
+
+                    <!-- Failed TTS -->
+                    <t t-if="_gen and _gen.status == 'failed'">
+                        <div class="text-danger small mb-1">
+                            TTS generation failed
+                            <t t-if="_gen.error_message"> — <t t-esc="_gen.error_message"/></t>
+                        </div>
+                        <form t-att-action="'/my/audio/generate/%d' % entry.id"
+                              method="post" class="d-inline">
+                            <input type="hidden" name="csrf_token" t-att-value="request.csrf_token()"/>
+                            <input type="hidden" name="language" t-att-value="entry.source_language"/>
+                            <button type="submit" class="btn btn-sm btn-outline-warning">↺ Retry</button>
+                        </form>
+                    </t>
+
+                    <!-- Not yet generated -->
+                    <t t-if="not _gen">
+                        <form t-att-action="'/my/audio/generate/%d' % entry.id"
+                              method="post" class="d-inline">
+                            <input type="hidden" name="csrf_token" t-att-value="request.csrf_token()"/>
+                            <input type="hidden" name="language" t-att-value="entry.source_language"/>
+                            <button type="submit" class="btn btn-sm btn-outline-primary">
+                                🔊 Generate pronunciation
+                            </button>
+                        </form>
+                        <span class="text-muted small ms-2">Powered by edge-tts — ready in ~1 min</span>
+                    </t>
+                </div>
+            </div>
+
+        </xpath>
+    </template>
+</odoo>
