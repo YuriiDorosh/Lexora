@@ -88,32 +88,137 @@
                         </div>
                     </t>
 
-                    <!-- Upload / Record button -->
-                    <form t-att-action="'/my/audio/upload/%d' % entry.id"
-                          method="post"
-                          enctype="multipart/form-data"
-                          t-att-id="'audio-upload-form-%d' % entry.id">
-                        <input type="hidden" name="csrf_token" t-att-value="request.csrf_token()"/>
-                        <input type="hidden" name="language" t-att-value="entry.source_language"/>
-                        <input type="file"
-                               name="audio_file"
-                               accept="audio/*"
-                               capture="microphone"
-                               class="d-none"
-                               t-att-id="'audio-file-input-%d' % entry.id"/>
-                        <label t-att-for="'audio-file-input-%d' % entry.id"
-                               class="btn btn-sm btn-outline-secondary">
-                            <t t-if="not _rec or _rec.status != 'completed'">🎤 Record / Upload</t>
-                            <t t-else="">↺ Re-record</t>
-                        </label>
-                        <!-- Auto-submit on file selection so the user doesn't need a second click -->
-                        <script>
-                            (function() {
-                                var inp = document.getElementById('audio-file-input-<t t-esc="entry.id"/>');
-                                if (inp) { inp.addEventListener('change', function() { inp.form.submit(); }); }
-                            })();
-                        </script>
-                    </form>
+                    <!-- Recording UI — MediaRecorder (primary) + file upload (fallback) -->
+                    <div t-att-id="'recording-ui-%d' % entry.id">
+                        <!-- MediaRecorder controls -->
+                        <button type="button"
+                                class="btn btn-sm btn-outline-danger me-1"
+                                t-att-id="'record-start-%d' % entry.id">
+                            <t t-if="not _rec or _rec.status != 'completed'">🎤 Record</t>
+                            <t t-else="">🎤 Re-record</t>
+                        </button>
+                        <button type="button"
+                                class="btn btn-sm btn-danger me-1 d-none"
+                                t-att-id="'record-stop-%d' % entry.id">
+                            ⬛ Stop
+                        </button>
+                        <span class="text-muted small"
+                              t-att-id="'record-status-%d' % entry.id"></span>
+
+                        <!-- File upload fallback (hidden label trigger) -->
+                        <form t-att-action="'/my/audio/upload/%d' % entry.id"
+                              method="post"
+                              enctype="multipart/form-data"
+                              class="d-inline"
+                              t-att-id="'audio-upload-form-%d' % entry.id">
+                            <input type="hidden" name="csrf_token" t-att-value="request.csrf_token()"/>
+                            <input type="hidden" name="language" t-att-value="entry.source_language"/>
+                            <input type="file"
+                                   name="audio_file"
+                                   accept="audio/*"
+                                   class="d-none"
+                                   t-att-id="'audio-file-input-%d' % entry.id"/>
+                            <label t-att-for="'audio-file-input-%d' % entry.id"
+                                   class="btn btn-sm btn-outline-secondary"
+                                   title="Upload an existing audio file">
+                                📁 Upload file
+                            </label>
+                        </form>
+                    </div>
+
+                    <script>
+                    (function() {
+                        var eid = <t t-esc="entry.id"/>;
+                        var lang = '<t t-esc="entry.source_language"/>';
+                        var csrf = '<t t-esc="request.csrf_token()"/>';
+                        var uploadUrl = '/my/audio/upload/' + eid;
+
+                        var startBtn  = document.getElementById('record-start-' + eid);
+                        var stopBtn   = document.getElementById('record-stop-' + eid);
+                        var statusEl  = document.getElementById('record-status-' + eid);
+                        var fileInput = document.getElementById('audio-file-input-' + eid);
+
+                        var mediaRecorder = null;
+                        var chunks = [];
+
+                        function setStatus(msg) { if (statusEl) statusEl.textContent = msg; }
+
+                        /* File-input fallback: auto-submit on change */
+                        if (fileInput) {
+                            fileInput.addEventListener('change', function() {
+                                fileInput.form.submit();
+                            });
+                        }
+
+                        if (!startBtn) { return; }
+
+                        startBtn.addEventListener('click', function() {
+                            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                                setStatus('Microphone not supported — use "Upload file" instead.');
+                                return;
+                            }
+                            navigator.mediaDevices.getUserMedia({audio: true, video: false})
+                                .then(function(stream) {
+                                    chunks = [];
+                                    /* Pick a supported MIME type — browsers vary */
+                                    var mimeType = '';
+                                    var candidates = ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg'];
+                                    for (var i = 0; i &lt; candidates.length; i++) {
+                                        if (MediaRecorder.isTypeSupported(candidates[i])) {
+                                            mimeType = candidates[i];
+                                            break;
+                                        }
+                                    }
+                                    var opts = mimeType ? {mimeType: mimeType} : {};
+                                    mediaRecorder = new MediaRecorder(stream, opts);
+
+                                    mediaRecorder.addEventListener('dataavailable', function(e) {
+                                        if (e.data &amp;&amp; e.data.size > 0) { chunks.push(e.data); }
+                                    });
+
+                                    mediaRecorder.addEventListener('stop', function() {
+                                        stream.getTracks().forEach(function(t) { t.stop(); });
+                                        var blob = new Blob(chunks, {type: mimeType || 'audio/webm'});
+                                        var fd = new FormData();
+                                        fd.append('audio_file', blob, 'recording.webm');
+                                        fd.append('csrf_token', csrf);
+                                        fd.append('language', lang);
+                                        setStatus('Uploading…');
+                                        fetch(uploadUrl, {method: 'POST', body: fd})
+                                            .then(function(r) { return r.json(); })
+                                            .then(function(d) {
+                                                if (d.status === 'ok') {
+                                                    setStatus('Saved! Reloading…');
+                                                    window.location.reload();
+                                                } else {
+                                                    setStatus('Error: ' + (d.message || 'Unknown error'));
+                                                }
+                                            })
+                                            .catch(function(err) {
+                                                setStatus('Upload failed: ' + err.message);
+                                            });
+                                    });
+
+                                    mediaRecorder.start();
+                                    startBtn.classList.add('d-none');
+                                    stopBtn.classList.remove('d-none');
+                                    setStatus('● Recording…');
+                                })
+                                .catch(function(err) {
+                                    setStatus('Mic error: ' + err.message + ' — try "Upload file".');
+                                });
+                        });
+
+                        stopBtn.addEventListener('click', function() {
+                            if (mediaRecorder &amp;&amp; mediaRecorder.state !== 'inactive') {
+                                mediaRecorder.stop();
+                            }
+                            stopBtn.classList.add('d-none');
+                            startBtn.classList.remove('d-none');
+                            setStatus('Processing…');
+                        });
+                    })();
+                    </script>
                 </div>
 
                 <!-- ═══════════════════════════════════════════════
