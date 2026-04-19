@@ -50,7 +50,7 @@ class LanguageUserProfileGamification(models.Model):
     xp_total = fields.Integer(
         string='Total XP',
         default=0,
-        help='Cumulative experience points earned. Never decremented.',
+        help='Experience points balance. Increases on practice/wins; decreases on duel losses (floor 0).',
     )
     current_streak = fields.Integer(
         string='Current Streak (days)',
@@ -145,3 +145,33 @@ class LanguageUserProfileGamification(models.Model):
                 'reason': 'practice',
                 'date': fields.Datetime.now(),
             })
+
+    @api.model
+    def _record_duel_activity(self, user_id: int):
+        """Mark duel participation as daily activity for streak tracking.
+
+        Does NOT award or deduct XP (handled separately by _transfer_xp).
+        Called for both players when a duel finishes so that playing a duel
+        counts toward the daily streak even if no practice review was done.
+        """
+        today = fields.Date.today()
+        profile = self._get_or_create_for_user(user_id)
+
+        if profile.last_practice_date == today:
+            return  # streak already counted for today
+
+        lp = profile.last_practice_date
+        if lp == today - timedelta(days=1):
+            new_streak = profile.current_streak + 1
+        else:
+            new_streak = 1
+
+        profile.write({
+            'current_streak':     new_streak,
+            'longest_streak':     max(profile.longest_streak, new_streak),
+            'last_practice_date': today,
+        })
+        _logger.debug(
+            'Duel activity recorded: user=%d streak=%d longest=%d',
+            user_id, new_streak, profile.longest_streak,
+        )

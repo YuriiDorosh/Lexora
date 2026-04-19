@@ -147,46 +147,63 @@ class LanguageDuel(models.Model):
     # ------------------------------------------------------------------
 
     def _transfer_xp(self, winner_id):
-        """Transfer XP between winner and loser. No-op if gamification not installed."""
-        if not self.xp_staked:
-            return
+        """Transfer XP and record streak activity for both players.
+
+        winner_id=False means draw — no XP moves but both players still get
+        streak credit and a duel_draw log entry.
+        """
+        challenger_id = self.challenger_id.id
+        opponent_id   = self.opponent_id.id if self.opponent_id else None
         try:
             Profile = self.env['language.user.profile'].sudo()
-            loser_id = None
-            if winner_id:
-                loser_id = (
-                    self.opponent_id.id
-                    if winner_id == self.challenger_id.id
-                    else self.challenger_id.id
-                )
-            else:
-                # Draw — no XP transfer but still log
-                return
+            has_gamification = hasattr(
+                Profile.search([('user_id', '=', challenger_id)], limit=1),
+                'xp_total',
+            )
 
-            winner_profile = Profile.search([('user_id', '=', winner_id)], limit=1)
-            loser_profile  = Profile.search([('user_id', '=', loser_id)],  limit=1)
+            if winner_id and self.xp_staked and has_gamification:
+                loser_id = opponent_id if winner_id == challenger_id else challenger_id
+                winner_profile = Profile.search([('user_id', '=', winner_id)], limit=1)
+                loser_profile  = Profile.search([('user_id', '=', loser_id)],  limit=1)
 
-            if winner_profile and hasattr(winner_profile, 'xp_total'):
-                winner_profile.xp_total += self.xp_staked
-            if loser_profile and hasattr(loser_profile, 'xp_total'):
-                loser_profile.xp_total = max(0, loser_profile.xp_total - self.xp_staked)
+                if winner_profile:
+                    winner_profile.xp_total += self.xp_staked
+                if loser_profile:
+                    # Floor at 0; log the amount actually deducted
+                    actual_loss = min(loser_profile.xp_total, self.xp_staked)
+                    loser_profile.xp_total -= actual_loss
 
-            # XP transaction log (soft dep — skip if model absent)
-            if 'language.xp.log' in self.env.registry:
-                Log = self.env['language.xp.log'].sudo()
-                Log.create({
-                    'user_id': winner_id,
-                    'amount':  self.xp_staked,
-                    'reason':  'duel_win',
-                    'duel_id': self.id,
-                })
-                if loser_id:
+                if 'language.xp.log' in self.env.registry:
+                    Log = self.env['language.xp.log'].sudo()
+                    Log.create({
+                        'user_id': winner_id,
+                        'amount':  self.xp_staked,
+                        'reason':  'duel_win',
+                        'duel_id': self.id,
+                    })
                     Log.create({
                         'user_id': loser_id,
-                        'amount':  -self.xp_staked,
+                        'amount':  -actual_loss,
                         'reason':  'duel_loss',
                         'duel_id': self.id,
                     })
+            elif not winner_id:
+                # Draw — log activity for both, no XP movement
+                if 'language.xp.log' in self.env.registry:
+                    Log = self.env['language.xp.log'].sudo()
+                    for uid in filter(None, [challenger_id, opponent_id]):
+                        Log.create({
+                            'user_id': uid,
+                            'amount':  0,
+                            'reason':  'duel_draw',
+                            'duel_id': self.id,
+                        })
+
+            # Record duel participation toward daily streak for both players
+            if hasattr(Profile, '_record_duel_activity'):
+                for uid in filter(None, [challenger_id, opponent_id]):
+                    Profile._record_duel_activity(uid)
+
         except Exception:
             _logger.debug('XP transfer skipped (gamification not installed)', exc_info=True)
 

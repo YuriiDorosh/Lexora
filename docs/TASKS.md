@@ -72,6 +72,21 @@ XP history table, duel analytics, recent duels list, and "My Profile" navbar lin
   proper jsonb object (jsonb_typeof=object) with `%d%%` intact, then `docker restart`.
   Lesson: for in-place jsonb text edits use `(REPLACE(col::text,...)::jsonb)`, never
   `to_jsonb(text)` which wraps rather than parses.
+- [x] M10-11c · Bug fix: streak logic decoupled from XP balance.
+  Root cause: `_transfer_xp` updated XP directly but never called gamification logic,
+  so duel activity (win/loss/draw) did not update `last_practice_date` or streak.
+  If a user only dueled (no practice reviews) their streak broke the next day.
+  Fix 1 — new `_record_duel_activity(user_id)` method on `language.user.profile`:
+    updates streak + `last_practice_date` without touching XP; called for both
+    challenger and opponent at the end of every `_transfer_xp` execution.
+  Fix 2 — draw case in `_transfer_xp` previously returned silently (no log, no streak);
+    now logs `duel_draw` (amount=0) for both players and records activity.
+  Fix 3 — loser XP log records actual deducted amount (`min(balance, staked)`) so
+    the log is accurate when the loser's balance was below the stake.
+  Fix 4 — leaderboard domain changed to
+    `['|', ('xp_total', '>', 0), ('current_streak', '>', 0)]` so active learners
+    who lost all XP in duels still appear. Dashboard rank check updated identically.
+  77 tests: 0 failures, 0 errors after the fix.
 - [ ] M10-12 · Manual smoke: `/my/dashboard` renders; bot duel creates win/loss log entries;
   XP history shows transactions; "My Profile" link appears in navbar.
 - [ ] M10-13 · Commit M10 on branch `m9`.

@@ -92,7 +92,7 @@ class PracticePortal(CustomerPortal):
         Profile = request.env['language.user.profile'].sudo()
         uid = request.env.user.id
 
-        domain = [('xp_total', '>', 0)]
+        domain = ['|', ('xp_total', '>', 0), ('current_streak', '>', 0)]
         total = Profile.search_count(domain)
 
         pager = portal_pager(
@@ -112,7 +112,7 @@ class PracticePortal(CustomerPortal):
         # Compute global rank for current user
         my_profile = Profile.search([('user_id', '=', uid)], limit=1)
         my_rank = None
-        if my_profile and my_profile.xp_total > 0:
+        if my_profile and (my_profile.xp_total > 0 or my_profile.current_streak > 0):
             my_rank = Profile.search_count([
                 ('xp_total', '>', my_profile.xp_total),
             ]) + 1
@@ -152,7 +152,7 @@ class PracticePortal(CustomerPortal):
 
         # Global rank
         my_rank = None
-        if profile and profile.xp_total > 0:
+        if profile and (profile.xp_total > 0 or profile.current_streak > 0):
             my_rank = Profile.search_count([('xp_total', '>', profile.xp_total)]) + 1
 
         # Duel stats — graceful if language_pvp not installed
