@@ -209,6 +209,12 @@ class LanguageReview(models.Model):
             'SM-2 review: user=%d entry=%d grade=%d → state=%s n=%d I=%d EF=%.2f next=%s',
             self.user_id.id, self.entry_id.id, grade, new_state, n, i, ef, next_date,
         )
+
+        # Award XP and update streak (M8)
+        self.env['language.user.profile'].sudo()._update_gamification_for_user(
+            self.user_id.id, grade,
+        )
+
         return self
 
     # ------------------------------------------------------------------ #

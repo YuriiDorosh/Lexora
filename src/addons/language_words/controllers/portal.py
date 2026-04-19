@@ -131,7 +131,8 @@ class VocabularyPortal(CustomerPortal):
     # Vocabulary list  GET /my/vocabulary
     # ------------------------------------------------------------------
 
-    @http.route('/my/vocabulary', type='http', auth='user', website=True)
+    @http.route(['/my/vocabulary', '/my/vocabulary/page/<int:page>'],
+                type='http', auth='user', website=True)
     def vocabulary_list(self, page=1, **kwargs):
         Entry = request.env['language.entry']
         domain = [('owner_id', '=', request.env.user.id)]

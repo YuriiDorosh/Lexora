@@ -4,7 +4,10 @@ from . import models, controllers
 # Website menu hooks — propagate navbar entry to all existing websites
 # ---------------------------------------------------------------------------
 
-_PRACTICE_MENU = ('practice', 'Daily Practice', '/my/practice', 55)
+_NAVBAR_MENUS = [
+    ('Daily Practice', '/my/practice', 55),
+    ('Leaderboard', '/my/leaderboard', 70),
+]
 
 
 def _ensure_website_menus(env):
@@ -16,16 +19,16 @@ def _ensure_website_menus(env):
         )
         if not top_menu:
             continue
-        _suffix, name, url, seq = _PRACTICE_MENU
-        if not Menu.search([('url', '=', url), ('website_id', '=', website.id)], limit=1):
-            Menu.create({
-                'name': name,
-                'url': url,
-                'parent_id': top_menu.id,
-                'website_id': website.id,
-                'sequence': seq,
-                'user_logged': True,
-            })
+        for name, url, seq in _NAVBAR_MENUS:
+            if not Menu.search([('url', '=', url), ('website_id', '=', website.id)], limit=1):
+                Menu.create({
+                    'name': name,
+                    'url': url,
+                    'parent_id': top_menu.id,
+                    'website_id': website.id,
+                    'sequence': seq,
+                    'user_logged': True,
+                })
 
 
 def post_init_hook(env):
