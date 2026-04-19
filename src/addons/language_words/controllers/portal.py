@@ -1,13 +1,17 @@
 """Portal controller for vocabulary (learning entries).
 
 Provides:
-  GET  /my/vocabulary               — paginated list of own entries
-  GET  /my/vocabulary/<id>          — entry detail + edit
-  GET/POST /my/vocabulary/new       — add-entry form
-  GET  /my/vocabulary/shared        — shared entries from all users
-  POST /my/vocabulary/<id>/share    — toggle is_shared
-  POST /my/vocabulary/<id>/archive  — archive / restore entry
+  GET  /my/vocabulary[/page/<n>]     — paginated list with search/filter/sort
+  GET  /my/vocabulary/<id>           — entry detail + edit
+  GET/POST /my/vocabulary/new        — add-entry form
+  GET  /my/vocabulary/shared         — shared entries from all users
+  POST /my/vocabulary/<id>/share     — toggle is_shared
+  POST /my/vocabulary/<id>/archive   — archive / restore entry
   JSON /my/vocabulary/detect_language — language detection for AJAX
+
+Search searches source_text + translation_ids.translated_text.
+Filter options: all | new | learning | review | unstarted (SRS states).
+Sort options: newest (default) | az | difficulty (ease factor asc).
 """
 
 import logging
@@ -23,17 +27,17 @@ _logger = logging.getLogger(__name__)
 
 ITEMS_PER_PAGE = 20
 
-# Human-readable labels for the three supported language codes.
-# Passed as `lang_names` to all portal templates so QWeb can show
-# "English" instead of "en" without embedding logic in each template.
 LANG_NAMES = {'en': 'English', 'uk': 'Ukrainian', 'el': 'Greek'}
 
-# Ordered list used to compute which translation buttons to show on the detail page.
 SUPPORTED_LANGS = [
     {'code': 'en', 'name': 'English'},
     {'code': 'uk', 'name': 'Ukrainian'},
     {'code': 'el', 'name': 'Greek'},
 ]
+
+# Valid filterby / sortby values — used to reject tampered query params.
+_VALID_FILTERS = frozenset({'all', 'new', 'learning', 'review', 'unstarted'})
+_VALID_SORTS   = frozenset({'newest', 'az', 'difficulty'})
 
 
 def _try_detect_language(text: str):
@@ -128,35 +132,103 @@ class VocabularyPortal(CustomerPortal):
         })
 
     # ------------------------------------------------------------------
-    # Vocabulary list  GET /my/vocabulary
+    # Vocabulary list  GET /my/vocabulary[/page/<n>]
     # ------------------------------------------------------------------
 
     @http.route(['/my/vocabulary', '/my/vocabulary/page/<int:page>'],
                 type='http', auth='user', website=True)
-    def vocabulary_list(self, page=1, **kwargs):
+    def vocabulary_list(self, page=1, search='', filterby='all', sortby='newest', **kwargs):
+        uid   = request.env.user.id
         Entry = request.env['language.entry']
-        domain = [('owner_id', '=', request.env.user.id)]
-        entry_count = Entry.search_count(domain)
+        Review = request.env['language.review'].sudo()
 
-        pager = portal_pager(
-            url='/my/vocabulary',
-            total=entry_count,
-            page=int(page),
-            step=ITEMS_PER_PAGE,
-        )
-        entries = Entry.search(
-            domain,
-            limit=ITEMS_PER_PAGE,
-            offset=pager['offset'],
-            order='create_date desc',
-        )
+        # Sanitise query params
+        search   = (search or '').strip()
+        filterby = filterby if filterby in _VALID_FILTERS else 'all'
+        sortby   = sortby   if sortby   in _VALID_SORTS   else 'newest'
+
+        # ── Base domain ─────────────────────────────────────────────────
+        domain = [('owner_id', '=', uid)]
+
+        # ── Full-text search (source_text OR translation text) ──────────
+        if search:
+            trans_ids = request.env['language.translation'].sudo().search([
+                ('translated_text', 'ilike', search),
+                ('entry_id.owner_id', '=', uid),
+            ]).mapped('entry_id').ids
+            domain += ['|', ('source_text', 'ilike', search), ('id', 'in', trans_ids)]
+
+        # ── SRS state filter ─────────────────────────────────────────────
+        if filterby in ('new', 'learning', 'review'):
+            srs_ids = Review.search([
+                ('user_id', '=', uid),
+                ('state', '=', filterby),
+            ]).mapped('entry_id').ids
+            domain += [('id', 'in', srs_ids)]
+        elif filterby == 'unstarted':
+            started_ids = Review.search([('user_id', '=', uid)]).mapped('entry_id').ids
+            domain += [('id', 'not in', started_ids)]
+
+        # ── Sorting ──────────────────────────────────────────────────────
+        url_args = {}
+        if search:
+            url_args['search'] = search
+        if filterby != 'all':
+            url_args['filterby'] = filterby
+        if sortby != 'newest':
+            url_args['sortby'] = sortby
+
+        if sortby == 'difficulty':
+            # Sort by ease_factor asc (lowest = hardest words that trip the user).
+            # Entries with no review card yet appear after all reviewed entries.
+            all_ids    = Entry.search(domain).ids
+            all_id_set = set(all_ids)
+            reviews    = Review.search(
+                [('user_id', '=', uid), ('entry_id', 'in', list(all_id_set))],
+                order='ease_factor asc, id asc',
+            )
+            reviewed_ids   = [r.entry_id.id for r in reviews if r.entry_id.id in all_id_set]
+            unreviewed_ids = [eid for eid in all_ids if eid not in set(reviewed_ids)]
+            ordered_ids    = reviewed_ids + unreviewed_ids
+            total          = len(ordered_ids)
+
+            pager = portal_pager(
+                url='/my/vocabulary',
+                url_args=url_args,
+                total=total,
+                page=int(page),
+                step=ITEMS_PER_PAGE,
+            )
+            page_ids = ordered_ids[pager['offset']: pager['offset'] + ITEMS_PER_PAGE]
+            entries  = Entry.browse(page_ids)
+        else:
+            order = 'source_text asc, id asc' if sortby == 'az' else 'create_date desc, id desc'
+            total = Entry.search_count(domain)
+            pager = portal_pager(
+                url='/my/vocabulary',
+                url_args=url_args,
+                total=total,
+                page=int(page),
+                step=ITEMS_PER_PAGE,
+            )
+            entries = Entry.search(domain, limit=ITEMS_PER_PAGE, offset=pager['offset'], order=order)
+
+        # ── SRS state map for the current page (badge display) ───────────
+        srs_states = {}
+        if entries:
+            cards = Review.search([('user_id', '=', uid), ('entry_id', 'in', entries.ids)])
+            srs_states = {c.entry_id.id: c.state for c in cards}
 
         return request.render('language_words.portal_vocabulary_list', {
-            'entries': entries,
-            'page_name': 'vocabulary',
-            'pager': pager,
-            'entry_count': entry_count,
-            'lang_names': LANG_NAMES,
+            'entries':     entries,
+            'page_name':   'vocabulary',
+            'pager':       pager,
+            'entry_count': total,
+            'lang_names':  LANG_NAMES,
+            'search':      search,
+            'filterby':    filterby,
+            'sortby':      sortby,
+            'srs_states':  srs_states,
         })
 
     # ------------------------------------------------------------------

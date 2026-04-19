@@ -69,18 +69,24 @@ class LanguageUserProfileGamification(models.Model):
         string='Level',
         compute='_compute_level',
         store=True,
+        compute_sudo=True,
         default=1,
     )
     level_progress_pct = fields.Integer(
         string='Level Progress %',
-        compute='_compute_level',
+        compute='_compute_level_progress',
         store=False,
+        compute_sudo=True,
     )
 
     @api.depends('xp_total')
     def _compute_level(self):
         for rec in self:
             rec.level = _xp_to_level(rec.xp_total)
+
+    @api.depends('xp_total')
+    def _compute_level_progress(self):
+        for rec in self:
             rec.level_progress_pct = _level_progress_pct(rec.xp_total)
 
     # ------------------------------------------------------------------ #

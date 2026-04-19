@@ -35,80 +35,207 @@
     </template>
 
     <!-- ============================================================
-         Vocabulary list  /my/vocabulary
+         Vocabulary list  /my/vocabulary[/page/<n>]
     ============================================================ -->
     <template id="portal_vocabulary_list" name="My Vocabulary">
         <t t-call="portal.portal_layout">
-            <t t-set="breadcrumbs_searchbar" t-value="True"/>
-            <t t-call="portal.portal_searchbar">
-                <t t-set="title">My Vocabulary</t>
-            </t>
             <div class="container mt-4">
+
+                <!-- ── Page header ─────────────────────────────────────── -->
                 <div class="d-flex justify-content-between align-items-center mb-3">
-                    <h3>My Vocabulary <span class="text-muted fs-6 fw-normal">(<t t-esc="entry_count"/> entries)</span></h3>
-                    <div>
+                    <h3 class="mb-0">
+                        My Vocabulary
+                        <span class="text-muted fs-6 fw-normal">
+                            (<t t-esc="entry_count"/>
+                            <t t-if="search or filterby != 'all'"> filtered</t>
+                            entries)
+                        </span>
+                    </h3>
+                    <div class="d-flex gap-2">
                         <a href="/my/vocabulary/new" class="btn btn-primary btn-sm">+ Add Entry</a>
-                        <a href="/my/vocabulary/shared" class="btn btn-outline-secondary btn-sm ms-2">Browse Shared</a>
+                        <a href="/my/vocabulary/shared" class="btn btn-outline-secondary btn-sm">Browse Shared</a>
                     </div>
                 </div>
 
-                <t t-if="not entries">
-                    <div class="text-center py-5 text-muted">
-                        <p class="mb-2">Your vocabulary list is empty.</p>
-                        <a href="/my/vocabulary/new" class="btn btn-primary btn-sm">Add your first entry</a>
+                <!-- ── Search &amp; Filter Bar ────────────────────────── -->
+                <form method="get" action="/my/vocabulary" class="mb-3">
+                    <div class="row g-2 align-items-center">
+                        <!-- Search box -->
+                        <div class="col-12 col-md-5">
+                            <div class="input-group input-group-sm">
+                                <span class="input-group-text bg-white">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" viewBox="0 0 16 16"><path d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001q.044.06.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1 1 0 0 0-.115-.1zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0"/></svg>
+                                </span>
+                                <input type="text" name="search" class="form-control form-control-sm"
+                                       placeholder="Search text or translation…"
+                                       t-att-value="search"/>
+                                <button type="submit" class="btn btn-sm btn-primary">Search</button>
+                                <t t-if="search">
+                                    <a href="/my/vocabulary" class="btn btn-sm btn-outline-secondary" title="Clear search">×</a>
+                                </t>
+                            </div>
+                        </div>
+                        <!-- SRS State filter -->
+                        <div class="col-6 col-md-3">
+                            <div class="input-group input-group-sm">
+                                <label class="input-group-text bg-white" for="filterby_sel">Filter</label>
+                                <select id="filterby_sel" name="filterby" class="form-select form-select-sm"
+                                        onchange="this.form.submit()">
+                                    <option value="all"       t-att-selected="'selected' if filterby == 'all'       else None">All entries</option>
+                                    <option value="unstarted" t-att-selected="'selected' if filterby == 'unstarted' else None">Not started</option>
+                                    <option value="new"       t-att-selected="'selected' if filterby == 'new'       else None">New (SRS)</option>
+                                    <option value="learning"  t-att-selected="'selected' if filterby == 'learning'  else None">Learning</option>
+                                    <option value="review"    t-att-selected="'selected' if filterby == 'review'    else None">In review</option>
+                                </select>
+                            </div>
+                        </div>
+                        <!-- Sort -->
+                        <div class="col-6 col-md-3">
+                            <div class="input-group input-group-sm">
+                                <label class="input-group-text bg-white" for="sortby_sel">Sort</label>
+                                <select id="sortby_sel" name="sortby" class="form-select form-select-sm"
+                                        onchange="this.form.submit()">
+                                    <option value="newest"     t-att-selected="'selected' if sortby == 'newest'     else None">Newest first</option>
+                                    <option value="az"         t-att-selected="'selected' if sortby == 'az'         else None">A – Z</option>
+                                    <option value="difficulty" t-att-selected="'selected' if sortby == 'difficulty' else None">Hardest first</option>
+                                </select>
+                            </div>
+                        </div>
+                        <!-- Reset all -->
+                        <div class="col-auto d-none d-md-block">
+                            <t t-if="search or filterby != 'all' or sortby != 'newest'">
+                                <a href="/my/vocabulary" class="btn btn-sm btn-outline-secondary" title="Reset all filters">Reset</a>
+                            </t>
+                        </div>
+                    </div>
+                </form>
+
+                <!-- ── Active filter pills ────────────────────────────── -->
+                <t t-if="search or filterby != 'all'">
+                    <div class="d-flex flex-wrap gap-2 mb-3">
+                        <t t-if="search">
+                            <span class="badge bg-light text-dark border d-inline-flex align-items-center gap-1">
+                                🔍 "<t t-esc="search"/>"
+                            </span>
+                        </t>
+                        <t t-if="filterby == 'new'">
+                            <span class="badge bg-info text-white d-inline-flex align-items-center gap-1">SRS: New</span>
+                        </t>
+                        <t t-elif="filterby == 'learning'">
+                            <span class="badge bg-warning text-dark d-inline-flex align-items-center gap-1">SRS: Learning</span>
+                        </t>
+                        <t t-elif="filterby == 'review'">
+                            <span class="badge bg-success text-white d-inline-flex align-items-center gap-1">SRS: Review</span>
+                        </t>
+                        <t t-elif="filterby == 'unstarted'">
+                            <span class="badge bg-secondary text-white d-inline-flex align-items-center gap-1">Not started yet</span>
+                        </t>
                     </div>
                 </t>
 
-                <t t-if="entries">
-                    <table class="table table-hover table-sm">
-                        <thead class="table-light">
-                            <tr>
-                                <th>Text</th>
-                                <th>Type</th>
-                                <th>Language</th>
-                                <th>Translations</th>
-                                <th>Flags</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <t t-foreach="entries" t-as="entry">
-                                <tr>
-                                    <td>
-                                        <a t-att-href="'/my/vocabulary/%d' % entry.id" class="fw-medium text-decoration-none">
-                                            <t t-esc="entry.source_text"/>
-                                        </a>
-                                    </td>
-                                    <td><span class="badge bg-secondary"><t t-esc="entry.type"/></span></td>
-                                    <td>
-                                        <span class="badge bg-primary">
-                                            <t t-esc="lang_names.get(entry.source_language, entry.source_language)"/>
-                                        </span>
-                                    </td>
-                                    <td>
-                                        <t t-if="entry.pvp_eligible">
-                                            <span class="badge bg-success" title="Has completed translation — PvP eligible">✓ translated</span>
-                                        </t>
-                                        <t t-elif="entry.translation_ids">
-                                            <span class="badge bg-warning text-dark">pending…</span>
-                                        </t>
-                                        <t t-else="">
-                                            <span class="text-muted small">—</span>
-                                        </t>
-                                    </td>
-                                    <td>
-                                        <t t-if="entry.is_shared">
-                                            <span class="badge bg-info">shared</span>
-                                        </t>
-                                        <t t-if="entry.status == 'archived'">
-                                            <span class="badge bg-secondary">archived</span>
-                                        </t>
-                                    </td>
-                                </tr>
+                <!-- ── Empty state ────────────────────────────────────── -->
+                <t t-if="not entries">
+                    <div class="card border-0 shadow-sm text-center py-5">
+                        <div class="card-body">
+                            <t t-if="search or filterby != 'all'">
+                                <div class="display-1 mb-3">🔍</div>
+                                <h5>No entries match your filters</h5>
+                                <p class="text-muted mb-3">Try a different search term or remove the active filter.</p>
+                                <a href="/my/vocabulary" class="btn btn-outline-primary btn-sm">Clear filters</a>
                             </t>
-                        </tbody>
-                    </table>
-                    <t t-call="portal.pager"/>
+                            <t t-else="">
+                                <div class="display-1 mb-3">📚</div>
+                                <h5>Your vocabulary list is empty</h5>
+                                <p class="text-muted mb-3">Start building your vocabulary — every entry gets automatically translated.</p>
+                                <a href="/my/vocabulary/new" class="btn btn-primary">Add your first entry</a>
+                            </t>
+                        </div>
+                    </div>
                 </t>
+
+                <!-- ── Entry table ────────────────────────────────────── -->
+                <t t-if="entries">
+                    <div class="card border-0 shadow-sm">
+                        <div class="table-responsive">
+                            <table class="table table-hover align-middle mb-0">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th>Text</th>
+                                        <th class="d-none d-sm-table-cell">Type</th>
+                                        <th>Language</th>
+                                        <th>Translation</th>
+                                        <th>SRS</th>
+                                        <th class="d-none d-md-table-cell">Flags</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <t t-foreach="entries" t-as="entry">
+                                        <tr>
+                                            <td>
+                                                <a t-att-href="'/my/vocabulary/%d' % entry.id"
+                                                   class="fw-semibold text-decoration-none text-body">
+                                                    <t t-esc="entry.source_text"/>
+                                                </a>
+                                            </td>
+                                            <td class="d-none d-sm-table-cell">
+                                                <span class="badge bg-light text-dark border text-capitalize">
+                                                    <t t-esc="entry.type"/>
+                                                </span>
+                                            </td>
+                                            <td>
+                                                <span class="badge bg-primary text-white">
+                                                    <t t-esc="lang_names.get(entry.source_language, entry.source_language)"/>
+                                                </span>
+                                            </td>
+                                            <td>
+                                                <t t-if="entry.pvp_eligible">
+                                                    <span class="badge bg-success" title="PvP eligible">✓</span>
+                                                </t>
+                                                <t t-elif="entry.translation_ids">
+                                                    <span class="badge bg-warning text-dark">…</span>
+                                                </t>
+                                                <t t-else="">
+                                                    <span class="text-muted small">—</span>
+                                                </t>
+                                            </td>
+                                            <td>
+                                                <t t-set="_srs" t-value="srs_states.get(entry.id)"/>
+                                                <t t-if="_srs == 'new'">
+                                                    <span class="badge bg-info text-white">new</span>
+                                                </t>
+                                                <t t-elif="_srs == 'learning'">
+                                                    <span class="badge bg-warning text-dark">learning</span>
+                                                </t>
+                                                <t t-elif="_srs == 'review'">
+                                                    <span class="badge bg-success text-white">review</span>
+                                                </t>
+                                                <t t-else="">
+                                                    <span class="text-muted small">—</span>
+                                                </t>
+                                            </td>
+                                            <td class="d-none d-md-table-cell">
+                                                <t t-if="entry.is_shared">
+                                                    <span class="badge bg-info text-white me-1">shared</span>
+                                                </t>
+                                                <t t-if="entry.status == 'archived'">
+                                                    <span class="badge bg-secondary">archived</span>
+                                                </t>
+                                            </td>
+                                        </tr>
+                                    </t>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- Pager -->
+                    <div class="mt-3">
+                        <t t-call="portal.pager" t-if="pager">
+                            <t t-set="pager" t-value="pager"/>
+                        </t>
+                    </div>
+                </t>
+
             </div>
         </t>
     </template>

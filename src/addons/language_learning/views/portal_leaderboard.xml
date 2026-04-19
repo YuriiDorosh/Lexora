@@ -21,9 +21,13 @@
                                         </div>
                                         <div class="flex-grow-1">
                                             <div class="fw-semibold">You</div>
-                                            <div class="d-flex gap-3 small text-muted">
+                                            <div class="d-flex gap-3 small text-muted align-items-center">
                                                 <span><t t-esc="my_profile.xp_total"/> XP</span>
-                                                <span>Level <t t-esc="my_profile.level"/></span>
+                                                <t t-set="_my_lvl" t-value="my_profile.level"/>
+                                                <span class="badge rounded-pill"
+                                                      t-att-class="'bg-danger text-white' if _my_lvl >= 20 else ('bg-warning text-dark' if _my_lvl >= 10 else ('bg-info text-white' if _my_lvl >= 5 else 'bg-primary text-white'))">
+                                                    Lv <t t-esc="_my_lvl"/>
+                                                </span>
                                                 <span>🔥 <t t-esc="my_profile.current_streak"/>d streak</span>
                                             </div>
                                             <!-- Level progress bar -->
@@ -79,13 +83,14 @@
                                                         </t>
                                                     </td>
                                                     <td class="text-center">
+                                                        <t t-set="_lvl" t-value="row['profile'].level"/>
                                                         <span class="badge rounded-pill"
-                                                              t-att-class="'bg-warning text-dark' if row['profile'].level >= 10 else 'bg-secondary'">
-                                                            Lv <t t-esc="row['profile'].level"/>
+                                                              t-att-class="'bg-danger text-white' if _lvl >= 20 else ('bg-warning text-dark' if _lvl >= 10 else ('bg-info text-white' if _lvl >= 5 else 'bg-primary text-white'))">
+                                                            Lv <t t-esc="_lvl"/>
                                                         </span>
                                                         <div class="progress mt-1" style="height:3px;">
                                                             <div class="progress-bar"
-                                                                 t-att-class="'bg-warning' if row['profile'].level >= 10 else 'bg-secondary'"
+                                                                 t-att-class="'bg-danger' if _lvl >= 20 else ('bg-warning' if _lvl >= 10 else ('bg-info' if _lvl >= 5 else 'bg-primary'))"
                                                                  t-att-style="'width:{}%'.format(row['profile'].level_progress_pct)"/>
                                                         </div>
                                                     </td>
