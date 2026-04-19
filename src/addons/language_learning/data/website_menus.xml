@@ -11,5 +11,14 @@
             <field name="user_logged">True</field>
         </record>
 
+        <!-- "Leaderboard" link in the website navbar (logged-in users only) -->
+        <record id="menu_navbar_leaderboard" model="website.menu">
+            <field name="name">Leaderboard</field>
+            <field name="url">/my/leaderboard</field>
+            <field name="parent_id" ref="website.main_menu"/>
+            <field name="sequence">70</field>
+            <field name="user_logged">True</field>
+        </record>
+
     </data>
 </odoo>

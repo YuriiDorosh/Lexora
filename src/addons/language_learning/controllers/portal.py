@@ -4,10 +4,12 @@ from odoo import fields, http
 from odoo.http import request
 
 from odoo.addons.portal.controllers.portal import CustomerPortal
+from odoo.addons.portal.controllers.portal import pager as portal_pager
 
 _logger = logging.getLogger(__name__)
 
 GRADE_LABELS = {0: 'Again', 1: 'Hard', 2: 'Good', 3: 'Easy'}
+LEADERBOARD_PAGE_SIZE = 20
 
 
 class PracticePortal(CustomerPortal):
@@ -69,3 +71,54 @@ class PracticePortal(CustomerPortal):
 
         card.action_register_review(grade_int)
         return request.redirect('/my/practice')
+
+    # ------------------------------------------------------------------
+    # GET /my/leaderboard — XP leaderboard (paginated)
+    # ------------------------------------------------------------------
+
+    @http.route('/my/leaderboard', type='http', auth='user', website=True, methods=['GET'])
+    def leaderboard(self, page=1, **kw):
+        Profile = request.env['language.user.profile'].sudo()
+        uid = request.env.user.id
+
+        domain = [('xp_total', '>', 0)]
+        total = Profile.search_count(domain)
+
+        pager = portal_pager(
+            url='/my/leaderboard',
+            total=total,
+            page=int(page),
+            step=LEADERBOARD_PAGE_SIZE,
+        )
+
+        profiles = Profile.search(
+            domain,
+            order='xp_total desc, current_streak desc, id asc',
+            limit=LEADERBOARD_PAGE_SIZE,
+            offset=pager['offset'],
+        )
+
+        # Compute global rank for current user
+        my_profile = Profile.search([('user_id', '=', uid)], limit=1)
+        my_rank = None
+        if my_profile and my_profile.xp_total > 0:
+            my_rank = Profile.search_count([
+                ('xp_total', '>', my_profile.xp_total),
+            ]) + 1
+
+        # Build ranked rows (offset + position within page)
+        ranked = []
+        for pos, p in enumerate(profiles, start=pager['offset'] + 1):
+            ranked.append({
+                'rank': pos,
+                'profile': p,
+                'is_me': p.user_id.id == uid,
+            })
+
+        return request.render('language_learning.portal_leaderboard', {
+            'ranked': ranked,
+            'pager': pager,
+            'total': total,
+            'my_rank': my_rank,
+            'my_profile': my_profile,
+        })
