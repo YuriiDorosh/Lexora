@@ -1,0 +1,115 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- List view -->
+    <record id="view_language_review_list" model="ir.ui.view">
+        <field name="name">language.review.list</field>
+        <field name="model">language.review</field>
+        <field name="arch" type="xml">
+            <list decoration-info="state == 'new'"
+                  decoration-warning="state == 'learning'"
+                  decoration-success="state == 'review'">
+                <field name="entry_id"/>
+                <field name="user_id" groups="language_security.group_language_admin"/>
+                <field name="state"/>
+                <field name="next_review_date"/>
+                <field name="repetitions"/>
+                <field name="interval"/>
+                <field name="ease_factor" digits="2"/>
+                <field name="total_reviews"/>
+                <field name="correct_reviews"/>
+                <field name="accuracy" string="Accuracy %"/>
+            </list>
+        </field>
+    </record>
+
+    <!-- Form view -->
+    <record id="view_language_review_form" model="ir.ui.view">
+        <field name="name">language.review.form</field>
+        <field name="model">language.review</field>
+        <field name="arch" type="xml">
+            <form>
+                <sheet>
+                    <group>
+                        <group string="Card">
+                            <field name="entry_id"/>
+                            <field name="user_id"/>
+                            <field name="state"/>
+                        </group>
+                        <group string="Schedule">
+                            <field name="next_review_date"/>
+                            <field name="last_review_date"/>
+                            <field name="interval"/>
+                        </group>
+                    </group>
+                    <group string="SM-2 State">
+                        <group>
+                            <field name="repetitions"/>
+                            <field name="ease_factor" digits="4"/>
+                        </group>
+                        <group>
+                            <field name="total_reviews"/>
+                            <field name="correct_reviews"/>
+                            <field name="accuracy"/>
+                        </group>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <!-- Search view -->
+    <record id="view_language_review_search" model="ir.ui.view">
+        <field name="name">language.review.search</field>
+        <field name="model">language.review</field>
+        <field name="arch" type="xml">
+            <search>
+                <field name="entry_id"/>
+                <filter name="state_new" string="New" domain="[('state','=','new')]"/>
+                <filter name="state_learning" string="Learning" domain="[('state','=','learning')]"/>
+                <filter name="state_review" string="Review" domain="[('state','=','review')]"/>
+                <separator/>
+                <filter name="due_today" string="Due today"
+                        domain="[('next_review_date','&lt;=',context_today().strftime('%Y-%m-%d'))]"/>
+                <group expand="0" string="Group By">
+                    <filter name="group_state" string="State" context="{'group_by':'state'}"/>
+                    <filter name="group_user" string="User" context="{'group_by':'user_id'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <!-- Action -->
+    <record id="action_language_review" model="ir.actions.act_window">
+        <field name="name">Review Cards</field>
+        <field name="res_model">language.review</field>
+        <field name="view_mode">list,form</field>
+        <field name="search_view_id" ref="view_language_review_search"/>
+    </record>
+
+    <!-- Stat button on language.entry backend form -->
+    <record id="view_language_entry_form_review_button" model="ir.ui.view">
+        <field name="name">language.entry.form.review_stat_button</field>
+        <field name="model">language.entry</field>
+        <field name="inherit_id" ref="language_words.view_language_entry_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//sheet/div[hasclass('oe_title')]" position="before">
+                <div class="oe_button_box" name="button_box">
+                    <button type="object"
+                            name="action_open_review_cards"
+                            class="oe_stat_button"
+                            icon="fa-graduation-cap">
+                        <field name="review_card_count" widget="statinfo" string="SRS Cards"/>
+                    </button>
+                </div>
+            </xpath>
+        </field>
+    </record>
+
+    <!-- Menu -->
+    <menuitem id="menu_language_review"
+              name="Review Cards"
+              parent="language_words.menu_lexora_root"
+              action="action_language_review"
+              sequence="60"
+              groups="language_security.group_language_admin"/>
+</odoo>

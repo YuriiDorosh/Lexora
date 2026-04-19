@@ -1,0 +1,22 @@
+{
+    'name': 'Language Learning — SRS',
+    'version': '18.0.1.0.0',
+    'category': 'Custom/Lexora',
+    'summary': 'Spaced Repetition System (SM-2) for vocabulary review. M7.',
+    'author': 'Lexora',
+    'license': 'LGPL-3',
+    'depends': ['language_words', 'portal'],
+    'data': [
+        'security/ir.model.access.csv',
+        'security/record_rules.xml',
+        'data/ir_cron_srs.xml',
+        'data/website_menus.xml',
+        'views/language_review_views.xml',
+        'views/portal_practice.xml',
+    ],
+    'post_init_hook': 'post_init_hook',
+    'post_update_hook': 'post_update_hook',
+    'installable': True,
+    'auto_install': False,
+    'application': False,
+}
