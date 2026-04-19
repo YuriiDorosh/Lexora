@@ -387,13 +387,13 @@ model ~145 MB). Three `audio_type` values: `recorded` (user mic), `generated`
 - `src/addons/language_audio/models/language_entry_audio.py` (M6-02) ✅
 - `src/addons/language_audio/models/__init__.py` (M6-02) ✅
 - `src/addons/language_audio/security/ir.model.access.csv` (M6-03) ✅
-- `src/addons/language_audio/data/ir_cron_audio.xml` (M6-04)
-- `src/addons/language_audio/views/language_audio_views.xml` (M6-05)
+- `src/addons/language_audio/data/ir_cron_audio.xml` (M6-04) ✅
+- `src/addons/language_audio/views/language_audio_views.xml` (M6-05) ✅
 - `src/addons/language_audio/__manifest__.py` (M6-06) ✅
 - `src/addons/language_audio/tests/test_language_audio.py` (M6-07) ✅
-- `src/addons/language_audio/controllers/__init__.py` (M6-11)
-- `src/addons/language_audio/controllers/portal.py` (M6-10)
-- `src/addons/language_audio/views/portal_audio.xml` (M6-17)
+- `src/addons/language_audio/controllers/__init__.py` (M6-11) ✅
+- `src/addons/language_audio/controllers/portal.py` (M6-10) ✅
+- `src/addons/language_audio/views/portal_audio.xml` (M6-17) ✅
 - `services/audio/requirements.txt` (M6-12) ✅
 - `services/audio/main.py` (M6-15) ✅
 - `docker_compose/audio/Dockerfile` (M6-13) ✅
@@ -413,6 +413,22 @@ model ~145 MB). Three `audio_type` values: `recorded` (user mic), `generated`
   Recorded audio uses update-in-place (last recording wins). Generated audio is
   lazy-once (reused until explicit re-generation). This prevents queue wedging
   from double-clicks while allowing replacement.
+
+#### Known bug fixed during M6 (2026-04-19)
+
+**`audio_ids` AttributeError on portal entry detail page (500 error).**
+- Root cause: `--update --stop-after-init` only updates the PostgreSQL schema and
+  registers templates in `ir.ui.view`. It does NOT reload the live Odoo web server
+  process. The main Odoo workers loaded their Python registry before `language_audio`
+  was installed, so `language.entry` in the running process had no `audio_ids` field.
+  The QWeb template accessed `entry.audio_ids` → `AttributeError` → HTTP 500.
+- Fix: `docker restart odoo`. After restart, Odoo reads the installed-module list
+  from the DB, loads `language_audio`, and `language.entry` gains `audio_ids` in the
+  live registry. Confirmed: `ir_model_fields` has `audio_ids` for `language.entry`;
+  Odoo logs show `language_audio loaded in 0.00s` on both workers post-restart.
+- Rule: always `docker restart odoo` after `--init <new_module>`. The `--update`
+  path alone is insufficient when a NEW module is being installed for the first time
+  — the live process never loaded the module Python code from disk.
 
 #### Blockers
 
