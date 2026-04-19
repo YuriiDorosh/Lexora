@@ -1,1 +1,3 @@
 id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_language_audio_user,language.audio user,model_language_audio,language_security.group_language_user,1,1,1,0
+access_language_audio_admin,language.audio admin,model_language_audio,base.group_system,1,1,1,1

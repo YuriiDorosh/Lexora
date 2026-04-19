@@ -15,10 +15,307 @@
 
 ## Current Milestone
 
-### M5 — Anki Import Service
+### M6 — Audio (Recording + TTS + STT)
 
 **Status:** In progress.
 **Started:** 2026-04-19
+**Branch:** `m6`
+
+**Scope:** End-to-end audio pipeline — user-recorded audio upload stored as
+`ir.attachment`; TTS generation via `edge-tts` (online, free, no API key,
+zero RAM cost); STT transcription via `faster-whisper` (CPU-only, `base`
+model ~145 MB). Three `audio_type` values: `recorded` (user mic), `generated`
+(TTS), `imported` (Anki `.apkg` media, already wired in M5).
+
+**Technology decisions (locked for M6):**
+
+- **TTS engine: `edge-tts`** (Python async lib, wraps Microsoft Edge's free
+  online TTS API — no key required). Rationale: zero RAM overhead (no model
+  file to load), excellent quality for en/uk/el, network-latency-bound not
+  CPU-bound. Given that we already accepted an internet dependency for
+  translation (`deep_translator`, ADR-028), `edge-tts` is consistent and
+  superior to `piper` for the 8 GiB server. `piper` would require per-language
+  ONNX model files (5–60 MB each × 3 languages) and C++ runtime overhead.
+  Trade-off: outbound HTTPS to Microsoft TTS required; air-gapped deployments
+  should set `TTS_ENGINE=stub`. Fallback to `espeak-ng` (system package) if
+  `edge-tts` call fails.
+- **STT engine: `faster-whisper`** (CTranslate2-based Whisper reimplementation).
+  Rationale: 2–4× faster than OpenAI Whisper on CPU, lower RAM peak (~300 MB
+  for `base` model), supports `int8` quantization on CPU. Default model:
+  `base` (~145 MB download, ~300 MB resident). Operators with more RAM headroom
+  may set `WHISPER_MODEL=small` (~461 MB resident). First-start downloads model
+  to a Docker named volume `audio_models`. CPU-only; no GPU.
+- **Upload path (recorded audio):** Browser → POST `/my/audio/upload/<entry_id>`
+  (multipart form) → Odoo controller creates `ir.attachment` + `language.audio`
+  record (`audio_type='recorded'`, `status='completed'`). Optionally enqueues
+  a transcription job if `AUDIO_TRANSCRIPTION_ENABLED=1`. Max 10 MB enforced
+  in the controller (system parameter `language.audio.max_upload_bytes`).
+- **TTS path:** Portal "Generate" button → POST `/my/audio/generate/<entry_id>`
+  → Odoo publishes `audio.generation.requested` → audio service generates MP3
+  → publishes `audio.generation.completed` with base64 audio → Odoo cron
+  drains queue, creates `ir.attachment` + `language.audio` record
+  (`audio_type='generated'`, `status='completed'`). Lazy: once generated,
+  reused on subsequent requests.
+- **STT path:** After recording upload (or explicit request) → Odoo publishes
+  `audio.transcription.requested` with attachment base64 → audio service runs
+  `faster-whisper` → publishes `audio.transcription.completed` with text →
+  Odoo cron writes `transcription` field on the `language.audio` record.
+- **RabbitMQ queues:** `audio.generation.requested`,
+  `audio.generation.completed`, `audio.generation.failed`,
+  `audio.transcription.requested`, `audio.transcription.completed`,
+  `audio.transcription.failed`.
+
+**Key invariants:**
+- One `language.audio` record per (entry, audio_type, language) — UNIQUE
+  constraint prevents duplicate TTS generation for the same entry/language.
+  Re-generate replaces the existing record (soft delete + new attachment).
+- User-recorded audio: no UNIQUE constraint (users can re-record; latest
+  replaces previous by querying `audio_type='recorded'` and unlinking old
+  before creating new).
+- `language.audio.status` state machine mirrors the translation/enrichment
+  pattern: `pending → processing → completed / failed` (via
+  `language.job.status.mixin`). `audio_type='recorded'` skips async — record
+  is created directly with `status='completed'`.
+- `audio_ids` One2many on `language.entry` added via `_inherit` in
+  `language_audio` (same layering as `translation_ids` in M3).
+- Max upload: 10 MB checked in the controller against the system parameter
+  `language.audio.max_upload_bytes` (already seeded in `language_core`).
+
+#### Sub-steps (checkpoint-friendly)
+
+**Phase 1 — Odoo model (language.audio)**
+
+- [x] M6-01 · `language.audio` model implemented
+  (`src/addons/language_audio/models/language_audio.py`).
+  Inherits `language.job.status.mixin`. Fields:
+  - `entry_id` (Many2one → `language.entry`, required, cascade)
+  - `audio_type` (Selection: `recorded`/`generated`/`imported`, required)
+  - `language` (Selection: `en`/`uk`/`el` — language of the audio content)
+  - `attachment_id` (Many2one → `ir.attachment`, ondelete='set null')
+  - `transcription` (Text — populated by `faster-whisper` STT result)
+  - `file_size_bytes` (Integer, readonly)
+  - `duration_seconds` (Float, readonly)
+  - `tts_engine` (Char — e.g. `edge-tts`, `espeak-ng`, `piper`, readonly)
+  UNIQUE constraint: `(entry_id, audio_type, language)` for `generated` and
+  `imported`. Enforced via `_sql_constraints` with a custom check or via
+  Python `create()` override that looks up existing and replaces for `recorded`.
+  `action_consume_results()` drains `audio.generation.completed`,
+  `audio.generation.failed`, `audio.transcription.completed`,
+  `audio.transcription.failed`.
+  `_handle_generation_completed(job_id, payload)` — creates `ir.attachment`
+  from base64 audio in payload, creates/updates `language.audio` record,
+  sets `status='completed'`, writes `file_size_bytes` and `tts_engine`.
+  `_handle_generation_failed(job_id, payload)` — sets `status='failed'`,
+  writes `error_message`.
+  `_handle_transcription_completed(job_id, payload)` — writes `transcription`
+  field, sets `status='completed'`.
+  `_handle_transcription_failed(job_id, payload)` — sets `status='failed'`.
+- [x] M6-02 · Extend `language.entry` with `audio_ids` One2many
+  (`src/addons/language_audio/models/language_entry_audio.py`).
+  Pattern: `_inherit = 'language.entry'`; adds `audio_ids` field only.
+  No compute or override needed — audio enqueue is user-triggered, not auto.
+- [x] M6-03 · Security CSV and record rules
+  (`src/addons/language_audio/security/ir.model.access.csv`).
+  Language Users: read own audio records (via entry owner_id), create/write;
+  no delete (audio is permanent per SPEC). Admins: full CRUD.
+  Record rule: `language.audio` visible to user if `entry_id.owner_id = uid`.
+- [x] M6-04 · Cron for consuming result queues
+  (`src/addons/language_audio/data/ir_cron_audio.xml`).
+  Runs every 1 minute, calls `language.audio.action_consume_results()`.
+  Pattern identical to `ir_cron_translation.xml` and `ir_cron_anki.xml`.
+- [x] M6-05 · Backend views
+  (`src/addons/language_audio/views/language_audio_views.xml`).
+  List view: entry_id, audio_type, language, status, tts_engine, file_size_bytes.
+  Form view: status bar, attachment player, transcription text.
+  `Lexora → Audio` menuitem (sequence=55, admin-only).
+  Inherit `language_words.view_language_entry_form` to inject an Audio notebook
+  tab (pattern from M6 — view override in `language_audio`, not `language_words`).
+- [x] M6-06 · Manifest updated (`__manifest__.py`): adds `portal` to depends,
+  lists all data/view/security files, sets `depends = ['language_words']`.
+- [x] M6-07 · Tests (at least 10): model creation for all three `audio_type`
+  values, `_handle_generation_completed` with mock attachment, `_handle_generation_failed`
+  idempotency, `_handle_transcription_completed`, `audio_ids` relation on `language.entry`,
+  UNIQUE constraint enforcement for `generated` type.
+  Module installs clean (`--init language_audio --stop-after-init`, 0 errors).
+
+**Phase 2 — Odoo publishing (enqueue from portal)**
+
+- [ ] M6-08 · TTS enqueue method `_enqueue_tts(entry, language)` on `language.audio`:
+  - Checks for existing `audio_type='generated'` record for this entry+language;
+    if `status='completed'`, it is reused (lazy — no new job). If `status='failed'`
+    or missing, creates a new record (or resets existing to `pending`) and publishes
+    `audio.generation.requested`.
+  - Payload: `job_id`, `entry_id`, `source_text`, `language` (ISO code), `tts_engine`
+    hint (from env, default `edge-tts`).
+  - Calls `RabbitMQPublisher(self.env).publish('audio.generation.requested', payload, job_id)`.
+  - Sets `status='processing'` on the audio record after publish.
+- [ ] M6-09 · Transcription enqueue method `_enqueue_transcription(audio_record)`:
+  - Takes an existing `language.audio` record (must have `attachment_id` set).
+  - Reads `attachment_id.datas` (base64), publishes `audio.transcription.requested`
+    with `job_id`, `audio_id`, `language`, `audio_data_b64`.
+  - Updates audio record `status='processing'` and clears `transcription` field.
+- [ ] M6-10 · Portal controller
+  (`src/addons/language_audio/controllers/portal.py`).
+  Routes:
+  - `POST /my/audio/upload/<int:entry_id>` — multipart upload; validates file
+    type (audio/mpeg, audio/wav, audio/ogg, audio/webm; max 10 MB from system
+    param); creates `ir.attachment` via `sudo()`; creates `language.audio`
+    (`audio_type='recorded'`, `status='completed'`); if previous `recorded`
+    audio exists for this entry+language, unlinks old attachment and replaces
+    the record. Returns JSON `{"status":"ok","audio_id":<id>}` so browser JS
+    can update the player without full page reload.
+  - `POST /my/audio/generate/<int:entry_id>` — calls `_enqueue_tts(entry,
+    lang)` where `lang` is passed as a POST param; redirects to entry detail.
+  - `POST /my/audio/transcribe/<int:audio_id>` — calls `_enqueue_transcription`;
+    redirects to entry detail.
+  - `GET /my/audio/<int:audio_id>/stream` — streams the audio file from
+    `attachment_id.datas`; sets correct Content-Type; ownership check required.
+- [ ] M6-11 · Portal controller `__init__.py` created; manifest lists controller.
+
+**Phase 3 — Audio service (FastAPI)**
+
+- [x] M6-12 · `services/audio/requirements.txt` updated:
+  - `edge-tts==6.1.9` (pure Python, async, no system deps)
+  - `faster-whisper==1.0.3` (CTranslate2 backend; installs `ctranslate2`)
+  - Keep: `fastapi==0.115.5`, `uvicorn[standard]==0.32.1`, `pika==1.3.2`
+  - No build tools needed (`faster-whisper` ships prebuilt wheels for Python 3.11
+    on x86_64; `edge-tts` is pure Python).
+- [x] M6-13 · `docker_compose/audio/Dockerfile` updated:
+  - Base: `python:3.11-slim`.
+  - System packages: `ffmpeg` (for audio format probing), `espeak-ng` (fallback TTS).
+  - `HF_HOME=/models/.hf-cache` env; `WHISPER_MODEL_DIR=/models/whisper`.
+  - Pip install from `requirements.txt`.
+- [x] M6-14 · `docker_compose/audio/docker-compose.yml` updated:
+  - `audio_models` named volume at `/models`.
+  - Env vars: `RABBITMQ_*` (same as other services), `TTS_ENGINE=edge-tts`,
+    `TTS_FALLBACK_ENGINE=espeak-ng`, `WHISPER_MODEL=base`,
+    `WHISPER_MODEL_DIR=/models/whisper`, `AUDIO_TRANSCRIPTION_ENABLED=1`,
+    `AUDIO_MAX_DURATION_SECONDS=300`.
+- [x] M6-15 · `services/audio/main.py` full implementation:
+  - RabbitMQ daemon consumer thread (same pattern as translation/llm/anki).
+    Auto-reconnect loop; `prefetch_count=1`; always acks to prevent queue wedge.
+  - `_init_whisper()` — loads `faster-whisper` `WhisperModel(WHISPER_MODEL,
+    device='cpu', compute_type='int8')` on a daemon thread; sets `_whisper_ready`.
+    Model downloaded to `WHISPER_MODEL_DIR` on first start by `faster-whisper`
+    internals (uses Hugging Face hub under the hood).
+  - `_generate_tts(text, language, engine)` — primary path:
+    `asyncio.run(edge_tts.Communicate(text, voice=_EDGE_VOICES[language]).save(tmp_path))`.
+    `_EDGE_VOICES` map: `en → "en-US-JennyNeural"`, `uk → "uk-UA-PolinaNeural"`,
+    `el → "el-GR-AthinaNeural"`. On any exception → fallback to `_espeak_tts()`.
+    Returns MP3 bytes.
+  - `_espeak_tts(text, language)` — subprocess call to `espeak-ng -v <lang>
+    --mpeg -q <text> -w <tmpfile>`; returns MP3 bytes. Language map:
+    `en → en`, `uk → uk`, `el → el`. Fallback of last resort.
+  - `_transcribe(audio_bytes, language)` — writes audio bytes to temp file;
+    calls `_whisper_model.transcribe(path, language=lang, beam_size=5)`;
+    joins all `segment.text` values; returns string. If `_whisper_model` is None
+    (still loading or failed), returns `""` and logs a warning.
+  - `_process_generation_job(payload)` — reads `source_text`, `language`,
+    `job_id`; calls `_generate_tts`; publishes `audio.generation.completed`
+    with `{"job_id": ..., "audio_b64": base64(mp3_bytes), "tts_engine": ...,
+    "file_size_bytes": len(mp3_bytes)}` or `audio.generation.failed`.
+  - `_process_transcription_job(payload)` — reads `audio_data_b64`, `language`,
+    `job_id`, `audio_id`; decodes base64 audio; calls `_transcribe`; publishes
+    `audio.transcription.completed` with `{"job_id": ..., "audio_id": ...,
+    "transcription": text}` or `audio.transcription.failed`.
+  - `/health` reports `{"whisper_ready": bool, "consumer_alive": bool,
+    "tts_engine": "edge-tts", "whisper_model": WHISPER_MODEL}`.
+- [x] M6-16 · Env vars documented in `env.example` and `docker_compose/audio/docker-compose.yml`.
+
+**Phase 4 — Portal UI**
+
+- [ ] M6-17 · Portal audio section on entry detail page (QWeb template in
+  `language_audio/views/portal_audio.xml`, inherits
+  `language_words.portal_vocabulary_detail`).
+  Sections:
+  A) **Recorded audio** — if `audio_ids` filtered by `audio_type='recorded'`
+     exists and `status='completed'`: show `<audio controls>` pointing to
+     `/my/audio/<id>/stream`. Show "Re-record" button.
+     Record button: hidden `<input type="file" accept="audio/*" capture="microphone">`;
+     JS picks up file change and POSTs multipart to `/my/audio/upload/<entry_id>`.
+     Alternative: pure `<form>` approach with file input (no JS required, simpler).
+  B) **Generated audio (TTS)** — for each language in [source_language]:
+     If `generated` audio exists and `status='completed'`: `<audio controls>` +
+     "Regenerate" button. If `status='processing'`: spinner + "Generating…".
+     If `status='failed'`: error badge + "Retry" button.
+     If not yet generated: "Generate pronunciation" button → POST
+     `/my/audio/generate/<entry_id>` with `language=<code>`.
+  C) **Transcription** — if a `recorded` audio record exists:
+     Show transcription text if populated. Show "Transcribe" button if not yet
+     transcribed or if transcription is empty.
+- [ ] M6-18 · Enrichment badge on vocabulary list for audio (optional, lower priority).
+
+**Phase 5 — Verification**
+
+- [ ] M6-19 · `make up-audio-no-cache` → image builds clean (no build tool errors
+  for `faster-whisper`, `edge-tts` pure Python).
+- [ ] M6-20 · `curl http://localhost:8004/health` → `{"whisper_ready":false,
+  "consumer_alive":true, "tts_engine":"edge-tts"}` immediately; flips to
+  `whisper_ready:true` after model download (~30–60 s on dev host).
+- [ ] M6-21 · TTS E2E: publish `audio.generation.requested` via rabbitmqadmin for
+  `source_text="apple", language="en"` → service logs "TTS complete via edge-tts";
+  `audio.generation.completed` message in queue with `audio_b64` field populated.
+  Drain queue → `language.audio` record created with `status='completed'`.
+- [ ] M6-22 · STT E2E: record 5 s of voice via portal upload → `language.audio`
+  record created instantly with `audio_type='recorded'`, `status='completed'`.
+  Click "Transcribe" → `audio.transcription.requested` published → Whisper
+  processes → `transcription` field populated.
+- [ ] M6-23 · Audio player on entry detail page: both recorded and generated audio
+  appear with `<audio controls>`. Playback works in browser.
+- [ ] M6-24 · 10 MB upload limit enforced: attempt to upload an 11 MB file →
+  HTTP 413 or friendly error message returned.
+- [ ] M6-25 · Regression: `--update language_audio --test-enable --no-http` →
+  all tests green (target: 10+ language_audio tests + ≥79 prior tests).
+- [ ] M6-26 · Run all module tests: `--update language_security,language_core,
+  language_words,language_translation,language_enrichment,language_audio,
+  language_anki_jobs --test-enable --no-http` → 0 failures.
+
+#### Files expected to change
+
+- `src/addons/language_audio/models/language_audio.py` (M6-01) ✅
+- `src/addons/language_audio/models/language_entry_audio.py` (M6-02) ✅
+- `src/addons/language_audio/models/__init__.py` (M6-02) ✅
+- `src/addons/language_audio/security/ir.model.access.csv` (M6-03) ✅
+- `src/addons/language_audio/data/ir_cron_audio.xml` (M6-04)
+- `src/addons/language_audio/views/language_audio_views.xml` (M6-05)
+- `src/addons/language_audio/__manifest__.py` (M6-06) ✅
+- `src/addons/language_audio/tests/test_language_audio.py` (M6-07) ✅
+- `src/addons/language_audio/controllers/__init__.py` (M6-11)
+- `src/addons/language_audio/controllers/portal.py` (M6-10)
+- `src/addons/language_audio/views/portal_audio.xml` (M6-17)
+- `services/audio/requirements.txt` (M6-12) ✅
+- `services/audio/main.py` (M6-15) ✅
+- `docker_compose/audio/Dockerfile` (M6-13) ✅
+- `docker_compose/audio/docker-compose.yml` (M6-14) ✅
+- `env.example` (M6-16) ✅
+- `docs/TASKS.md` (this file)
+
+#### Technology decisions (ADR candidates)
+
+- **edge-tts over piper:** Zero RAM overhead, no ONNX model files, excellent
+  en/uk/el quality. Internet dependency consistent with ADR-028 (translation
+  already online). Piper remains documented as the offline fallback path.
+- **faster-whisper over openai-whisper:** 2–4× faster on CPU, lower peak RAM,
+  `int8` quantization supported. `base` model at ~145 MB / ~300 MB resident
+  fits within the 8 GiB server budget alongside all other services.
+- **UNIQUE on (entry, audio_type, language) for generated/imported only:**
+  Recorded audio uses update-in-place (last recording wins). Generated audio is
+  lazy-once (reused until explicit re-generation). This prevents queue wedging
+  from double-clicks while allowing replacement.
+
+#### Blockers
+
+(none)
+
+---
+
+## Completed Milestones
+
+### M5 — Anki Import Service
+
+**Status:** Complete and verified (1021 entries imported from real .apkg).
+**Started:** 2026-04-19
+**Completed:** 2026-04-19
 **Branch:** `m5`
 
 **Scope:** End-to-end Anki import flow — portal upload, RabbitMQ event, Anki
