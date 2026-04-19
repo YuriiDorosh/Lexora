@@ -15,11 +15,212 @@
 
 ## Current Milestone
 
-### M7 — Spaced Repetition System (SRS) Core
+### M9 — PvP Arena: Asynchronous Word Duels
 
 **Status:** In progress.
 **Started:** 2026-04-19
-**Branch:** `m7`
+**Branch:** `m9`
+
+**Scope:** Asynchronous PvP duel system inside `language_pvp`. Players stake XP,
+challenge opponents (or leave open challenges), and play rounds against each
+other's PvP-eligible vocabulary. No Redis or real-time required — all state is
+in Odoo/Postgres. Real-time (Redis/Odoo bus) is deferred to M10.
+
+---
+
+#### Precise Technical Specification
+
+**`language.duel` state machine:**
+
+```
+draft → open → ongoing → finished
+```
+
+- `draft`: challenger filled in settings but hasn't published yet (reserved for UI; not yet surfaced)
+- `open`: open challenge, waiting for any opponent to join; `opponent_id = False`
+- `ongoing`: opponent joined, rounds being played
+- `finished`: all rounds complete or forfeit; `winner_id` set (or False for draw)
+
+**`language.duel` fields:**
+
+| Field | Type | Notes |
+|---|---|---|
+| `challenger_id` | Many2one → res.users | Required |
+| `opponent_id` | Many2one → res.users | Nullable; set when someone joins an open challenge |
+| `state` | Selection (draft/open/ongoing/finished) | Default: open |
+| `winner_id` | Many2one → res.users | Nullable; set on finish |
+| `xp_staked` | Integer | Default: 10; both players "risk" this XP |
+| `practice_language` | Selection (en/uk/el) | Required |
+| `native_language` | Selection (en/uk/el) | Required |
+| `rounds_total` | Integer | Default: 10 |
+| `challenger_score` | Integer | Default: 0 |
+| `opponent_score` | Integer | Default: 0 |
+| `start_date` | Datetime | Set when state→ongoing |
+| `end_date` | Datetime | Set when state→finished |
+
+**`language.duel.line` fields:**
+
+| Field | Type | Notes |
+|---|---|---|
+| `duel_id` | Many2one → language.duel | Required, cascade |
+| `player_id` | Many2one → res.users | Required |
+| `entry_id` | Many2one → language.entry | The word being tested |
+| `round_number` | Integer | 1-based round index |
+| `correct` | Boolean | Default: False |
+| `answer_given` | Char | The text the player submitted |
+| `time_taken_seconds` | Float | Optional; for UI display |
+
+**Key invariants:**
+- Only `pvp_eligible=True` entries (have at least one completed translation) appear in duels.
+- A player cannot join their own open challenge.
+- XP transfer: winner gains `xp_staked`, loser loses `xp_staked` (floor at 0). Draw: no XP change.
+- `language.user.profile.xp_total` is updated on `action_finish_duel()`.
+- Minimum entries check: user must have ≥10 `pvp_eligible` entries in `practice_language` to create/join a duel (reads `language.pvp.min_entries` system parameter from `language_core`).
+
+**Portal `/my/arena`:**
+
+- Section 1 — "Open Challenges": `state='open'`, `opponent_id=False`, `practice_language` matches user's profile learning languages, `challenger_id != uid`. "Accept" button → `POST /my/arena/<id>/join`.
+- Section 2 — "Your Active Duels": `state in ('open','ongoing')`, `challenger_id=uid OR opponent_id=uid`. Links to `/my/arena/<id>`.
+- Section 3 — "Recent History": `state='finished'`, `challenger_id=uid OR opponent_id=uid`, last 10. Shows outcome (W/L/D), opponent name, scores.
+- "New Challenge" button → `POST /my/arena/new` creates a duel with `state='open'` and redirects to the duel page.
+
+**Portal `/my/arena/<id>` (duel detail):**
+
+- Shows duel metadata (languages, XP staked, state).
+- If `state='ongoing'` and it's the current player's turn (rounds submitted < `rounds_total`): show a word card (source text of a `pvp_eligible` entry) and a text input for the translation answer. `POST /my/arena/<id>/answer` records the `language.duel.line`.
+- If both players submitted all rounds: `action_finish_duel()` is called automatically. Shows results table.
+
+---
+
+#### Sub-steps
+
+**Phase 1 — Models**
+
+- [x] M9-01 · `src/addons/language_pvp/models/language_duel.py`
+  `language.duel` with state machine methods:
+  `action_open()`, `action_join(user_id)`, `action_finish_duel()`.
+  `_get_eligible_entries(user_id)` — returns `pvp_eligible=True` entries for user in `practice_language`.
+  `_check_min_entries(user_id)` — raises `UserError` if below threshold.
+  `_select_round_entries(user_id, n)` — random sample of n pvp_eligible entries for user.
+
+- [x] M9-02 · `src/addons/language_pvp/models/language_duel_line.py`
+  `language.duel.line` — stores one player's answer for one round.
+
+- [x] M9-03 · `src/addons/language_pvp/models/__init__.py` — import both models.
+
+**Phase 2 — Security**
+
+- [x] M9-04 · `security/ir.model.access.csv` — Language Users: read/write/create on both models (no delete); Admins: full CRUD.
+- [x] M9-05 · `security/record_rules.xml` — duel visible to challenger_id or opponent_id or if state='open'. Duel line visible to player_id.
+
+**Phase 3 — Manifest**
+
+- [x] M9-06 · Update `__manifest__.py`:
+  - `depends: ['language_words', 'language_translation', 'portal']`
+  - Add security/record_rules.xml, views, controllers to `data`/`assets`
+
+**Phase 4 — Portal**
+
+- [x] M9-07 · `controllers/__init__.py` + `controllers/portal.py`
+  Routes: `GET /my/arena`, `POST /my/arena/new`, `GET /my/arena/<id>`,
+  `POST /my/arena/<id>/join`, `POST /my/arena/<id>/answer`.
+
+- [x] M9-08 · `views/portal_arena.xml` — arena lobby + duel detail templates.
+  Inherits `portal.portal_my_home` for home widget (active duel count).
+  `data/website_menus.xml` — "Arena" navbar entry (sequence=75, user_logged=True).
+
+**Phase 5 — Tests & install**
+
+- [x] M9-09 · `tests/test_language_duel.py` — 16 tests:
+  Duel creation, state transitions, join (own challenge blocked), min-entries gate,
+  eligible entry selection, duel line creation, score tallying, XP transfer on finish,
+  draw (no XP change), idempotent finish.
+
+- [x] M9-10 · `tests/__init__.py` — import new test module.
+
+- [x] M9-11 · `--init language_pvp --stop-after-init --no-http` → 0 errors, 111 queries.
+- [x] M9-12 · `--test-enable -u language_pvp --no-http` → 16 tests green, 0 failures, 0 errors.
+- [x] M9-13 · `docker restart odoo` → registry loads; `/my/arena` returns 404 for
+      unauthenticated (correct for `auth='user'`); all 56 modules loaded in 0.20s.
+- [ ] M9-14 · Manual: create open challenge → second user joins → play rounds → verify XP transfer.
+- [ ] M9-15 · Commit M9 on branch `m9`.
+
+#### Files to create/change
+
+- `src/addons/language_pvp/models/language_duel.py` (M9-01) — new
+- `src/addons/language_pvp/models/language_duel_line.py` (M9-02) — new
+- `src/addons/language_pvp/models/__init__.py` (M9-03) — update
+- `src/addons/language_pvp/security/ir.model.access.csv` (M9-04) — update
+- `src/addons/language_pvp/security/record_rules.xml` (M9-05) — new
+- `src/addons/language_pvp/__manifest__.py` (M9-06) — update
+- `src/addons/language_pvp/controllers/__init__.py` (M9-07) — new
+- `src/addons/language_pvp/controllers/portal.py` (M9-07) — new
+- `src/addons/language_pvp/views/portal_arena.xml` (M9-08) — new
+- `src/addons/language_pvp/data/website_menus.xml` (M9-08) — new
+- `src/addons/language_pvp/tests/__init__.py` (M9-10) — new
+- `src/addons/language_pvp/tests/test_language_duel.py` (M9-09) — new
+- `docs/TASKS.md` (this file)
+
+#### Blockers
+
+(none)
+
+---
+
+## Completed Milestones
+
+### M8 — Gamification & Progression Stats
+
+**Status:** Complete and verified.
+**Started:** 2026-04-19
+**Completed:** 2026-04-19
+**Branch:** `m8` (merged to `main`)
+
+**Scope:** XP system, daily streaks, level computation, `/my/leaderboard` portal,
+Vocabulary Pro Dashboard with search/filter/sort, and 40 new tests (24 gamification +
+16 vocabulary search).
+
+**Key deliverables:**
+- `language.user.profile` extended via `_inherit` in `language_learning` with:
+  `xp_total`, `current_streak`, `longest_streak`, `last_practice_date`,
+  `level` (stored, `compute_sudo=True`), `level_progress_pct` (not stored, `compute_sudo=True`).
+  `_update_gamification_for_user(user_id, grade)` wired into `action_register_review()`.
+- XP per grade: `{0:0, 1:5, 2:10, 3:15}`. Level = `min(20, 1 + floor(sqrt(xp/50)))`.
+- Streak: extends on consecutive day, resets to 1 on gap, XP-only on same day.
+- `/my/leaderboard` portal: top-20 by XP, paginated, current-user highlight, 4-tier level badge.
+- Vocabulary list pagination fix: route declares both `/my/vocabulary` and `/my/vocabulary/page/<int:page>`.
+- Vocabulary Pro Dashboard: search (source text + cross-language via translations), filterby SRS state, sortby (newest/az/difficulty).
+- `language_learning` manifest: added `language_translation` to `depends` (required for test isolation).
+- 24 gamification tests + 16 vocabulary search tests, all green.
+
+**Files changed (summary):**
+- `language_learning/models/language_user_profile_gamification.py` (new)
+- `language_learning/models/language_review.py` (wired gamification call)
+- `language_learning/models/__init__.py` (added new model)
+- `language_learning/controllers/portal.py` (leaderboard route)
+- `language_learning/views/portal_leaderboard.xml` (new)
+- `language_learning/data/website_menus.xml` (leaderboard navbar entry, seq=70)
+- `language_learning/__manifest__.py` (added language_translation dep + leaderboard files)
+- `language_learning/tests/test_gamification.py` (new, 24 tests)
+- `language_learning/tests/test_vocabulary_search.py` (new, 16 tests)
+- `language_learning/tests/__init__.py` (imports)
+- `language_words/controllers/portal.py` (pagination fix + Pro Dashboard search/filter/sort)
+- `language_words/views/portal_vocabulary.xml` (Pro Dashboard UI)
+
+#### Blockers
+
+(none)
+
+---
+
+## Completed Milestones
+
+### M7 — Spaced Repetition System (SRS) Core
+
+**Status:** Complete and verified (navbar, portal widget, backend stat button all working).
+**Started:** 2026-04-19
+**Completed:** 2026-04-19
+**Branch:** `m7` (merged to `main`)
 
 **Scope:** SM-2 spaced repetition engine (`language.review` model) + daily practice
 portal at `/my/practice`. No new async services needed — all logic is in Odoo.

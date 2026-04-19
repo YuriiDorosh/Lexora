@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- Duels: visible to challenger, opponent, or if open (no opponent yet) -->
+    <record id="rule_language_duel_user" model="ir.rule">
+        <field name="name">Language Duel: challenger/opponent or open</field>
+        <field name="model_id" ref="model_language_duel"/>
+        <field name="groups" eval="[(4, ref('language_security.group_language_user'))]"/>
+        <field name="domain_force">[
+            '|', '|',
+            ('challenger_id', '=', user.id),
+            ('opponent_id', '=', user.id),
+            '&amp;', ('state', '=', 'open'), ('opponent_id', '=', False)
+        ]</field>
+        <field name="perm_read" eval="True"/>
+        <field name="perm_write" eval="True"/>
+        <field name="perm_create" eval="True"/>
+        <field name="perm_unlink" eval="False"/>
+    </record>
+
+    <!-- Duel lines: visible to the player who submitted them -->
+    <record id="rule_language_duel_line_user" model="ir.rule">
+        <field name="name">Language Duel Line: owner only</field>
+        <field name="model_id" ref="model_language_duel_line"/>
+        <field name="groups" eval="[(4, ref('language_security.group_language_user'))]"/>
+        <field name="domain_force">[('player_id', '=', user.id)]</field>
+        <field name="perm_read" eval="True"/>
+        <field name="perm_write" eval="True"/>
+        <field name="perm_create" eval="True"/>
+        <field name="perm_unlink" eval="False"/>
+    </record>
+</odoo>
