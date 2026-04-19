@@ -1,5 +1,3 @@
-version: "3.8"
-
 services:
   audio-service:
     build:
@@ -9,8 +7,32 @@ services:
     restart: unless-stopped
     ports:
       - "8004:8000"
+    env_file:
+      - ../../.env
+    environment:
+      # RabbitMQ connection (same as other worker services)
+      RABBITMQ_HOST: ${RABBITMQ_HOST:-rabbitmq}
+      RABBITMQ_PORT: ${RABBITMQ_PORT:-5672}
+      RABBITMQ_USER: ${RABBITMQ_USER:-guest}
+      RABBITMQ_PASS: ${RABBITMQ_PASS:-guest}
+      RABBITMQ_VHOST: ${RABBITMQ_VHOST:-/}
+      # TTS engine — edge-tts (online, no API key) or espeak-ng (offline fallback)
+      TTS_ENGINE: ${TTS_ENGINE:-edge-tts}
+      TTS_FALLBACK_ENGINE: ${TTS_FALLBACK_ENGINE:-espeak-ng}
+      # STT — faster-whisper model size (base ~145 MB, small ~461 MB, medium ~1.5 GB)
+      WHISPER_MODEL: ${WHISPER_MODEL:-base}
+      WHISPER_MODEL_DIR: /models/whisper
+      AUDIO_TRANSCRIPTION_ENABLED: ${AUDIO_TRANSCRIPTION_ENABLED:-1}
+      # Maximum audio duration (seconds) that will be sent to Whisper
+      AUDIO_MAX_DURATION_SECONDS: ${AUDIO_MAX_DURATION_SECONDS:-300}
+    volumes:
+      - audio_models:/models
     networks:
       - backend
+
+volumes:
+  audio_models:
+    name: lexora_audio_models
 
 networks:
   backend:

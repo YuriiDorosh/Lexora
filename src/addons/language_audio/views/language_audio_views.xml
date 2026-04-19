@@ -1,0 +1,108 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- ================================================================
+         language.audio — backend list view
+    ================================================================ -->
+    <record id="view_language_audio_list" model="ir.ui.view">
+        <field name="name">language.audio.list</field>
+        <field name="model">language.audio</field>
+        <field name="arch" type="xml">
+            <list string="Audio Records"
+                  decoration-success="status == 'completed'"
+                  decoration-warning="status in ('pending', 'processing')"
+                  decoration-danger="status == 'failed'">
+                <field name="entry_id"/>
+                <field name="audio_type"/>
+                <field name="language"/>
+                <field name="status"/>
+                <field name="tts_engine" optional="hide"/>
+                <field name="file_size_bytes" optional="hide"/>
+                <field name="transcription_status" optional="hide"/>
+            </list>
+        </field>
+    </record>
+
+    <!-- ================================================================
+         language.audio — backend form view
+    ================================================================ -->
+    <record id="view_language_audio_form" model="ir.ui.view">
+        <field name="name">language.audio.form</field>
+        <field name="model">language.audio</field>
+        <field name="arch" type="xml">
+            <form string="Audio Record">
+                <header>
+                    <field name="status" widget="statusbar"
+                           statusbar_visible="pending,processing,completed,failed"/>
+                </header>
+                <sheet>
+                    <group>
+                        <group>
+                            <field name="entry_id"/>
+                            <field name="audio_type"/>
+                            <field name="language"/>
+                            <field name="tts_engine" invisible="audio_type != 'generated'"/>
+                            <field name="file_size_bytes"/>
+                            <field name="duration_seconds"/>
+                        </group>
+                        <group>
+                            <field name="attachment_id" widget="many2one_binary"/>
+                            <field name="job_id" groups="base.group_system"/>
+                            <field name="error_message" invisible="status != 'failed'"/>
+                        </group>
+                    </group>
+                    <group string="Transcription">
+                        <field name="transcription_status"/>
+                        <field name="transcription"/>
+                        <field name="transcription_error"
+                               invisible="transcription_status != 'failed'"/>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <!-- ================================================================
+         language.audio — action + menu
+    ================================================================ -->
+    <record id="action_language_audio" model="ir.actions.act_window">
+        <field name="name">Audio</field>
+        <field name="res_model">language.audio</field>
+        <field name="view_mode">list,form</field>
+    </record>
+
+    <menuitem id="menu_lexora_audio"
+              name="Audio"
+              parent="language_words.menu_lexora_root"
+              action="action_language_audio"
+              sequence="55"
+              groups="base.group_system"/>
+
+    <!-- ================================================================
+         Inject Audio tab into language.entry backend form
+    ================================================================ -->
+    <record id="view_language_entry_form_audio_tab" model="ir.ui.view">
+        <field name="name">language.entry.form.audio_tab</field>
+        <field name="model">language.entry</field>
+        <field name="inherit_id" ref="language_words.view_language_entry_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//notebook/page[1]" position="before">
+                <page string="Audio">
+                    <field name="audio_ids">
+                        <list decoration-success="status == 'completed'"
+                              decoration-warning="status in ('pending', 'processing')"
+                              decoration-danger="status == 'failed'">
+                            <field name="audio_type"/>
+                            <field name="language"/>
+                            <field name="status"/>
+                            <field name="tts_engine" optional="hide"/>
+                            <field name="file_size_bytes" optional="hide"/>
+                            <field name="transcription" optional="hide"/>
+                        </list>
+                    </field>
+                </page>
+            </xpath>
+        </field>
+    </record>
+
+</odoo>
