@@ -181,14 +181,16 @@
         </t>
     </template>
 
-    <!-- Portal home widget -->
-    <template id="portal_my_home_practice" name="Practice Link on Portal Home"
+    <!-- Portal home widget — shows cards due today count on /my -->
+    <template id="portal_my_home_practice" name="Daily Practice — Portal Home Widget"
               inherit_id="portal.portal_my_home" priority="30">
         <xpath expr="//div[hasclass('o_portal_docs')]" position="inside">
             <t t-call="portal.portal_docs_entry">
                 <t t-set="title">Daily Practice</t>
-                <t t-set="url">/my/practice</t>
-                <t t-set="placeholder_count">0</t>
+                <t t-set="url" t-value="'/my/practice'"/>
+                <t t-set="count" t-value="practice_due_count"/>
+                <t t-set="text">cards due today</t>
+                <t t-set="placeholder_count">practice_due_count</t>
             </t>
         </xpath>
     </template>
