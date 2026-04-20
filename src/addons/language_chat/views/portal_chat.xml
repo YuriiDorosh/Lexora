@@ -1,0 +1,218 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- ============================================================ -->
+    <!-- Public user profile  /my/users/<id>                         -->
+    <!-- ============================================================ -->
+
+    <template id="portal_user_public_profile" name="User Public Profile">
+        <t t-call="portal.portal_layout">
+            <div class="container py-4">
+
+                <div class="row justify-content-center">
+                    <div class="col-lg-7">
+
+                        <div class="card shadow-sm">
+                            <div class="card-body text-center py-5">
+
+                                <!-- Avatar placeholder (initials) -->
+                                <div class="rounded-circle bg-primary text-white d-inline-flex align-items-center justify-content-center mb-3"
+                                     style="width:80px;height:80px;font-size:2rem;font-weight:700;">
+                                    <t t-esc="(target_user.name or '?')[0].upper()"/>
+                                </div>
+
+                                <h3 class="mb-1"><t t-esc="target_user.name"/></h3>
+
+                                <t t-if="profile">
+                                    <t t-set="_lvl" t-value="profile.level"/>
+                                    <span class="badge rounded-pill fs-6 mb-3"
+                                          t-att-class="'bg-danger text-white' if _lvl >= 20 else ('bg-warning text-dark' if _lvl >= 10 else ('bg-info text-white' if _lvl >= 5 else 'bg-primary text-white'))">
+                                        Level <t t-esc="_lvl"/>
+                                    </span>
+
+                                    <div class="row g-3 justify-content-center mt-1 mb-4">
+                                        <div class="col-auto">
+                                            <div class="text-center">
+                                                <div class="fw-bold fs-5"><t t-esc="profile.xp_total"/></div>
+                                                <div class="text-muted small">Total XP</div>
+                                            </div>
+                                        </div>
+                                        <div class="col-auto">
+                                            <div class="text-center">
+                                                <div class="fw-bold fs-5">
+                                                    <t t-if="rank">#<t t-esc="rank"/></t>
+                                                    <t t-else="">–</t>
+                                                </div>
+                                                <div class="text-muted small">Global Rank</div>
+                                            </div>
+                                        </div>
+                                        <div class="col-auto">
+                                            <div class="text-center">
+                                                <div class="fw-bold fs-5">🔥 <t t-esc="profile.current_streak"/></div>
+                                                <div class="text-muted small">Day Streak</div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <t t-if="profile.learning_languages">
+                                        <div class="mb-4">
+                                            <span class="text-muted small me-2">Learning:</span>
+                                            <t t-foreach="profile.learning_languages" t-as="ll">
+                                                <span class="badge bg-secondary me-1">
+                                                    <t t-esc="lang_names.get(ll.code, ll.code)"/>
+                                                </span>
+                                            </t>
+                                        </div>
+                                    </t>
+                                </t>
+                                <t t-else="">
+                                    <p class="text-muted mb-4">This user has not set up their profile yet.</p>
+                                </t>
+
+                                <!-- Actions -->
+                                <t t-if="not is_own">
+                                    <form t-attf-action="/my/users/#{target_user.id}/dm" method="post">
+                                        <input type="hidden" name="csrf_token" t-att-value="request.csrf_token()"/>
+                                        <button type="submit" class="btn btn-primary px-4">
+                                            💬 Send Message
+                                        </button>
+                                    </form>
+                                </t>
+                                <t t-else="">
+                                    <a href="/my/profile" class="btn btn-outline-secondary">Edit My Profile</a>
+                                </t>
+
+                            </div>
+                        </div>
+
+                        <div class="text-center mt-3">
+                            <a href="/my/leaderboard" class="small text-muted">← Back to Leaderboard</a>
+                        </div>
+
+                    </div>
+                </div>
+            </div>
+        </t>
+    </template>
+
+    <!-- ============================================================ -->
+    <!-- Global "Save from Chat" JS — injected into every portal page -->
+    <!-- ============================================================ -->
+
+    <template id="portal_save_from_chat_js" name="Save-from-Chat JS" inherit_id="portal.portal_layout">
+        <xpath expr="//div[hasclass('o_portal')]" position="after">
+            <script type="text/javascript">
+//<![CDATA[
+(function () {
+    'use strict';
+
+    // Create the floating "Add to Vocabulary" button
+    var btn = document.createElement('button');
+    btn.id = 'lexora-add-vocab-btn';
+    btn.className = 'btn btn-sm btn-primary shadow';
+    btn.innerHTML = '&#128218; Add to Vocabulary';
+    btn.style.cssText = [
+        'position:fixed',
+        'z-index:10000',
+        'display:none',
+        'pointer-events:auto',
+        'border-radius:6px',
+        'padding:4px 10px',
+        'font-size:13px',
+        'white-space:nowrap',
+    ].join(';');
+    document.body.appendChild(btn);
+
+    // Toast helper
+    function showToast(msg, type) {
+        var t = document.createElement('div');
+        t.className = 'alert alert-' + type + ' position-fixed shadow-sm';
+        t.style.cssText = 'bottom:24px;right:24px;z-index:10001;min-width:220px;';
+        t.textContent = msg;
+        document.body.appendChild(t);
+        setTimeout(function () { t.remove(); }, 3000);
+    }
+
+    var pendingText = '';
+
+    // Show button near the selected text
+    document.addEventListener('mouseup', function (e) {
+        if (e.target === btn) return;
+        var sel = window.getSelection();
+        var text = sel ? sel.toString().trim() : '';
+        if (text.length >= 2 &amp;&amp; text.length &lt;= 300) {
+            pendingText = text;
+            var x = Math.min(e.clientX, window.innerWidth - 180);
+            var y = Math.max(e.clientY - 44, 8);
+            btn.style.left = x + 'px';
+            btn.style.top  = y + 'px';
+            btn.style.display = 'block';
+        } else {
+            btn.style.display = 'none';
+        }
+    });
+
+    // Hide on click elsewhere
+    document.addEventListener('mousedown', function (e) {
+        if (e.target !== btn) btn.style.display = 'none';
+    });
+
+    // Send selection to Odoo
+    btn.addEventListener('click', function () {
+        btn.style.display = 'none';
+        if (!pendingText) return;
+
+        var payload = JSON.stringify({
+            jsonrpc: '2.0', method: 'call', id: 1,
+            params: { text: pendingText }
+        });
+
+        fetch('/my/vocabulary/add_from_chat', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-Requested-With': 'XMLHttpRequest'
+            },
+            body: payload
+        })
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+            var res = data.result || {};
+            if (res.status === 'ok') {
+                showToast('\u2705 Added to your vocabulary!', 'success');
+            } else if (res.status === 'duplicate') {
+                showToast('\u26a0\ufe0f Already in your vocabulary.', 'info');
+            } else {
+                showToast('\u274c Could not add: ' + (res.message || 'unknown error'), 'danger');
+            }
+        })
+        .catch(function () {
+            showToast('\u274c Network error. Please try again.', 'danger');
+        });
+    });
+}());
+//]]>
+            </script>
+        </xpath>
+    </template>
+
+    <!-- ============================================================ -->
+    <!-- Leaderboard: link practitioner names to /my/users/<id>       -->
+    <!-- ============================================================ -->
+
+    <template id="leaderboard_user_links" name="Leaderboard: User Profile Links"
+              inherit_id="language_learning.portal_leaderboard">
+        <xpath expr="//td[span[@t-esc=&quot;row[&apos;profile&apos;].user_id.name&quot;]]" position="replace">
+            <td>
+                <a t-attf-href="/my/users/#{row['profile'].user_id.id}"
+                   class="text-decoration-none text-reset">
+                    <span t-esc="row['profile'].user_id.name"/>
+                </a>
+                <t t-if="row['is_me']">
+                    <span class="badge bg-primary ms-2 small">You</span>
+                </t>
+            </td>
+        </xpath>
+    </template>
+
+</odoo>

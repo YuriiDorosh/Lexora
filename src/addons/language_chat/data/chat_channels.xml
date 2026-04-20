@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo noupdate="1">
+
+    <!-- Public learning channels — created once, not overwritten on update -->
+
+    <record id="channel_english" model="discuss.channel">
+        <field name="name">english</field>
+        <field name="channel_type">channel</field>
+        <field name="description">English language learning community. Practice, share tips, and discuss vocabulary!</field>
+        <field name="group_public_id" ref="language_security.group_language_user"/>
+    </record>
+
+    <record id="channel_ukrainian" model="discuss.channel">
+        <field name="name">ukrainian</field>
+        <field name="channel_type">channel</field>
+        <field name="description">Ukrainian language learning community. Практикуйтеся та обмінюйтеся порадами!</field>
+        <field name="group_public_id" ref="language_security.group_language_user"/>
+    </record>
+
+    <record id="channel_greek" model="discuss.channel">
+        <field name="name">greek</field>
+        <field name="channel_type">channel</field>
+        <field name="description">Greek language learning community. Εξασκηθείτε και μοιραστείτε συμβουλές!</field>
+        <field name="group_public_id" ref="language_security.group_language_user"/>
+    </record>
+
+</odoo>

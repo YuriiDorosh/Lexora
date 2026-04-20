@@ -1,8 +1,8 @@
 # Lexora — Implementation Plan (MVP)
 
-> Version: 0.2 (post-M10)
+> Version: 0.3 (post-M10, M11 added)
 > Last updated: 2026-04-20
-> Status: M0–M10 complete (resequenced); M7/M8 Social features next
+> Status: M0–M10 complete (resequenced); M7/M8 Social + M11 XP Shop next
 
 ---
 
@@ -33,10 +33,11 @@
 | M4c | Translation / Enrichment split | ✅ Complete | `deep_translator` online API; LLM restricted to source-language enrichment (ADR-028) |
 | M5 | Anki Import Service | ✅ Complete | .apkg and .txt import with dedup and persistent import log |
 | M6 | Audio (Recording + TTS) | ✅ Complete | Record button works; TTS generation via async service |
-| M7 | Posts, Articles, Comments | ⏳ **Next** | Draft → review → publish flow; comments with @mentions |
-| M8 | Chat & DMs | ⏳ **Next** | Public channels + private DMs; save-to-list from chat |
+| M7 | Posts, Articles, Comments | 🔄 **In Progress** | Draft → review → publish flow; comments with @mentions; copy-to-list from posts |
+| M8 | Chat & DMs | 🔄 **In Progress** | Public language channels + private DMs; save-to-list from chat (killer feature) |
 | M9 | SRS Core + Dashboards | ✅ Complete (resequenced) | SM-2 spaced repetition, `/my/practice`, leaderboard, vocabulary pro dashboard |
 | M10 | PvP Arena + XP System | ✅ Complete (resequenced) | Async word duels, XP/streak/levels, personal dashboard, Lexora Bot |
+| M11 | XP Shop | 🔄 **In Progress** | Spend XP on Streak Freeze, Profile Frames, Double XP Booster; `/my/shop` portal |
 
 ---
 
@@ -435,6 +436,44 @@ docker exec odoo odoo --config /etc/odoo/odoo.conf -d lexora \
 
 ---
 
+## M11 — XP Shop
+
+**Goal:** Users can spend XP on meaningful in-app items. XP becomes a full economy: earned through practice/duels, spent in the shop.
+
+**Items (initial catalogue):**
+
+| Item | XP Cost | Effect |
+|---|---|---|
+| Streak Freeze | 50 XP | Prevents streak reset for 1 missed day |
+| Profile Frame | 100 XP | Cosmetic border on leaderboard avatar |
+| Double XP Booster | 80 XP | Next 5 practice reviews award 2× XP |
+
+**Work:**
+
+1. `language.shop.item` model: `name`, `description`, `xp_cost` (Integer), `item_type` (Selection: `streak_freeze`/`profile_frame`/`double_xp`), `icon` (Char emoji or ir.attachment), `is_active` (Boolean).
+2. `language.user.item` model: junction between user and owned/active items. Fields: `user_id`, `item_id`, `quantity`, `activated_at`, `expires_at`.
+3. Purchase logic: `action_buy(user_id)` on `language.shop.item` — checks XP balance ≥ cost, deducts via `language.xp.log` (`reason='shop_purchase'`, negative amount), creates `language.user.item` record. Floor at 0 enforced.
+4. Item effect hooks wired into existing systems:
+   - `streak_freeze`: `_record_duel_activity` / `_update_gamification_for_user` checks for an active freeze before resetting streak.
+   - `double_xp`: `_update_gamification_for_user` checks for active booster and doubles `xp_delta`; decrements remaining uses.
+   - `profile_frame`: leaderboard template checks `user.active_frame` and applies a CSS class.
+5. Portal `/my/shop`: grid of items with XP cost badge; "Buy" button; "Owned" badge if already held.
+6. Portal `/my/inventory`: list of owned items with activation status and expiry.
+
+**Verification:**
+
+```bash
+# 1. Admin seeds shop items via backend or data fixture
+# 2. Portal /my/shop renders with 3 items; XP cost visible
+# 3. Buy Streak Freeze (50 XP) → XP deducted, language.user.item created
+# 4. Buy item when XP < cost → blocked with "Insufficient XP" message
+# 5. Miss a day → streak NOT reset (freeze consumed)
+# 6. Buy Double XP Booster → next 5 reviews award double XP, then normal resumes
+# 7. language.xp.log shows entries with reason='shop_purchase', negative amounts
+```
+
+---
+
 ## Dependency Graph
 
 ```
@@ -446,10 +485,11 @@ M0 → M1 → M2 → M3
           ↓    ↓
           M7 ←→ M8
           ↓
-          M9 → M10
+          M9 → M10 → M11
 ```
 
 M3, M4, M5, M6 can be worked in parallel after M2 is stable.
 M7 and M8 can be worked in parallel after M3 (auto-translate after copy depends on M3).
 M9 can begin in parallel with M7/M8 (dashboards only need entry data from M2+).
 M10 requires M2 (entries), M3 (translations for distractors), M9 (leaderboard UI).
+M11 requires M10 (XP system, xp.log model, profile fields).

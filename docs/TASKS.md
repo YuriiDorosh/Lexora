@@ -15,27 +15,128 @@
 
 ## Current Milestone
 
-### M7/M8 — Chat & Social Features
+### M11 + M7/M8 — XP Shop + Chat & Social
 
-**Status:** Not started.
-**Branch:** `m10` (to be created)
+**Status:** In progress.
+**Started:** 2026-04-20
+**Branch:** `m10_social_shop`
 
-**Scope:** Public channels, private DMs, moderation, and "Save to my list" from
-chat messages. M7 (Posts/Articles) and M8 (Chat) were deferred while M9/M10
-(SRS + PvP) were built. Now the social layer is the remaining MVP gap.
+**Scope:** Two parallel tracks:
+- **M11 (XP Shop):** `language.shop.item`, `language.user.item`, purchase logic,
+  item effect hooks (streak freeze, double XP, profile frame), `/my/shop` portal.
+- **M7/M8 (Social):** `language.post`, moderation flow, comments, copy-to-list
+  from posts/chat, Odoo Discuss channels, private DMs.
+
+Implementation order: M11 foundation first (shop model + portal), then M7/M8 social layer.
+
+---
+
+### Phase A — M11: XP Shop
 
 #### Sub-steps
 
-- [ ] M7/M8-01 · Implement `language.post` model (title, body, status, author, tags).
-- [ ] M7/M8-02 · Draft → submit-for-review → moderator approve/reject flow.
-- [ ] M7/M8-03 · Comments model (flat, @mention parsing).
-- [ ] M7/M8-04 · "Copy to my list" inline popup from post/article text.
-- [ ] M7/M8-05 · Extend Odoo Discuss for public channels with language context.
-- [ ] M7/M8-06 · Private DM flow (start DM from user profile page).
-- [ ] M7/M8-07 · "Save to my list" from chat message text.
-- [ ] M7/M8-08 · Moderator report review UI.
-- [ ] M7/M8-09 · Tests + install verify.
-- [ ] M7/M8-10 · Commit on `m10`.
+**A1 — Models**
+
+- [x] M11-01 · `language.shop.item` model (`language_learning/models/language_shop_item.py`). ✅
+- [x] M11-02 · `language.user.item` model with `_get_active_item()` and `_consume()`. ✅
+- [x] M11-03 · `language.xp.log`: `'shop_purchase'` reason added. ✅
+- [x] M11-04 · Item effects wired: streak_freeze in `_update_gamification_for_user` +
+  `_record_duel_activity`; double_xp doubles XP award and auto-consumes. ✅
+
+**A2 — Security & data**
+
+- [x] M11-05 · `ir.model.access.csv` updated with shop.item + user.item rows. ✅
+- [x] M11-06 · `record_rules.xml`: owner-only rule for user items. ✅
+- [x] M11-07 · `data/shop_items.xml`: 3 seeded items (noupdate="1"). ✅
+
+**A3 — Portal**
+
+- [x] M11-08 · `GET /my/shop` renders card grid with XP balance, owned count, Buy/disabled state. ✅
+- [x] M11-09 · `POST /my/shop/buy/<item_id>` → purchase + flash redirect. ✅
+- [x] M11-10 · `GET /my/inventory` → item table with quantity + status badge. ✅
+- [x] M11-11 · `views/portal_shop.xml` templates; Shop (seq=80) + Inventory (seq=85) navbar entries. ✅
+
+**A4 — Tests & install**
+
+- [x] M11-12 · 13 tests: buy success/fail, XP log, consume, booster doubles XP, inactive items. ✅
+- [x] M11-13 · `--update language_learning` → 0 errors. ✅
+- [x] M11-14 · 13/13 tests green. ✅
+- [x] M11-15 · Committed on `m10_social_shop` (commit 24f02e0). ✅
+
+**M11-16 · Bug fix (2026-04-20):** 404 on `/my/shop` and `/my/inventory` — root cause was that
+  the running Odoo server had not been restarted after new routes were committed. Routes were
+  correctly implemented; `docker restart odoo` resolved the 404s. Added "My Inventory" navbar
+  entry (seq=85) and "🎒 View My Inventory" button in shop header. ✅
+
+---
+
+### Phase B — M7/M8: Social Layer
+
+#### Sub-steps
+
+**B1 — Posts & Articles**
+
+- [ ] M7-01 · `language.post` model (`language_portal/models/language_post.py`).
+  Fields: `title`, `body` (Html), `status` (draft/pending/published/rejected),
+  `author_id` (Many2one → res.users), `tag_ids` (Many2many → language.post.tag),
+  `media_link_ids` (One2many → language.media.link).
+  Actions: `action_submit()`, `action_approve()`, `action_reject()`.
+
+- [ ] M7-02 · `language.post.comment` model. Fields: `post_id`, `author_id`, `body`,
+  `mention_ids` (Many2many → res.users parsed from @username patterns).
+
+- [ ] M7-03 · `language.post.tag` model. Fields: `name` (Char), `color` (Integer).
+
+- [ ] M7-04 · Security: authors can edit own drafts; moderators can approve/reject;
+  published posts readable by all Language Users.
+
+- [ ] M7-05 · Backend views: post list/form with status bar; comment inline list.
+  `Lexora → Posts` menuitem.
+
+- [ ] M7-06 · Portal `/my/posts` — user's own posts list (all statuses).
+  Portal `/posts` — public published posts, paginated.
+  Portal `/posts/<slug>` — post detail with comments.
+
+- [ ] M7-07 · Portal `/posts/new` + `/posts/<id>/edit` — create/edit draft.
+  "Submit for review" button → `action_submit()`.
+
+- [ ] M7-08 · Moderator portal panel: pending posts list, approve/reject buttons.
+
+- [ ] M7-09 · "Copy to my list" inline popup from post detail body.
+  JS: text selection listener → `POST /my/vocabulary/copy_from_post` with
+  `{text, source_language, post_id}` → creates entry + enqueues translation.
+
+**B2 — Chat & DMs**
+
+- [x] M8-01 · `language_chat` module initialized. 3 `discuss.channel` records created
+  via `data/chat_channels.xml` (noupdate="1"): `english`, `ukrainian`, `greek`.
+  `group_public_id` = Language User group so only Language Users can see them.
+  `post_init_hook` adds all existing Language Users as members. ✅
+  *Channels verified in DB: ids 17/18/19, channel_type=channel.*
+
+- [x] M8-02 · `/my/users/<id>` public profile page with Send Message button.
+  `POST /my/users/<id>/dm` uses `discuss.channel.channel_get()` to find or create
+  a canonical 1-to-1 `chat` channel between current user and target, then redirects
+  to `/discuss/channel/<id>`. ✅
+
+- [x] M8-03 · Global "Save from Chat" text-selection JS injected into every portal page
+  via `portal_save_from_chat_js` template (inherits `portal.portal_layout`).
+  Shows floating "📖 Add to Vocabulary" button on any text selection ≥2 chars.
+  Posts to `JSON /my/vocabulary/add_from_chat` → creates `language.entry` with
+  `created_from='copied_from_chat'`, auto-detects language, handles duplicates. ✅
+
+- [x] M8-04 · Leaderboard names are now clickable links to `/my/users/<id>` via
+  `leaderboard_user_links` template inheriting `portal_leaderboard`. ✅
+
+- [ ] M8-05 · Message report flow (deferred — not blocking core chat features).
+
+**B3 — Tests & install**
+
+- [x] M8-06 · `--init language_chat --stop-after-init` → 0 errors, channels created. ✅
+- [ ] M8-07 · Write tests for chat module (channels exist, add_from_chat endpoint,
+  DM channel creation). Target: ≥5 tests.
+- [ ] M8-08 · Tests green.
+- [ ] M8-09 · Commit M7/M8 on `m10_social_shop`.
 
 #### Blockers
 

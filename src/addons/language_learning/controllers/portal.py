@@ -14,12 +14,13 @@ LEADERBOARD_PAGE_SIZE = 20
 LANG_NAMES = {'en': 'English', 'uk': 'Ukrainian', 'el': 'Greek'}
 
 REASON_LABELS = {
-    'duel_win':  'Duel Win',
-    'duel_loss': 'Duel Loss',
-    'duel_draw': 'Duel Draw',
-    'practice':  'Practice',
-    'bonus':     'Bonus',
-    'initial':   'Initial Balance',
+    'duel_win':      'Duel Win',
+    'duel_loss':     'Duel Loss',
+    'duel_draw':     'Duel Draw',
+    'practice':      'Practice',
+    'bonus':         'Bonus',
+    'initial':       'Initial Balance',
+    'shop_purchase': 'Shop Purchase',
 }
 
 
@@ -190,4 +191,74 @@ class PracticePortal(CustomerPortal):
             'recent_duels': recent_duels,
             'lang_names':   LANG_NAMES,
             'uid':          uid,
+        })
+
+    # ------------------------------------------------------------------
+    # GET /my/shop — XP shop
+    # ------------------------------------------------------------------
+
+    @http.route('/my/shop', type='http', auth='user', website=True, methods=['GET'])
+    def xp_shop(self, **kw):
+        uid = request.env.user.id
+        ShopItem = request.env['language.shop.item'].sudo()
+        UserItem = request.env['language.user.item'].sudo()
+        Profile = request.env['language.user.profile'].sudo()
+
+        items = ShopItem.search([('is_active', '=', True)])
+        profile = Profile.search([('user_id', '=', uid)], limit=1)
+        xp_balance = profile.xp_total if profile else 0
+
+        # Build owned counts per item type for the UI
+        owned = {}
+        for item in items:
+            owned[item.id] = UserItem.search_count([
+                ('user_id', '=', uid),
+                ('item_id', '=', item.id),
+                ('is_consumed', '=', False),
+            ])
+
+        flash = kw.get('flash')
+        return request.render('language_learning.portal_xp_shop', {
+            'page_name':   'shop',
+            'items':       items,
+            'xp_balance':  xp_balance,
+            'owned':       owned,
+            'flash':       flash,
+        })
+
+    # ------------------------------------------------------------------
+    # POST /my/shop/buy/<item_id> — purchase item
+    # ------------------------------------------------------------------
+
+    @http.route('/my/shop/buy/<int:item_id>', type='http', auth='user',
+                website=True, methods=['POST'])
+    def xp_shop_buy(self, item_id, **kw):
+        uid = request.env.user.id
+        ShopItem = request.env['language.shop.item'].sudo()
+        item = ShopItem.search([('id', '=', item_id), ('is_active', '=', True)], limit=1)
+        if not item:
+            return request.not_found()
+
+        try:
+            item.action_buy(uid)
+            return request.redirect(f'/my/shop?flash=bought&item={item.name}')
+        except Exception as exc:
+            _logger.warning('Shop purchase failed for user %d item %d: %s', uid, item_id, exc)
+            return request.redirect(f'/my/shop?flash=error&msg={request.env._(str(exc))}')
+
+    # ------------------------------------------------------------------
+    # GET /my/inventory — owned items
+    # ------------------------------------------------------------------
+
+    @http.route('/my/inventory', type='http', auth='user', website=True, methods=['GET'])
+    def xp_inventory(self, **kw):
+        uid = request.env.user.id
+        UserItem = request.env['language.user.item'].sudo()
+        user_items = UserItem.search([
+            ('user_id', '=', uid),
+            ('is_consumed', '=', False),
+        ])
+        return request.render('language_learning.portal_xp_inventory', {
+            'page_name':  'inventory',
+            'user_items': user_items,
         })

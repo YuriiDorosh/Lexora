@@ -3,3 +3,7 @@ access_language_review_user,language.review user,model_language_review,language_
 access_language_review_admin,language.review admin,model_language_review,language_security.group_language_admin,1,1,1,1
 access_language_xp_log_user,language.xp.log user,model_language_xp_log,language_security.group_language_user,1,0,0,0
 access_language_xp_log_admin,language.xp.log admin,model_language_xp_log,language_security.group_language_admin,1,1,1,1
+access_language_shop_item_user,language.shop.item user,model_language_shop_item,language_security.group_language_user,1,0,0,0
+access_language_shop_item_admin,language.shop.item admin,model_language_shop_item,language_security.group_language_admin,1,1,1,1
+access_language_user_item_user,language.user.item user,model_language_user_item,language_security.group_language_user,1,1,1,0
+access_language_user_item_admin,language.user.item admin,model_language_user_item,language_security.group_language_admin,1,1,1,1
