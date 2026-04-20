@@ -96,6 +96,76 @@
     </template>
 
     <!-- ============================================================ -->
+    <!-- Channel Hub  /my/chat                                        -->
+    <!-- ============================================================ -->
+
+    <template id="portal_chat_hub" name="Lexora Chat Hub">
+        <t t-call="portal.portal_layout">
+            <div class="container py-4">
+
+                <div class="d-flex justify-content-between align-items-center mb-4">
+                    <h1 class="h2 fw-bold mb-0">💬 Community Chat</h1>
+                    <span class="text-muted small">3 public channels</span>
+                </div>
+
+                <div class="row g-4">
+                    <t t-foreach="channels" t-as="ch">
+                        <div class="col-md-4">
+                            <div class="card h-100 shadow-sm border-0">
+                                <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
+                                    <span class="fw-semibold fs-5">#<t t-esc="ch['label']"/></span>
+                                    <span class="badge bg-white text-primary">
+                                        <t t-esc="len(ch['members'])"/> members
+                                    </span>
+                                </div>
+                                <div class="card-body d-flex flex-column">
+
+                                    <!-- Member list with profile links -->
+                                    <t t-if="ch['members']">
+                                        <p class="text-muted small mb-2 fw-semibold">Who's here:</p>
+                                        <ul class="list-unstyled mb-3">
+                                            <t t-foreach="ch['members'][:8]" t-as="member">
+                                                <li class="mb-1">
+                                                    <a t-attf-href="#{member['profile_url']}"
+                                                       class="text-decoration-none small">
+                                                        👤 <t t-esc="member['name']"/>
+                                                    </a>
+                                                </li>
+                                            </t>
+                                            <t t-if="len(ch['members']) > 8">
+                                                <li class="text-muted small">
+                                                    +<t t-esc="len(ch['members']) - 8"/> more
+                                                </li>
+                                            </t>
+                                        </ul>
+                                    </t>
+                                    <t t-else="">
+                                        <p class="text-muted small mb-3">No members yet — be the first!</p>
+                                    </t>
+
+                                    <div class="mt-auto">
+                                        <a t-attf-href="#{ch['discuss_url']}"
+                                           class="btn btn-primary w-100" target="_blank">
+                                            Open Channel →
+                                        </a>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </t>
+                </div>
+
+                <div class="mt-5 alert alert-light border small text-muted">
+                    💡 <strong>Tip:</strong> Select any text in the Discuss window and click
+                    <em>📖 Add to Vocabulary</em> to save words directly to your list.
+                    Click a username inside Discuss, then use <em>View Profile</em> to visit their Lexora profile.
+                </div>
+
+            </div>
+        </t>
+    </template>
+
+    <!-- ============================================================ -->
     <!-- Global "Save from Chat" JS — injected into every portal page -->
     <!-- ============================================================ -->
 
@@ -106,7 +176,6 @@
 (function () {
     'use strict';
 
-    // Create the floating "Add to Vocabulary" button
     var btn = document.createElement('button');
     btn.id = 'lexora-add-vocab-btn';
     btn.className = 'btn btn-sm btn-primary shadow';
@@ -123,7 +192,6 @@
     ].join(';');
     document.body.appendChild(btn);
 
-    // Toast helper
     function showToast(msg, type) {
         var t = document.createElement('div');
         t.className = 'alert alert-' + type + ' position-fixed shadow-sm';
@@ -135,7 +203,6 @@
 
     var pendingText = '';
 
-    // Show button near the selected text
     document.addEventListener('mouseup', function (e) {
         if (e.target === btn) return;
         var sel = window.getSelection();
@@ -152,12 +219,10 @@
         }
     });
 
-    // Hide on click elsewhere
     document.addEventListener('mousedown', function (e) {
         if (e.target !== btn) btn.style.display = 'none';
     });
 
-    // Send selection to Odoo
     btn.addEventListener('click', function () {
         btn.style.display = 'none';
         if (!pendingText) return;
@@ -190,6 +255,259 @@
             showToast('\u274c Network error. Please try again.', 'danger');
         });
     });
+}());
+//]]>
+            </script>
+        </xpath>
+    </template>
+
+    <!-- ============================================================ -->
+    <!-- Discuss public channel page — Members panel + Save-from-Chat -->
+    <!-- ============================================================ -->
+
+    <template id="discuss_channel_lexora_extras" name="Discuss: Lexora Members Panel"
+              inherit_id="mail.discuss_public_channel_template">
+        <xpath expr="//body" position="inside">
+            <script type="text/javascript">
+//<![CDATA[
+(function () {
+    'use strict';
+
+    /* ================================================================
+       MEMBERS PANEL
+       z-index ladder: panel=10005 > btn=10006 > vocab=10007 > toast=10008
+       All elements use pointer-events:auto to override any Owl/OWL
+       component overlays that may set pointer-events:none on children.
+    ================================================================ */
+
+    var panelBtn = document.createElement('button');
+    panelBtn.id  = 'lx-members-btn';
+    panelBtn.textContent = '\uD83D\uDC65 Members';
+    panelBtn.style.cssText = [
+        'position:fixed',
+        'top:12px',
+        'right:16px',
+        'z-index:10006',
+        'pointer-events:auto',
+        'background:#0d6efd',
+        'color:#fff',
+        'border:none',
+        'border-radius:6px',
+        'padding:5px 12px',
+        'font-size:13px',
+        'cursor:pointer',
+        'box-shadow:0 2px 6px rgba(0,0,0,.25)',
+    ].join(';');
+    document.body.appendChild(panelBtn);
+
+    var panel = document.createElement('div');
+    panel.id  = 'lx-members-panel';
+    panel.style.cssText = [
+        'position:fixed',
+        'top:50px',
+        'right:16px',
+        'z-index:10005',
+        'pointer-events:auto',
+        'background:#fff',
+        'border:1px solid #dee2e6',
+        'border-radius:8px',
+        'padding:12px 16px',
+        'min-width:220px',
+        'max-width:280px',
+        'max-height:70vh',
+        'overflow-y:auto',
+        'box-shadow:0 4px 12px rgba(0,0,0,.15)',
+        'display:none',
+    ].join(';');
+    document.body.appendChild(panel);
+
+    function renderMembers(members) {
+        if (!members.length) {
+            panel.innerHTML = '<p style="font-size:13px;color:#6c757d">No Lexora members found.</p>';
+            return;
+        }
+        var html = '<p style="font-size:12px;font-weight:600;color:#6c757d;margin-bottom:8px">MEMBERS</p>';
+        members.forEach(function (m) {
+            html += '<div style="margin-bottom:6px">'
+                  + '<a href="' + m.profile_url + '" '
+                  + 'style="font-size:13px;text-decoration:none;color:#0d6efd;pointer-events:auto;cursor:pointer"'
+                  + ' target="_top">'
+                  + '&#128100; ' + m.name + '</a></div>';
+        });
+        panel.innerHTML = html;
+    }
+
+    var loadedMembers = false;
+    panelBtn.addEventListener('click', function (e) {
+        e.stopPropagation();
+        if (panel.style.display === 'none') {
+            panel.style.display = 'block';
+            if (!loadedMembers) {
+                loadedMembers = true;
+                var channelId = (location.pathname.match(/\/discuss\/channel\/(\d+)/) || [])[1];
+                if (!channelId) {
+                    panel.innerHTML = '<p style="font-size:13px;color:#6c757d">Not in a channel.</p>';
+                    return;
+                }
+                panel.innerHTML = '<p style="font-size:13px;color:#6c757d">Loading\u2026</p>';
+                fetch('/my/chat/members/' + channelId, {
+                    headers: {'X-Requested-With': 'XMLHttpRequest'}
+                })
+                .then(function (r) { return r.json(); })
+                .then(function (data) { renderMembers(data.members || []); })
+                .catch(function () {
+                    panel.innerHTML = '<p style="font-size:13px;color:#dc3545">Could not load members.</p>';
+                });
+            }
+        } else {
+            panel.style.display = 'none';
+        }
+    });
+
+    document.addEventListener('click', function (e) {
+        if (e.target !== panelBtn &amp;&amp; !panel.contains(e.target)) {
+            panel.style.display = 'none';
+        }
+    });
+
+    /* ================================================================
+       AUTHOR CLICK DELEGATOR
+       Odoo 18 Discuss renders author names with class .o-mail-Message-author
+       (and sometimes a child <span>). We intercept clicks anywhere in
+       that element, look up the user's Lexora profile via /my/chat/members,
+       and navigate to /my/users/<id>.  We cache the name→id map so
+       repeated clicks don't re-fetch.
+    ================================================================ */
+
+    var _authorCache = {};   // name (lowercase) → user_id
+
+    function _ensureAuthorCache(cb) {
+        var channelId = (location.pathname.match(/\/discuss\/channel\/(\d+)/) || [])[1];
+        if (!channelId) { cb(); return; }
+        if (Object.keys(_authorCache).length) { cb(); return; }
+        fetch('/my/chat/members/' + channelId, {
+            headers: {'X-Requested-With': 'XMLHttpRequest'}
+        })
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+            (data.members || []).forEach(function (m) {
+                _authorCache[m.name.toLowerCase()] = m.user_id;
+            });
+            cb();
+        })
+        .catch(function () { cb(); });
+    }
+
+    document.addEventListener('click', function (e) {
+        var target = e.target;
+        /* Walk up at most 3 levels to handle nested spans inside the author element */
+        for (var i = 0; i &lt; 3; i++) {
+            if (!target || target === document.body) break;
+            if (target.classList &amp;&amp;
+                (target.classList.contains('o-mail-Message-author') ||
+                 target.classList.contains('o_mail_author'))) {
+                e.preventDefault();
+                e.stopPropagation();
+                var authorName = (target.textContent || '').trim().toLowerCase();
+                _ensureAuthorCache(function () {
+                    var uid = _authorCache[authorName];
+                    if (uid) {
+                        window.location.href = '/my/users/' + uid;
+                    }
+                });
+                return;
+            }
+            target = target.parentElement;
+        }
+    }, true); /* capture phase — fires before Owl's own click handlers */
+
+    /* ================================================================
+       SAVE-FROM-CHAT  (text selection → Add to Vocabulary)
+    ================================================================ */
+
+    var vocabBtn = document.createElement('button');
+    vocabBtn.id  = 'lexora-add-vocab-btn';
+    vocabBtn.innerHTML = '&#128218; Add to Vocabulary';
+    vocabBtn.style.cssText = [
+        'position:fixed',
+        'z-index:10007',
+        'display:none',
+        'pointer-events:auto',
+        'background:#0d6efd',
+        'color:#fff',
+        'border:none',
+        'border-radius:6px',
+        'padding:4px 10px',
+        'font-size:13px',
+        'white-space:nowrap',
+        'cursor:pointer',
+        'box-shadow:0 2px 6px rgba(0,0,0,.25)',
+    ].join(';');
+    document.body.appendChild(vocabBtn);
+
+    function showToast(msg, type) {
+        var colors = {success:'#198754', info:'#0dcaf0', danger:'#dc3545'};
+        var t = document.createElement('div');
+        t.style.cssText = [
+            'position:fixed',
+            'bottom:24px',
+            'right:24px',
+            'z-index:10008',
+            'pointer-events:none',
+            'min-width:220px',
+            'padding:10px 14px',
+            'border-radius:6px',
+            'font-size:13px',
+            'color:#fff',
+            'background:' + (colors[type] || '#333'),
+            'box-shadow:0 2px 8px rgba(0,0,0,.2)',
+        ].join(';');
+        t.textContent = msg;
+        document.body.appendChild(t);
+        setTimeout(function () { t.remove(); }, 3000);
+    }
+
+    var pendingVocab = '';
+
+    document.addEventListener('mouseup', function (e) {
+        if (e.target === vocabBtn) return;
+        var sel = window.getSelection();
+        var text = sel ? sel.toString().trim() : '';
+        if (text.length >= 2 &amp;&amp; text.length &lt;= 300) {
+            pendingVocab = text;
+            var x = Math.min(e.clientX, window.innerWidth - 200);
+            var y = Math.max(e.clientY - 44, 8);
+            vocabBtn.style.left = x + 'px';
+            vocabBtn.style.top  = y + 'px';
+            vocabBtn.style.display = 'block';
+        } else {
+            vocabBtn.style.display = 'none';
+        }
+    });
+
+    document.addEventListener('mousedown', function (e) {
+        if (e.target !== vocabBtn) vocabBtn.style.display = 'none';
+    });
+
+    vocabBtn.addEventListener('click', function () {
+        vocabBtn.style.display = 'none';
+        if (!pendingVocab) return;
+        fetch('/my/vocabulary/add_from_chat', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest'},
+            body: JSON.stringify({jsonrpc:'2.0', method:'call', id:1,
+                                  params:{text: pendingVocab}})
+        })
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+            var res = data.result || {};
+            if (res.status === 'ok') showToast('\u2705 Added to vocabulary!', 'success');
+            else if (res.status === 'duplicate') showToast('\u26a0 Already in vocabulary.', 'info');
+            else showToast('\u274c ' + (res.message || 'Error'), 'danger');
+        })
+        .catch(function () { showToast('\u274c Network error', 'danger'); });
+    });
+
 }());
 //]]>
             </script>

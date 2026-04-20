@@ -9,6 +9,7 @@
     'data': [
         'security/ir.model.access.csv',
         'data/chat_channels.xml',
+        'data/ir_cron_chat_gc.xml',
         'data/website_menus.xml',
         'views/portal_chat.xml',
     ],
