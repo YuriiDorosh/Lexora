@@ -2,7 +2,7 @@
 <odoo>
 
     <!-- ============================================================== -->
-    <!-- User Dashboard  /my/dashboard                                  -->
+    <!-- User Dashboard /my/dashboard                                   -->
     <!-- ============================================================== -->
     <template id="portal_user_dashboard" name="My Dashboard">
         <t t-call="portal.portal_layout">
@@ -32,7 +32,7 @@
                                 </span>
                                 <div class="progress mt-2" style="height:6px;">
                                     <div class="progress-bar"
-                                         t-att-style="'width:%d%%' % (profile.level_progress_pct if profile else 0)"/>
+                                         t-att-style="'width:{}%'.format(profile.level_progress_pct if profile else 0)"/>
                                 </div>
                             </div>
                         </div>
@@ -171,7 +171,7 @@
                                         </div>
                                         <div class="progress" style="height:8px;">
                                             <div class="progress-bar bg-success"
-                                                 t-att-style="'width:%d%%' % win_rate_pct"/>
+                                                 t-att-style="'width:{}%'.format(win_rate_pct)"/>
                                         </div>
                                     </div>
                                 </t>
