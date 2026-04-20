@@ -110,7 +110,8 @@ class LanguageEntry(models.Model):
         string='Copied From Entry',
         ondelete='set null',
     )
-    # copied_from_post_id — deferred to M7 (language.post not yet defined)
+    # copied_from_post_id — added in language_portal (M7) via _inherit
+    # because language.post is defined in language_portal which depends on language_words
 
     # ------------------------------------------------------------------ #
     # Related records (progressively populated by later modules)

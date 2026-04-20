@@ -1,1 +1,1 @@
-from . import language_post
+from . import language_post, language_entry_post

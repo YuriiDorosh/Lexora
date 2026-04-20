@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- Authors can read/write/delete their own posts (any status) -->
+    <record id="rule_post_author_own" model="ir.rule">
+        <field name="name">Post: author full access to own posts</field>
+        <field name="model_id" ref="model_language_post"/>
+        <field name="groups" eval="[(4, ref('language_security.group_language_user'))]"/>
+        <field name="domain_force">[('author_id', '=', user.id)]</field>
+        <field name="perm_read">1</field>
+        <field name="perm_write">1</field>
+        <field name="perm_create">1</field>
+        <field name="perm_unlink">1</field>
+    </record>
+
+    <!-- All Language Users can read published posts -->
+    <record id="rule_post_read_published" model="ir.rule">
+        <field name="name">Post: read published posts</field>
+        <field name="model_id" ref="model_language_post"/>
+        <field name="groups" eval="[(4, ref('language_security.group_language_user'))]"/>
+        <field name="domain_force">[('status', '=', 'published')]</field>
+        <field name="perm_read">1</field>
+        <field name="perm_write">0</field>
+        <field name="perm_create">0</field>
+        <field name="perm_unlink">0</field>
+    </record>
+
+    <!-- Comments: authors can delete their own -->
+    <record id="rule_comment_author_own" model="ir.rule">
+        <field name="name">Comment: author can delete own comment</field>
+        <field name="model_id" ref="model_language_post_comment"/>
+        <field name="groups" eval="[(4, ref('language_security.group_language_user'))]"/>
+        <field name="domain_force">[('author_id', '=', user.id)]</field>
+        <field name="perm_read">1</field>
+        <field name="perm_write">1</field>
+        <field name="perm_create">1</field>
+        <field name="perm_unlink">1</field>
+    </record>
+
+    <!-- All Language Users can read comments on published posts -->
+    <record id="rule_comment_read_published" model="ir.rule">
+        <field name="name">Comment: read comments on published posts</field>
+        <field name="model_id" ref="model_language_post_comment"/>
+        <field name="groups" eval="[(4, ref('language_security.group_language_user'))]"/>
+        <field name="domain_force">[('post_id.status', '=', 'published')]</field>
+        <field name="perm_read">1</field>
+        <field name="perm_write">0</field>
+        <field name="perm_create">0</field>
+        <field name="perm_unlink">0</field>
+    </record>
+
+</odoo>

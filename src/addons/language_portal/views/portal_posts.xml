@@ -1,0 +1,533 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- ============================================================ -->
+    <!-- /posts — Published articles list                             -->
+    <!-- ============================================================ -->
+
+    <template id="portal_posts_list" name="Articles List">
+        <t t-call="portal.portal_layout">
+            <div class="container py-4">
+
+                <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
+                    <h1 class="h2 fw-bold mb-0">📰 Articles</h1>
+                    <div class="d-flex gap-2 flex-wrap">
+                        <t t-foreach="[('en','English'),('uk','Ukrainian'),('el','Greek')]" t-as="lp">
+                            <a t-attf-href="/posts?lang=#{lp[0]}"
+                               t-att-class="'btn btn-sm ' + ('btn-primary' if lang_filter == lp[0] else 'btn-outline-secondary')">
+                                <t t-esc="lp[1]"/>
+                            </a>
+                        </t>
+                        <t t-if="lang_filter">
+                            <a href="/posts" class="btn btn-sm btn-outline-danger">✕ Clear</a>
+                        </t>
+                    </div>
+                </div>
+
+                <t t-if="posts">
+                    <div class="row g-4">
+                        <t t-foreach="posts" t-as="post">
+                            <div class="col-md-4">
+                                <div class="card h-100 shadow-sm border-0">
+                                    <div class="card-body d-flex flex-column">
+                                        <div class="mb-2">
+                                            <span class="badge bg-secondary me-1">
+                                                <t t-esc="lang_names.get(post.language, post.language)"/>
+                                            </span>
+                                            <t t-foreach="post.tag_ids" t-as="tag">
+                                                <span class="badge bg-light text-dark border me-1">
+                                                    <t t-esc="tag.name"/>
+                                                </span>
+                                            </t>
+                                        </div>
+                                        <h5 class="card-title fw-semibold">
+                                            <a t-attf-href="/posts/#{post.slug}"
+                                               class="text-decoration-none text-reset stretched-link">
+                                                <t t-esc="post.title"/>
+                                            </a>
+                                        </h5>
+                                        <p class="card-text text-muted small flex-grow-1">
+                                            <t t-esc="(post.summary or '')[:180]"/>
+                                            <t t-if="post.summary and len(post.summary) > 180">…</t>
+                                        </p>
+                                        <div class="mt-2 small text-muted d-flex justify-content-between">
+                                            <span>by <t t-esc="post.author_id.name or 'Lexora'"/></span>
+                                            <span>💬 <t t-esc="post.comment_count"/></span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </t>
+                    </div>
+
+                    <!-- Pagination -->
+                    <t t-if="total_pages > 1">
+                        <nav class="mt-4">
+                            <ul class="pagination justify-content-center">
+                                <t t-if="page > 1">
+                                    <li class="page-item">
+                                        <a class="page-link" t-attf-href="/posts/page/#{page-1}">‹</a>
+                                    </li>
+                                </t>
+                                <t t-foreach="range(1, total_pages+1)" t-as="p">
+                                    <li t-att-class="'page-item' + (' active' if p == page else '')">
+                                        <a class="page-link" t-attf-href="/posts/page/#{p}">
+                                            <t t-esc="p"/>
+                                        </a>
+                                    </li>
+                                </t>
+                                <t t-if="page &lt; total_pages">
+                                    <li class="page-item">
+                                        <a class="page-link" t-attf-href="/posts/page/#{page+1}">›</a>
+                                    </li>
+                                </t>
+                            </ul>
+                        </nav>
+                    </t>
+                </t>
+                <t t-else="">
+                    <div class="text-center py-5 text-muted">
+                        <p class="fs-5">No articles yet.</p>
+                        <a href="/my/posts/new" class="btn btn-primary">Write the first one →</a>
+                    </div>
+                </t>
+
+            </div>
+        </t>
+    </template>
+
+    <!-- ============================================================ -->
+    <!-- /posts/<slug> — Article detail with comments + copy-to-list  -->
+    <!-- ============================================================ -->
+
+    <template id="portal_post_detail" name="Article Detail">
+        <t t-call="portal.portal_layout">
+            <div class="container py-4">
+                <div class="row justify-content-center">
+                    <div class="col-lg-8">
+
+                        <!-- Breadcrumb -->
+                        <nav class="mb-3 small text-muted">
+                            <a href="/posts" class="text-muted text-decoration-none">Articles</a>
+                            <span class="mx-1">›</span>
+                            <span><t t-esc="post.title"/></span>
+                        </nav>
+
+                        <!-- Article card -->
+                        <article class="card shadow-sm border-0 mb-4">
+                            <div class="card-body px-4 py-4">
+                                <div class="mb-3">
+                                    <span class="badge bg-secondary me-1">
+                                        <t t-esc="lang_names.get(post.language, post.language)"/>
+                                    </span>
+                                    <t t-foreach="post.tag_ids" t-as="tag">
+                                        <span class="badge bg-light text-dark border me-1">
+                                            <t t-esc="tag.name"/>
+                                        </span>
+                                    </t>
+                                </div>
+
+                                <h1 class="h3 fw-bold mb-1"><t t-esc="post.title"/></h1>
+                                <p class="text-muted small mb-4">
+                                    by <strong><t t-esc="post.author_id.name or 'Lexora'"/></strong>
+                                    <t t-if="post.published_date">
+                                        · <t t-esc="post.published_date" t-options='{"widget":"date"}'/>
+                                    </t>
+                                </p>
+
+                                <div id="post-body" class="post-body" t-raw="post.body"/>
+
+                                <!-- Author actions -->
+                                <t t-if="is_author">
+                                    <hr class="my-3"/>
+                                    <div class="d-flex gap-2 flex-wrap">
+                                        <a t-attf-href="/my/posts/#{post.id}/edit"
+                                           class="btn btn-sm btn-outline-secondary">✏️ Edit</a>
+                                    </div>
+                                </t>
+                            </div>
+                        </article>
+
+                        <!-- Copy-to-list JS -->
+                        <script type="text/javascript">
+//<![CDATA[
+(function () {
+    'use strict';
+    var postId = <t t-esc="post.id"/>;
+    var btn = document.createElement('button');
+    btn.innerHTML = '&#128218; Save to Vocabulary';
+    btn.style.cssText = [
+        'position:fixed','z-index:10007','display:none','pointer-events:auto',
+        'background:#198754','color:#fff','border:none','border-radius:6px',
+        'padding:4px 10px','font-size:13px','white-space:nowrap',
+        'cursor:pointer','box-shadow:0 2px 6px rgba(0,0,0,.25)',
+    ].join(';');
+    document.body.appendChild(btn);
+
+    function toast(msg, type) {
+        var colors = {success:'#198754', info:'#0dcaf0', danger:'#dc3545'};
+        var t = document.createElement('div');
+        t.style.cssText = 'position:fixed;bottom:24px;right:24px;z-index:10008;pointer-events:none;'
+            + 'min-width:220px;padding:10px 14px;border-radius:6px;font-size:13px;color:#fff;'
+            + 'background:' + (colors[type]||'#333') + ';box-shadow:0 2px 8px rgba(0,0,0,.2)';
+        t.textContent = msg;
+        document.body.appendChild(t);
+        setTimeout(function(){ t.remove(); }, 3000);
+    }
+
+    var pending = '';
+    var postBody = document.getElementById('post-body');
+    if (!postBody) return;
+
+    postBody.addEventListener('mouseup', function(e) {
+        if (e.target === btn) return;
+        var sel = window.getSelection();
+        var text = sel ? sel.toString().trim() : '';
+        if (text.length >= 2 &amp;&amp; text.length &lt;= 300) {
+            pending = text;
+            var x = Math.min(e.clientX, window.innerWidth - 200);
+            var y = Math.max(e.clientY - 44, 8);
+            btn.style.left = x + 'px'; btn.style.top = y + 'px';
+            btn.style.display = 'block';
+        } else {
+            btn.style.display = 'none';
+        }
+    });
+
+    document.addEventListener('mousedown', function(e){
+        if (e.target !== btn) btn.style.display = 'none';
+    });
+
+    btn.addEventListener('click', function(){
+        btn.style.display = 'none';
+        if (!pending) return;
+        fetch('/my/posts/' + postId + '/copy_text', {
+            method: 'POST',
+            headers: {'Content-Type':'application/json','X-Requested-With':'XMLHttpRequest'},
+            body: JSON.stringify({jsonrpc:'2.0',method:'call',id:1,params:{text:pending}})
+        })
+        .then(function(r){ return r.json(); })
+        .then(function(d){
+            var r = d.result || {};
+            if (r.status === 'ok') toast('\u2705 Saved to vocabulary!', 'success');
+            else if (r.status === 'duplicate') toast('\u26a0 Already in vocabulary.', 'info');
+            else toast('\u274c ' + (r.message||'Error'), 'danger');
+        })
+        .catch(function(){ toast('\u274c Network error', 'danger'); });
+    });
+}());
+//]]>
+                        </script>
+
+                        <!-- Comments section -->
+                        <section id="comments">
+                            <h4 class="fw-semibold mb-3">
+                                💬 Comments
+                                <span class="badge bg-secondary ms-1">
+                                    <t t-esc="len(comments)"/>
+                                </span>
+                            </h4>
+
+                            <t t-foreach="comments" t-as="comment">
+                                <div class="card mb-2 border-0 bg-light">
+                                    <div class="card-body py-2 px-3">
+                                        <div class="d-flex justify-content-between align-items-start">
+                                            <div>
+                                                <strong class="small">
+                                                    <t t-esc="comment.author_id.name or 'Anonymous'"/>
+                                                </strong>
+                                                <span class="text-muted small ms-2">
+                                                    <t t-esc="comment.create_date"
+                                                       t-options='{"widget":"datetime"}'/>
+                                                </span>
+                                            </div>
+                                            <t t-if="is_moderator or (comment.author_id.id == request.env.user.id)">
+                                                <form t-attf-action="/my/posts/#{post.id}/delete_comment/#{comment.id}"
+                                                      method="post" class="d-inline">
+                                                    <input type="hidden" name="csrf_token"
+                                                           t-att-value="request.csrf_token()"/>
+                                                    <button type="submit"
+                                                            class="btn btn-link btn-sm text-danger p-0 ms-2"
+                                                            title="Delete comment">🗑</button>
+                                                </form>
+                                            </t>
+                                        </div>
+                                        <p class="mb-0 mt-1 small"><t t-esc="comment.body"/></p>
+                                    </div>
+                                </div>
+                            </t>
+
+                            <t t-if="not comments">
+                                <p class="text-muted small">No comments yet. Be the first!</p>
+                            </t>
+
+                            <!-- Add comment form (authenticated only) -->
+                            <t t-if="not request.env.user._is_public()">
+                                <form t-attf-action="/my/posts/#{post.id}/comment" method="post"
+                                      class="mt-3">
+                                    <input type="hidden" name="csrf_token"
+                                           t-att-value="request.csrf_token()"/>
+                                    <div class="mb-2">
+                                        <textarea name="body" class="form-control" rows="3"
+                                                  placeholder="Write a comment… @mention users by login"/>
+                                    </div>
+                                    <button type="submit" class="btn btn-primary btn-sm">
+                                        Post Comment
+                                    </button>
+                                </form>
+                            </t>
+                            <t t-else="">
+                                <p class="small text-muted mt-2">
+                                    <a href="/web/login">Log in</a> to leave a comment.
+                                </p>
+                            </t>
+                        </section>
+
+                    </div>
+                </div>
+            </div>
+        </t>
+    </template>
+
+    <!-- ============================================================ -->
+    <!-- /my/posts — Author's post list                               -->
+    <!-- ============================================================ -->
+
+    <template id="portal_my_posts" name="My Posts">
+        <t t-call="portal.portal_layout">
+            <div class="container py-4">
+
+                <div class="d-flex justify-content-between align-items-center mb-4">
+                    <h1 class="h2 fw-bold mb-0">📝 My Posts</h1>
+                    <a href="/my/posts/new" class="btn btn-primary">+ New Post</a>
+                </div>
+
+                <t t-if="posts">
+                    <div class="table-responsive">
+                        <table class="table table-hover align-middle">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>Title</th>
+                                    <th>Language</th>
+                                    <th>Status</th>
+                                    <th>Comments</th>
+                                    <th></th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <t t-foreach="posts" t-as="post">
+                                    <tr>
+                                        <td class="fw-semibold"><t t-esc="post.title"/></td>
+                                        <td>
+                                            <span class="badge bg-secondary">
+                                                <t t-esc="lang_names.get(post.language, post.language)"/>
+                                            </span>
+                                        </td>
+                                        <td>
+                                            <span t-att-class="'badge ' + ('bg-success' if post.status == 'published' else ('bg-warning text-dark' if post.status == 'pending' else ('bg-danger' if post.status == 'rejected' else 'bg-secondary')))">
+                                                <t t-esc="post.status.capitalize()"/>
+                                            </span>
+                                        </td>
+                                        <td class="text-muted small">
+                                            💬 <t t-esc="post.comment_count"/>
+                                        </td>
+                                        <td class="text-end">
+                                            <t t-if="post.status in ('draft', 'rejected')">
+                                                <a t-attf-href="/my/posts/#{post.id}/edit"
+                                                   class="btn btn-sm btn-outline-secondary me-1">Edit</a>
+                                            </t>
+                                            <t t-if="post.status == 'draft'">
+                                                <form t-attf-action="/my/posts/#{post.id}/submit"
+                                                      method="post" class="d-inline">
+                                                    <input type="hidden" name="csrf_token"
+                                                           t-att-value="request.csrf_token()"/>
+                                                    <button type="submit"
+                                                            class="btn btn-sm btn-primary">Submit</button>
+                                                </form>
+                                            </t>
+                                            <t t-if="post.status in ('pending', 'rejected')">
+                                                <form t-attf-action="/my/posts/#{post.id}/retract"
+                                                      method="post" class="d-inline">
+                                                    <input type="hidden" name="csrf_token"
+                                                           t-att-value="request.csrf_token()"/>
+                                                    <button type="submit"
+                                                            class="btn btn-sm btn-outline-warning">Retract</button>
+                                                </form>
+                                            </t>
+                                            <t t-if="post.status == 'published'">
+                                                <a t-attf-href="/posts/#{post.slug}"
+                                                   class="btn btn-sm btn-outline-success">View</a>
+                                            </t>
+                                        </td>
+                                    </tr>
+                                </t>
+                            </tbody>
+                        </table>
+                    </div>
+                </t>
+                <t t-else="">
+                    <div class="text-center py-5 text-muted">
+                        <p>You haven't written anything yet.</p>
+                        <a href="/my/posts/new" class="btn btn-primary">Write your first article →</a>
+                    </div>
+                </t>
+
+            </div>
+        </t>
+    </template>
+
+    <!-- ============================================================ -->
+    <!-- /my/posts/new and /my/posts/<id>/edit — Post form            -->
+    <!-- ============================================================ -->
+
+    <template id="portal_post_form" name="Post Form">
+        <t t-call="portal.portal_layout">
+            <div class="container py-4">
+                <div class="row justify-content-center">
+                    <div class="col-lg-8">
+
+                        <div class="d-flex justify-content-between align-items-center mb-4">
+                            <h1 class="h3 fw-bold mb-0">
+                                <t t-if="post">✏️ Edit Post</t>
+                                <t t-else="">✍️ New Post</t>
+                            </h1>
+                            <a href="/my/posts" class="text-muted small text-decoration-none">← My Posts</a>
+                        </div>
+
+                        <t t-if="request.params.get('saved')">
+                            <div class="alert alert-success">Draft saved.</div>
+                        </t>
+
+                        <form t-attf-action="#{'/my/posts/' + str(post.id) + '/edit' if post else '/my/posts/new'}"
+                              method="post">
+                            <input type="hidden" name="csrf_token" t-att-value="request.csrf_token()"/>
+
+                            <div class="mb-3">
+                                <label class="form-label fw-semibold">Title *</label>
+                                <input type="text" name="title" class="form-control"
+                                       t-att-value="post_data.get('title') or (post.title if post else '')"
+                                       placeholder="Article title"/>
+                                <t t-if="errors.get('title')">
+                                    <div class="text-danger small mt-1">
+                                        <t t-esc="errors['title']"/>
+                                    </div>
+                                </t>
+                            </div>
+
+                            <div class="mb-3">
+                                <label class="form-label fw-semibold">Language *</label>
+                                <select name="language" class="form-select">
+                                    <t t-foreach="[('en','English'),('uk','Ukrainian'),('el','Greek')]"
+                                       t-as="lp">
+                                        <option t-att-value="lp[0]"
+                                                t-att-selected="'selected' if (post_data.get('language') or (post.language if post else 'en')) == lp[0] else None">
+                                            <t t-esc="lp[1]"/>
+                                        </option>
+                                    </t>
+                                </select>
+                            </div>
+
+                            <div class="mb-3">
+                                <label class="form-label fw-semibold">Body *</label>
+                                <textarea name="body" class="form-control" rows="12"
+                                          placeholder="Write your article here…"><t t-esc="post_data.get('body') or (post.body if post else '')"/></textarea>
+                                <t t-if="errors.get('body')">
+                                    <div class="text-danger small mt-1">
+                                        <t t-esc="errors['body']"/>
+                                    </div>
+                                </t>
+                                <div class="form-text">HTML is allowed. Select any text in your article on the published page to save it to vocabulary.</div>
+                            </div>
+
+                            <t t-if="all_tags">
+                                <div class="mb-3">
+                                    <label class="form-label fw-semibold">Tags</label>
+                                    <div class="d-flex flex-wrap gap-2">
+                                        <t t-foreach="all_tags" t-as="tag">
+                                            <div class="form-check form-check-inline">
+                                                <input class="form-check-input" type="checkbox"
+                                                       name="tag_ids" t-att-value="tag.id"
+                                                       t-att-id="'tag_' + str(tag.id)"
+                                                       t-att-checked="'checked' if post and tag in post.tag_ids else None"/>
+                                                <label class="form-check-label"
+                                                       t-att-for="'tag_' + str(tag.id)">
+                                                    <t t-esc="tag.name"/>
+                                                </label>
+                                            </div>
+                                        </t>
+                                    </div>
+                                </div>
+                            </t>
+
+                            <div class="d-flex gap-2">
+                                <button type="submit" class="btn btn-primary">💾 Save Draft</button>
+                                <a href="/my/posts" class="btn btn-outline-secondary">Cancel</a>
+                            </div>
+                        </form>
+
+                    </div>
+                </div>
+            </div>
+        </t>
+    </template>
+
+    <!-- ============================================================ -->
+    <!-- /my/moderation — Moderator pending queue                     -->
+    <!-- ============================================================ -->
+
+    <template id="portal_moderation" name="Moderation Queue">
+        <t t-call="portal.portal_layout">
+            <div class="container py-4">
+
+                <h1 class="h2 fw-bold mb-4">🛡️ Moderation Queue</h1>
+
+                <t t-if="pending_posts">
+                    <t t-foreach="pending_posts" t-as="post">
+                        <div class="card mb-3 shadow-sm border-0">
+                            <div class="card-body">
+                                <div class="d-flex justify-content-between align-items-start flex-wrap gap-2">
+                                    <div>
+                                        <h5 class="fw-semibold mb-1"><t t-esc="post.title"/></h5>
+                                        <p class="text-muted small mb-2">
+                                            by <strong><t t-esc="post.author_id.name"/></strong>
+                                            · <span class="badge bg-secondary">
+                                                <t t-esc="lang_names.get(post.language, post.language)"/>
+                                              </span>
+                                        </p>
+                                        <p class="mb-0 small">
+                                            <t t-esc="(post.summary or '')[:200]"/>
+                                            <t t-if="post.summary and len(post.summary) > 200">…</t>
+                                        </p>
+                                    </div>
+                                    <div class="d-flex gap-2 flex-shrink-0">
+                                        <form t-attf-action="/my/posts/#{post.id}/approve" method="post">
+                                            <input type="hidden" name="csrf_token"
+                                                   t-att-value="request.csrf_token()"/>
+                                            <button type="submit" class="btn btn-sm btn-success">
+                                                ✓ Approve
+                                            </button>
+                                        </form>
+                                        <form t-attf-action="/my/posts/#{post.id}/reject" method="post">
+                                            <input type="hidden" name="csrf_token"
+                                                   t-att-value="request.csrf_token()"/>
+                                            <button type="submit" class="btn btn-sm btn-danger">
+                                                ✕ Reject
+                                            </button>
+                                        </form>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </t>
+                </t>
+                <t t-else="">
+                    <div class="text-center py-5 text-muted">
+                        <p class="fs-5">✅ Nothing pending review.</p>
+                    </div>
+                </t>
+
+            </div>
+        </t>
+    </template>
+
+</odoo>
