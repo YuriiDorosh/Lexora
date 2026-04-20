@@ -27,6 +27,11 @@ class LanguagePost(models.Model):
     )
     published_date = fields.Datetime()
     tag_ids = fields.Many2many('language.post.tag', string='Tags')
+    image = fields.Binary('Cover Image', attachment=True)
+    external_link_ids = fields.Many2many(
+        'language.media.link', 'post_media_link_rel', 'post_id', 'link_id',
+        string='External Links',
+    )
     comment_ids = fields.One2many('language.post.comment', 'post_id', string='Comments')
     comment_count = fields.Integer(compute='_compute_comment_count', store=False)
 

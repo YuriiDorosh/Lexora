@@ -25,6 +25,7 @@ JSON route:
   POST /my/posts/<id>/copy_text   — copy selected text to vocabulary
 """
 
+import base64
 import logging
 from odoo import http
 from odoo.exceptions import AccessError, UserError, ValidationError
@@ -70,9 +71,7 @@ def _build_stats(env):
 
 
 def _is_moderator():
-    mod_group = request.env.ref('language_security.group_language_moderator',
-                                raise_if_not_found=False)
-    return bool(mod_group and request.env.user in mod_group.users)
+    return request.env.user.has_group('language_security.group_language_moderator')
 
 
 class PortalHome(http.Controller):
@@ -96,6 +95,7 @@ class PortalHome(http.Controller):
             'word_of_day': word_of_day,
             'articles': articles,
             'stats': stats,
+            'lang_names': LANG_NAMES,
         })
 
     # ------------------------------------------------------------------
@@ -245,6 +245,13 @@ class PortalHome(http.Controller):
             'language': language,
             'tag_ids': [(6, 0, tag_ids)],
         }
+
+        image_file = request.httprequest.files.get('image_file')
+        if image_file and image_file.filename:
+            image_data = image_file.read()
+            if image_data:
+                vals['image'] = base64.b64encode(image_data).decode('utf-8')
+
         if post:
             post.sudo().write(vals)
         else:

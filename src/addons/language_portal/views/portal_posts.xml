@@ -115,6 +115,11 @@
 
                         <!-- Article card -->
                         <article class="card shadow-sm border-0 mb-4">
+                            <t t-if="post.image">
+                                <img t-attf-src="data:image/png;base64,#{post.image.decode() if isinstance(post.image, bytes) else post.image}"
+                                     class="card-img-top" style="max-height:300px;object-fit:cover;"
+                                     t-att-alt="post.title"/>
+                            </t>
                             <div class="card-body px-4 py-4">
                                 <div class="mb-3">
                                     <span class="badge bg-secondary me-1">
@@ -399,7 +404,7 @@
                         </t>
 
                         <form t-attf-action="#{'/my/posts/' + str(post.id) + '/edit' if post else '/my/posts/new'}"
-                              method="post">
+                              method="post" enctype="multipart/form-data">
                             <input type="hidden" name="csrf_token" t-att-value="request.csrf_token()"/>
 
                             <div class="mb-3">
@@ -437,6 +442,19 @@
                                     </div>
                                 </t>
                                 <div class="form-text">HTML is allowed. Select any text in your article on the published page to save it to vocabulary.</div>
+                            </div>
+
+                            <div class="mb-3">
+                                <label class="form-label fw-semibold">Cover Image</label>
+                                <t t-if="post and post.image">
+                                    <div class="mb-2">
+                                        <img t-attf-src="data:image/png;base64,#{post.image.decode() if isinstance(post.image, bytes) else post.image}"
+                                             style="max-height:120px;border-radius:4px;" alt="Current cover"/>
+                                        <div class="form-text">Upload a new image to replace the current one.</div>
+                                    </div>
+                                </t>
+                                <input type="file" name="image_file" class="form-control"
+                                       accept="image/*"/>
                             </div>
 
                             <t t-if="all_tags">
