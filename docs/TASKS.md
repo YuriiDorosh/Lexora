@@ -15,27 +15,145 @@
 
 ## Current Milestone
 
-### M7/M8 — Chat & Social Features
+### M11 + M7/M8 — XP Shop + Chat & Social
 
-**Status:** Not started.
-**Branch:** `m10` (to be created)
+**Status:** In progress.
+**Started:** 2026-04-20
+**Branch:** `m10_social_shop`
 
-**Scope:** Public channels, private DMs, moderation, and "Save to my list" from
-chat messages. M7 (Posts/Articles) and M8 (Chat) were deferred while M9/M10
-(SRS + PvP) were built. Now the social layer is the remaining MVP gap.
+**Scope:** Two parallel tracks:
+- **M11 (XP Shop):** `language.shop.item`, `language.user.item`, purchase logic,
+  item effect hooks (streak freeze, double XP, profile frame), `/my/shop` portal.
+- **M7/M8 (Social):** `language.post`, moderation flow, comments, copy-to-list
+  from posts/chat, Odoo Discuss channels, private DMs.
+
+Implementation order: M11 foundation first (shop model + portal), then M7/M8 social layer.
+
+---
+
+### Phase A — M11: XP Shop
 
 #### Sub-steps
 
-- [ ] M7/M8-01 · Implement `language.post` model (title, body, status, author, tags).
-- [ ] M7/M8-02 · Draft → submit-for-review → moderator approve/reject flow.
-- [ ] M7/M8-03 · Comments model (flat, @mention parsing).
-- [ ] M7/M8-04 · "Copy to my list" inline popup from post/article text.
-- [ ] M7/M8-05 · Extend Odoo Discuss for public channels with language context.
-- [ ] M7/M8-06 · Private DM flow (start DM from user profile page).
-- [ ] M7/M8-07 · "Save to my list" from chat message text.
-- [ ] M7/M8-08 · Moderator report review UI.
-- [ ] M7/M8-09 · Tests + install verify.
-- [ ] M7/M8-10 · Commit on `m10`.
+**A1 — Models**
+
+- [ ] M11-01 · `language.shop.item` model (`language_learning/models/language_shop_item.py`).
+  Fields: `name` (Char), `description` (Text), `xp_cost` (Integer, required),
+  `item_type` (Selection: `streak_freeze`/`profile_frame`/`double_xp`),
+  `icon` (Char emoji), `is_active` (Boolean, default True).
+  `action_buy(user_id)` method: checks balance, deducts XP via `language.xp.log`
+  (`reason='shop_purchase'`, negative amount), creates `language.user.item`,
+  raises `UserError` if XP < cost.
+
+- [ ] M11-02 · `language.user.item` model (`language_learning/models/language_user_item.py`).
+  Fields: `user_id` (Many2one → res.users), `item_id` (Many2one → language.shop.item),
+  `quantity` (Integer, default 1), `activated_at` (Datetime), `expires_at` (Datetime),
+  `is_consumed` (Boolean, default False).
+  Helper: `_get_active_item(user_id, item_type)` — returns first non-consumed item of type.
+
+- [ ] M11-03 · `language.xp.log`: add `'shop_purchase'` to `reason` selection.
+
+- [ ] M11-04 · Wire item effects:
+  - `streak_freeze`: in `_update_gamification_for_user` and `_record_duel_activity`,
+    before resetting streak to 1 on a gap, check for an active freeze; if found,
+    keep current streak and mark freeze as consumed.
+  - `double_xp`: in `_update_gamification_for_user`, if active booster exists,
+    double `xp_delta` and decrement booster quantity (consume when quantity=0).
+  - `profile_frame`: computed field `active_frame_type` on `language.user.profile`
+    (reads first non-consumed `profile_frame` item for this user).
+
+**A2 — Security & data**
+
+- [ ] M11-05 · `ir.model.access.csv`: Language Users read shop items; read/create
+  user items. Admins full CRUD on both models.
+- [ ] M11-06 · `record_rules.xml`: user items visible only to owner.
+- [ ] M11-07 · `data/shop_items.xml`: seed the 3 initial items (Streak Freeze 50 XP,
+  Profile Frame 100 XP, Double XP Booster 80 XP) as `noupdate="1"` records.
+
+**A3 — Portal**
+
+- [ ] M11-08 · `GET /my/shop` — shop grid: items list, XP cost badge, owned count,
+  "Buy" button (POST), disabled + "Insufficient XP" when balance < cost.
+- [ ] M11-09 · `POST /my/shop/buy/<item_id>` — calls `item.action_buy(uid)`,
+  redirects to `/my/shop` with flash message.
+- [ ] M11-10 · `GET /my/inventory` — list owned/active items with type, quantity,
+  consumed status. Link from `/my/shop` and navbar.
+- [ ] M11-11 · `views/portal_shop.xml` — shop + inventory templates.
+  Navbar entry "Shop" (seq=80).
+
+**A4 — Tests & install**
+
+- [ ] M11-12 · Tests (≥10): buy success, buy insufficient XP, XP log created,
+  streak freeze activates and is consumed, double XP doubles award and decrements,
+  buy deducts correct amount, can't go below 0.
+- [ ] M11-13 · `--init`/`--update language_learning` → 0 errors.
+- [ ] M11-14 · Tests green.
+- [ ] M11-15 · Commit M11 on `m10_social_shop`.
+
+---
+
+### Phase B — M7/M8: Social Layer
+
+#### Sub-steps
+
+**B1 — Posts & Articles**
+
+- [ ] M7-01 · `language.post` model (`language_portal/models/language_post.py`).
+  Fields: `title`, `body` (Html), `status` (draft/pending/published/rejected),
+  `author_id` (Many2one → res.users), `tag_ids` (Many2many → language.post.tag),
+  `media_link_ids` (One2many → language.media.link).
+  Actions: `action_submit()`, `action_approve()`, `action_reject()`.
+
+- [ ] M7-02 · `language.post.comment` model. Fields: `post_id`, `author_id`, `body`,
+  `mention_ids` (Many2many → res.users parsed from @username patterns).
+
+- [ ] M7-03 · `language.post.tag` model. Fields: `name` (Char), `color` (Integer).
+
+- [ ] M7-04 · Security: authors can edit own drafts; moderators can approve/reject;
+  published posts readable by all Language Users.
+
+- [ ] M7-05 · Backend views: post list/form with status bar; comment inline list.
+  `Lexora → Posts` menuitem.
+
+- [ ] M7-06 · Portal `/my/posts` — user's own posts list (all statuses).
+  Portal `/posts` — public published posts, paginated.
+  Portal `/posts/<slug>` — post detail with comments.
+
+- [ ] M7-07 · Portal `/posts/new` + `/posts/<id>/edit` — create/edit draft.
+  "Submit for review" button → `action_submit()`.
+
+- [ ] M7-08 · Moderator portal panel: pending posts list, approve/reject buttons.
+
+- [ ] M7-09 · "Copy to my list" inline popup from post detail body.
+  JS: text selection listener → `POST /my/vocabulary/copy_from_post` with
+  `{text, source_language, post_id}` → creates entry + enqueues translation.
+
+**B2 — Chat & DMs**
+
+- [ ] M8-01 · Configure Odoo Discuss public channels: `#english`, `#ukrainian`,
+  `#greek` created via data fixture. `is_public=True`, accessible to all Language Users.
+
+- [ ] M8-02 · "Start DM" button on user profile pages → opens/creates a
+  `mail.channel` in DM mode between current user and the profile's user.
+
+- [ ] M8-03 · "Save to my list" from chat: JS overlay on chat messages.
+  On text selection in a `.o_message_body`, show a floating "Add to Vocabulary"
+  button → same `copy_from_post` endpoint (with `chat_channel_id` instead of
+  `post_id`), sets `created_from='copied_from_chat'`.
+
+- [ ] M8-04 · Message report flow: "Report" action on chat messages →
+  creates `language.content.report` record with `message_id`, `reporter_id`, `reason`.
+
+- [ ] M8-05 · Moderator report review: list of open reports; "Delete message" /
+  "Dismiss report" actions.
+
+**B3 — Tests & install**
+
+- [ ] M8-06 · Tests (≥8): post create/submit/approve, comment @mention parsing,
+  copy-to-list from post creates entry + translation queued, channel exists.
+- [ ] M8-07 · `--update language_portal,language_chat --stop-after-init` → 0 errors.
+- [ ] M8-08 · Tests green.
+- [ ] M8-09 · Commit M7/M8 on `m10_social_shop`.
 
 #### Blockers
 
