@@ -15,10 +15,39 @@
 
 ## Current Milestone
 
-### M10 — Personal Dashboard & XP Analytics
+### M7/M8 — Chat & Social Features
 
-**Status:** In progress.
+**Status:** Not started.
+**Branch:** `m10` (to be created)
+
+**Scope:** Public channels, private DMs, moderation, and "Save to my list" from
+chat messages. M7 (Posts/Articles) and M8 (Chat) were deferred while M9/M10
+(SRS + PvP) were built. Now the social layer is the remaining MVP gap.
+
+#### Sub-steps
+
+- [ ] M7/M8-01 · Implement `language.post` model (title, body, status, author, tags).
+- [ ] M7/M8-02 · Draft → submit-for-review → moderator approve/reject flow.
+- [ ] M7/M8-03 · Comments model (flat, @mention parsing).
+- [ ] M7/M8-04 · "Copy to my list" inline popup from post/article text.
+- [ ] M7/M8-05 · Extend Odoo Discuss for public channels with language context.
+- [ ] M7/M8-06 · Private DM flow (start DM from user profile page).
+- [ ] M7/M8-07 · "Save to my list" from chat message text.
+- [ ] M7/M8-08 · Moderator report review UI.
+- [ ] M7/M8-09 · Tests + install verify.
+- [ ] M7/M8-10 · Commit on `m10`.
+
+#### Blockers
+
+(none)
+
+---
+
+### M10 — Personal Dashboard & XP Analytics (completed)
+
+**Status:** Complete and verified.
 **Started:** 2026-04-19
+**Completed:** 2026-04-20
 **Branch:** `m9`
 
 **Scope:** XP transaction logging, `/my/dashboard` portal with stats header,
@@ -92,9 +121,10 @@ XP history table, duel analytics, recent duels list, and "My Profile" navbar lin
     `['|', ('xp_total', '>', 0), ('current_streak', '>', 0)]` so active learners
     who lost all XP in duels still appear. Dashboard rank check updated identically.
   77 tests: 0 failures, 0 errors after the fix.
-- [ ] M10-12 · Manual smoke: `/my/dashboard` renders; bot duel creates win/loss log entries;
+- [x] M10-12 · Manual smoke: `/my/dashboard` renders; bot duel creates win/loss log entries;
   XP history shows transactions; "My Profile" link appears in navbar.
-- [ ] M10-13 · Commit M10 on branch `m9`.
+- [x] M10-13 · Commit M10 on branch `m9`. Progress-bar fix committed (format→.format()).
+- [x] M10-14 · Merge conflict resolved (m9 ← main). Branch pushed, PR #20 ready.
 
 #### Files changed
 
@@ -240,8 +270,8 @@ draft → open → ongoing → finished
 - [x] M9-12 · `--test-enable -u language_pvp --no-http` → 16 tests green, 0 failures, 0 errors.
 - [x] M9-13 · `docker restart odoo` → registry loads; `/my/arena` returns 404 for
       unauthenticated (correct for `auth='user'`); all 56 modules loaded in 0.20s.
-- [ ] M9-14 · Manual: create open challenge → second user joins → play rounds → verify XP transfer.
-- [ ] M9-15 · Commit M9 on branch `m9`.
+- [x] M9-14 · Manual: create open challenge → second user joins → play rounds → verify XP transfer.
+- [x] M9-15 · Commit M9 on branch `m9`.
 
 ---
 
@@ -278,8 +308,8 @@ draft → open → ongoing → finished
 - [x] M9-22 · `--test-enable -u language_pvp,language_learning,language_words` → 170 tests
   started, 0 failures, 0 errors (16 M9 + 24 gamification + 16 vocab search + all prior).
 - [x] M9-23 · `docker restart odoo` → all routes load.
-- [ ] M9-24 · Manual smoke: bot duel creation, cancel, JS lang detection.
-- [ ] M9-25 · Commit M9b on branch `m9`.
+- [x] M9-24 · Manual smoke: bot duel creation, cancel, JS lang detection.
+- [x] M9-25 · Commit M9b on branch `m9`.
 
 #### Files to create/change
 
