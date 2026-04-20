@@ -10,6 +10,7 @@
         'security/ir.model.access.csv',
         'security/record_rules.xml',
         'data/language_lang.xml',
+        'data/ir_cron_word_of_day.xml',
         'views/language_entry_views.xml',
         'views/language_user_profile_views.xml',
         'views/portal_vocabulary.xml',

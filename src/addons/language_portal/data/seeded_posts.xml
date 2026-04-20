@@ -1,0 +1,208 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data noupdate="1">
+
+        <record id="tag_grammar" model="language.post.tag">
+            <field name="name">Grammar</field>
+            <field name="color">1</field>
+        </record>
+        <record id="tag_vocabulary" model="language.post.tag">
+            <field name="name">Vocabulary</field>
+            <field name="color">2</field>
+        </record>
+        <record id="tag_tips" model="language.post.tag">
+            <field name="name">Tips &amp; Tricks</field>
+            <field name="color">3</field>
+        </record>
+        <record id="tag_culture" model="language.post.tag">
+            <field name="name">Culture</field>
+            <field name="color">4</field>
+        </record>
+
+        <record id="post_english_articles" model="language.post">
+            <field name="title">Mastering English Articles: A, An, and The</field>
+            <field name="language">en</field>
+            <field name="status">published</field>
+            <field name="tag_ids" eval="[(4, ref('tag_grammar'))]"/>
+            <field name="body"><![CDATA[
+<p>Articles are among the trickiest parts of English grammar for learners of Ukrainian and Greek, as neither language uses them. Understanding <em>a</em>, <em>an</em>, and <em>the</em> can dramatically improve your fluency.</p>
+
+<h3>Definite vs. Indefinite</h3>
+<p>The key distinction is simple: <strong>the</strong> refers to something specific and known to both speaker and listener. <strong>A</strong> and <strong>an</strong> introduce something for the first time or refer to any member of a category.</p>
+<ul>
+  <li><em>I saw <strong>a</strong> dog in the park.</em> (any dog, first mention)</li>
+  <li><em>The dog followed me home.</em> (that specific dog, now known)</li>
+</ul>
+
+<h3>When to Use "An"</h3>
+<p>Use <strong>an</strong> before words that begin with a vowel <em>sound</em> (not just a vowel letter):</p>
+<ul>
+  <li><em>an apple, an hour</em> (the "h" in "hour" is silent)</li>
+  <li><em>a university, a European</em> (starts with a "you" sound)</li>
+</ul>
+
+<h3>Zero Article</h3>
+<p>Many contexts require no article at all — especially with proper nouns, languages, and general concepts:</p>
+<ul>
+  <li><em>She speaks Ukrainian.</em> (not "the Ukrainian")</li>
+  <li><em>Life is short.</em> (abstract general meaning)</li>
+  <li><em>Breakfast was delicious.</em> (meals in general)</li>
+</ul>
+
+<h3>Practice Tip</h3>
+<p>When you add a new word to Lexora, write a sample sentence using all three articles. You will quickly develop an intuition for which sounds natural in context.</p>
+            ]]></field>
+        </record>
+
+        <record id="post_ukrainian_cases" model="language.post">
+            <field name="title">Ukrainian Cases Explained: Why "яблуко" Becomes "яблука"</field>
+            <field name="language">uk</field>
+            <field name="status">published</field>
+            <field name="tag_ids" eval="[(4, ref('tag_grammar'))]"/>
+            <field name="body"><![CDATA[
+<p>Ukrainian is a synthetic language — meaning grammar is expressed through word endings rather than word order or helper words. This system is called <strong>відмінювання</strong> (declension), and it applies to nouns, adjectives, and pronouns across seven cases.</p>
+
+<h3>The Seven Cases at a Glance</h3>
+<table class="table table-bordered table-sm">
+  <thead><tr><th>Case</th><th>Ukrainian name</th><th>Primary use</th><th>Example (apple)</th></tr></thead>
+  <tbody>
+    <tr><td>Nominative</td><td>Називний</td><td>Subject of a sentence</td><td>яблуко</td></tr>
+    <tr><td>Genitive</td><td>Родовий</td><td>Possession, negation, quantity</td><td>яблука</td></tr>
+    <tr><td>Dative</td><td>Давальний</td><td>Indirect object (to/for whom)</td><td>яблуку</td></tr>
+    <tr><td>Accusative</td><td>Знахідний</td><td>Direct object</td><td>яблуко</td></tr>
+    <tr><td>Instrumental</td><td>Орудний</td><td>By means of, together with</td><td>яблуком</td></tr>
+    <tr><td>Locative</td><td>Місцевий</td><td>Location (used with prepositions)</td><td>яблуку</td></tr>
+    <tr><td>Vocative</td><td>Кличний</td><td>Direct address</td><td>яблуко</td></tr>
+  </tbody>
+</table>
+
+<h3>A Practical Strategy</h3>
+<p>Do not try to memorise all declension tables at once. Instead, learn each case <em>by function</em>. When you encounter a word ending that looks unfamiliar, ask: "What role does this word play in the sentence?"</p>
+
+<h3>The Lexora Advantage</h3>
+<p>Add words in their dictionary form (nominative singular), then use the enrichment feature to see example sentences. Noticing the same word in different endings across several sentences accelerates pattern recognition far faster than rote table memorisation.</p>
+            ]]></field>
+        </record>
+
+        <record id="post_greek_alphabet" model="language.post">
+            <field name="title">The Greek Alphabet: From Α to Ω in 20 Minutes</field>
+            <field name="language">el</field>
+            <field name="status">published</field>
+            <field name="tag_ids" eval="[(4, ref('tag_vocabulary'))]"/>
+            <field name="body"><![CDATA[
+<p>The Greek alphabet has 24 letters and is the ancestor of the Latin and Cyrillic scripts. Learning it thoroughly takes less than a day — and unlocks direct access to one of the world's oldest literary traditions.</p>
+
+<h3>Letters That Look Familiar</h3>
+<p>Several Greek letters resemble their Latin counterparts and are easy to remember:</p>
+<ul>
+  <li><strong>Α α</strong> — Alpha (like "a")</li>
+  <li><strong>Ε ε</strong> — Epsilon (like "e")</li>
+  <li><strong>Ι ι</strong> — Iota (like "i")</li>
+  <li><strong>Κ κ</strong> — Kappa (like "k")</li>
+  <li><strong>Μ μ</strong> — Mu (like "m")</li>
+  <li><strong>Ν ν</strong> — Nu (like "n")</li>
+  <li><strong>Ο ο</strong> — Omicron (like "o")</li>
+  <li><strong>Τ τ</strong> — Tau (like "t")</li>
+</ul>
+
+<h3>Tricky Letters</h3>
+<p>Some Greek letters look like Latin letters but represent entirely different sounds:</p>
+<ul>
+  <li><strong>Η η</strong> — Eta — sounds like "ee", not "h"</li>
+  <li><strong>Ρ ρ</strong> — Rho — sounds like "r", not "p"</li>
+  <li><strong>Χ χ</strong> — Chi — sounds like the Scottish "loch", not "x"</li>
+  <li><strong>Ν ν</strong> — Nu — sounds like "n", not "v"</li>
+</ul>
+
+<h3>Double-Letter Sounds</h3>
+<p>Greek uses <em>digraphs</em> — two-letter combinations that produce a single sound:</p>
+<ul>
+  <li><strong>ου</strong> → "oo" (as in "moon"): <em>μπλουζ</em> (blouse)</li>
+  <li><strong>αι</strong> → "e": <em>παιδί</em> (child)</li>
+  <li><strong>ει</strong> → "ee": <em>είμαι</em> (I am)</li>
+  <li><strong>μπ</strong> → "b": <em>μπαλκόνι</em> (balcony)</li>
+  <li><strong>ντ</strong> → "d": <em>ντομάτα</em> (tomato)</li>
+</ul>
+
+<h3>Your First Greek Words</h3>
+<p>Start by adding these to your Lexora vocabulary — each one uses a different part of the alphabet:</p>
+<ul>
+  <li>νερό — water</li>
+  <li>ψωμί — bread</li>
+  <li>καλημέρα — good morning</li>
+  <li>ευχαριστώ — thank you</li>
+  <li>παρακαλώ — please / you are welcome</li>
+</ul>
+            ]]></field>
+        </record>
+
+        <record id="post_english_collocations" model="language.post">
+            <field name="title">Why Collocations Matter More Than Single Words</field>
+            <field name="language">en</field>
+            <field name="status">published</field>
+            <field name="tag_ids" eval="[(4, ref('tag_vocabulary')), (4, ref('tag_tips'))]"/>
+            <field name="body"><![CDATA[
+<p>Advanced language learners often hit a plateau: they know thousands of individual words, yet their speech still sounds slightly "off" to native speakers. The missing ingredient is almost always <strong>collocation</strong> — knowing which words naturally appear together.</p>
+
+<h3>What Is a Collocation?</h3>
+<p>A collocation is a pair or group of words that habitually co-occur. Native speakers learn them implicitly through massive exposure; non-native speakers have to learn them deliberately.</p>
+
+<p>Consider the word <em>heavy</em>. In English you say:</p>
+<ul>
+  <li><strong>heavy rain</strong> ✓ — not "strong rain" ✗</li>
+  <li><strong>strong wind</strong> ✓ — not "heavy wind" ✗</li>
+  <li><strong>heavy traffic</strong> ✓</li>
+  <li><strong>strong coffee</strong> ✓</li>
+</ul>
+<p>Both "heavy" and "strong" mean roughly the same thing, yet they pair with different nouns. No grammar rule explains this — it is purely conventional.</p>
+
+<h3>Verb-Noun Collocations</h3>
+<p>These are the most common and the most challenging:</p>
+<ul>
+  <li><em>make</em> a decision (not "take" or "do")</li>
+  <li><em>take</em> a photo (not "make" or "do")</li>
+  <li><em>do</em> homework (not "make" or "take")</li>
+  <li><em>pay</em> attention (not "give" or "put")</li>
+</ul>
+
+<h3>How to Learn Collocations Effectively</h3>
+<ol>
+  <li>When you add a word to Lexora, add its most common collocations as <em>phrases</em> alongside the single word.</li>
+  <li>Use the enrichment feature — example sentences often contain the target word's natural collocations in context.</li>
+  <li>When you read or listen to English, highlight not just unknown words but unfamiliar word combinations.</li>
+</ol>
+
+<p>Lexora's <em>phrase</em> and <em>collocation</em> entry types are designed precisely for this. A vocabulary list that contains "heavy rain" and "strong wind" alongside "heavy" and "strong" will serve you far better in conversation than single-word entries alone.</p>
+            ]]></field>
+        </record>
+
+        <record id="post_language_learning_tips" model="language.post">
+            <field name="title">5 Science-Backed Habits for Faster Vocabulary Retention</field>
+            <field name="language">en</field>
+            <field name="status">published</field>
+            <field name="tag_ids" eval="[(4, ref('tag_tips'))]"/>
+            <field name="body"><![CDATA[
+<p>Decades of cognitive research have identified the specific conditions under which the human brain forms durable long-term memories. Here are the five most practical findings for language learners.</p>
+
+<h3>1. Spaced Repetition</h3>
+<p>Reviewing a word just before you are about to forget it is far more effective than reviewing it again immediately after learning it. This is the principle behind Lexora's SM-2 spaced repetition system. Instead of cramming 100 words in one session, review 20 words across 5 sessions spread over a week.</p>
+
+<h3>2. Retrieval Practice</h3>
+<p>Testing yourself is more effective than re-reading. When you see a word in a Lexora flashcard, cover the translation, attempt to recall it, then reveal the answer. The act of retrieval — even a failed retrieval — strengthens the memory trace.</p>
+
+<h3>3. Interleaving</h3>
+<p>Mixing up different words and topics in a single practice session outperforms "blocked" practice (mastering one category before moving to the next). Lexora's PvP Arena naturally creates interleaved practice by pulling words from your full vocabulary.</p>
+
+<h3>4. Elaborative Encoding</h3>
+<p>Connecting a new word to something you already know — a sound, an image, a personal memory — dramatically increases retention. When you add a word to Lexora, spend 10 seconds building a mental image or story around it. Add a personal note field entry to record your mnemonic.</p>
+
+<h3>5. Sleep</h3>
+<p>Memory consolidation happens during sleep, not during study. A 20-minute practice session followed by a night's sleep will produce better retention than two hours of practice with no sleep afterward. Consistency matters more than marathon sessions — 15 minutes every day beats two hours on Sunday.</p>
+
+<h3>The Lexora System in Context</h3>
+<p>Daily practice sessions, streak tracking, and spaced review scheduling are all designed around these principles. Your streak is not a vanity metric — it is a nudge toward the single most important habit: showing up every day.</p>
+            ]]></field>
+        </record>
+
+    </data>
+</odoo>

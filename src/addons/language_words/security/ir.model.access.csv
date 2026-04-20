@@ -7,3 +7,6 @@ access_language_user_profile_user,language.user.profile user,model_language_user
 access_language_user_profile_admin,language.user.profile admin,model_language_user_profile,base.group_system,1,1,1,1
 access_language_media_link_user,language.media.link user,model_language_media_link,language_security.group_language_user,1,1,1,1
 access_language_media_link_admin,language.media.link admin,model_language_media_link,base.group_system,1,1,1,1
+access_language_word_of_day_public,language.word.of.day public,model_language_word_of_day,base.group_public,1,0,0,0
+access_language_word_of_day_user,language.word.of.day user,model_language_word_of_day,language_security.group_language_user,1,0,0,0
+access_language_word_of_day_admin,language.word.of.day admin,model_language_word_of_day,base.group_system,1,1,1,1

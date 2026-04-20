@@ -1,11 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
-    <data noupdate="1">
+    <data noupdate="0">
 
         <!-- "Chat" link in the website navbar (logged-in users only) -->
         <record id="menu_navbar_chat" model="website.menu">
             <field name="name">Chat</field>
-            <field name="url">/discuss</field>
+            <field name="url">/my/chat</field>
             <field name="parent_id" ref="website.main_menu"/>
             <field name="sequence">90</field>
             <field name="user_logged">True</field>

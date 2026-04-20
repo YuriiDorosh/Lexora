@@ -1,0 +1,260 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- ============================================================ -->
+    <!-- Homepage  /                                                   -->
+    <!-- ============================================================ -->
+
+    <template id="homepage" name="Lexora Homepage">
+        <t t-call="portal.portal_layout">
+            <div class="container py-5">
+
+                <!-- Hero -->
+                <div class="text-center mb-5">
+                    <h1 class="display-4 fw-bold mb-2">Welcome to Lexora</h1>
+                    <p class="lead text-muted">Build your vocabulary. Practice daily. Compete with others.</p>
+                    <t t-if="not request.env.user._is_public()">
+                        <a href="/my/vocabulary" class="btn btn-primary btn-lg px-4 me-2">My Vocabulary</a>
+                        <a href="/my/practice" class="btn btn-outline-primary btn-lg px-4">Daily Practice</a>
+                    </t>
+                    <t t-else="">
+                        <a href="/web/signup" class="btn btn-primary btn-lg px-4 me-2">Get Started Free</a>
+                        <a href="/web/login" class="btn btn-outline-secondary btn-lg px-4">Sign In</a>
+                    </t>
+                </div>
+
+                <!-- Global Stats Row -->
+                <div class="row text-center g-3 mb-5">
+                    <div class="col-4">
+                        <div class="card border-0 bg-light h-100 py-3">
+                            <div class="fw-bold fs-3 text-primary">
+                                <t t-esc="stats.get('total_entries', 0)"/>
+                            </div>
+                            <div class="text-muted small">Words &amp; Phrases</div>
+                        </div>
+                    </div>
+                    <div class="col-4">
+                        <div class="card border-0 bg-light h-100 py-3">
+                            <div class="fw-bold fs-3 text-success">
+                                <t t-esc="stats.get('total_users', 0)"/>
+                            </div>
+                            <div class="text-muted small">Active Learners</div>
+                        </div>
+                    </div>
+                    <div class="col-4">
+                        <div class="card border-0 bg-light h-100 py-3">
+                            <div class="fw-bold fs-3 text-info">
+                                <t t-esc="stats.get('total_translations', 0)"/>
+                            </div>
+                            <div class="text-muted small">Translations</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Word of the Day -->
+                <t t-if="word_of_day">
+                    <div class="row justify-content-center mb-5">
+                        <div class="col-lg-6">
+                            <div class="card shadow-sm border-0">
+                                <div class="card-header bg-primary text-white text-center py-2">
+                                    <small class="text-uppercase fw-semibold letter-spacing-1">Word of the Day</small>
+                                </div>
+                                <div class="card-body text-center py-4">
+                                    <h2 class="display-6 fw-bold mb-1">
+                                        <t t-esc="word_of_day.word_text"/>
+                                    </h2>
+                                    <t t-if="word_of_day.translation_text">
+                                        <p class="text-muted fs-5 mb-2">
+                                            <t t-esc="word_of_day.translation_text"/>
+                                        </p>
+                                    </t>
+                                    <t t-if="word_of_day.entry_id">
+                                        <a t-attf-href="/my/vocabulary/#{word_of_day.entry_id.id}"
+                                           class="btn btn-sm btn-outline-primary mt-2">View Entry →</a>
+                                    </t>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </t>
+
+                <!-- Latest Articles -->
+                <t t-if="articles">
+                    <h2 class="fw-bold mb-4">Latest Articles</h2>
+                    <div class="row g-4 mb-4">
+                        <t t-foreach="articles" t-as="article">
+                            <div class="col-md-4">
+                                <div class="card h-100 shadow-sm border-0">
+                                    <div class="card-body d-flex flex-column">
+                                        <div class="mb-2">
+                                            <span t-att-class="'badge me-1 ' + ('bg-primary' if article.language == 'en' else ('bg-warning text-dark' if article.language == 'uk' else 'bg-info text-white'))">
+                                                <t t-esc="{'en': 'English', 'uk': 'Ukrainian', 'el': 'Greek'}.get(article.language, article.language)"/>
+                                            </span>
+                                            <t t-foreach="article.tag_ids[:2]" t-as="tag">
+                                                <span class="badge bg-secondary me-1"><t t-esc="tag.name"/></span>
+                                            </t>
+                                        </div>
+                                        <h5 class="card-title fw-semibold">
+                                            <a t-attf-href="/posts/#{article.slug}"
+                                               class="text-decoration-none text-reset stretched-link">
+                                                <t t-esc="article.title"/>
+                                            </a>
+                                        </h5>
+                                        <p class="card-text text-muted small flex-grow-1">
+                                            <t t-esc="(article.summary or '')[:150]"/>…
+                                        </p>
+                                        <div class="text-muted small mt-auto pt-2">
+                                            <t t-esc="article.published_date and article.published_date.strftime('%B %d, %Y') or ''"/>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </t>
+                    </div>
+                    <div class="text-center">
+                        <a href="/posts" class="btn btn-outline-secondary">Browse All Articles →</a>
+                    </div>
+                </t>
+
+                <!-- Feature Cards for non-logged-in users -->
+                <t t-if="request.env.user._is_public()">
+                    <hr class="my-5"/>
+                    <h2 class="fw-bold text-center mb-4">Why Lexora?</h2>
+                    <div class="row g-4">
+                        <div class="col-md-4 text-center">
+                            <div class="fs-1 mb-2">📚</div>
+                            <h5 class="fw-semibold">Personal Vocabulary</h5>
+                            <p class="text-muted small">Build your own word list with automatic translations and AI-powered enrichment.</p>
+                        </div>
+                        <div class="col-md-4 text-center">
+                            <div class="fs-1 mb-2">🧠</div>
+                            <h5 class="fw-semibold">Spaced Repetition</h5>
+                            <p class="text-muted small">Lexora's SM-2 algorithm schedules reviews at exactly the right moment to maximise retention.</p>
+                        </div>
+                        <div class="col-md-4 text-center">
+                            <div class="fs-1 mb-2">⚔️</div>
+                            <h5 class="fw-semibold">PvP Duels</h5>
+                            <p class="text-muted small">Challenge other learners to vocabulary duels and climb the global leaderboard.</p>
+                        </div>
+                    </div>
+                </t>
+
+            </div>
+        </t>
+    </template>
+
+    <!-- ============================================================ -->
+    <!-- Article List  /posts                                          -->
+    <!-- ============================================================ -->
+
+    <template id="portal_posts_list" name="Lexora Articles">
+        <t t-call="portal.portal_layout">
+            <div class="container py-4">
+                <div class="d-flex justify-content-between align-items-center mb-4">
+                    <h1 class="h2 fw-bold mb-0">Articles</h1>
+                    <span class="text-muted small"><t t-esc="total"/> article<t t-if="total != 1">s</t></span>
+                </div>
+
+                <div class="row g-4">
+                    <t t-foreach="posts" t-as="post">
+                        <div class="col-md-4">
+                            <div class="card h-100 shadow-sm border-0">
+                                <div class="card-body d-flex flex-column">
+                                    <div class="mb-2">
+                                        <span t-att-class="'badge me-1 ' + ('bg-primary' if post.language == 'en' else ('bg-warning text-dark' if post.language == 'uk' else 'bg-info text-white'))">
+                                            <t t-esc="{'en': 'English', 'uk': 'Ukrainian', 'el': 'Greek'}.get(post.language, post.language)"/>
+                                        </span>
+                                        <t t-foreach="post.tag_ids[:2]" t-as="tag">
+                                            <span class="badge bg-secondary me-1"><t t-esc="tag.name"/></span>
+                                        </t>
+                                    </div>
+                                    <h5 class="card-title fw-semibold">
+                                        <a t-attf-href="/posts/#{post.slug}"
+                                           class="text-decoration-none text-reset stretched-link">
+                                            <t t-esc="post.title"/>
+                                        </a>
+                                    </h5>
+                                    <p class="card-text text-muted small flex-grow-1">
+                                        <t t-esc="(post.summary or '')[:150]"/>…
+                                    </p>
+                                    <div class="text-muted small mt-auto pt-2">
+                                        <t t-esc="post.published_date and post.published_date.strftime('%B %d, %Y') or ''"/>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </t>
+                </div>
+
+                <!-- Pagination -->
+                <t t-if="total_pages > 1">
+                    <nav class="mt-5">
+                        <ul class="pagination justify-content-center">
+                            <t t-foreach="range(1, total_pages + 1)" t-as="p">
+                                <li t-att-class="'page-item' + (' active' if p == page else '')">
+                                    <a t-attf-href="/posts?page=#{p}" class="page-link">
+                                        <t t-esc="p"/>
+                                    </a>
+                                </li>
+                            </t>
+                        </ul>
+                    </nav>
+                </t>
+            </div>
+        </t>
+    </template>
+
+    <!-- ============================================================ -->
+    <!-- Article Detail  /posts/<slug>                                 -->
+    <!-- ============================================================ -->
+
+    <template id="portal_post_detail" name="Article Detail">
+        <t t-call="portal.portal_layout">
+            <div class="container py-4">
+                <div class="row justify-content-center">
+                    <div class="col-lg-8">
+
+                        <nav class="mb-3">
+                            <a href="/posts" class="small text-muted">← Back to Articles</a>
+                        </nav>
+
+                        <article>
+                            <div class="mb-3">
+                                <span t-att-class="'badge me-1 ' + ('bg-primary' if post.language == 'en' else ('bg-warning text-dark' if post.language == 'uk' else 'bg-info text-white'))">
+                                    <t t-esc="{'en': 'English', 'uk': 'Ukrainian', 'el': 'Greek'}.get(post.language, post.language)"/>
+                                </span>
+                                <t t-foreach="post.tag_ids" t-as="tag">
+                                    <span class="badge bg-secondary me-1"><t t-esc="tag.name"/></span>
+                                </t>
+                            </div>
+
+                            <h1 class="fw-bold mb-2"><t t-esc="post.title"/></h1>
+
+                            <div class="text-muted small mb-4">
+                                Published <t t-esc="post.published_date and post.published_date.strftime('%B %d, %Y') or ''"/>
+                            </div>
+
+                            <hr class="mb-4"/>
+
+                            <div class="article-body lh-lg" t-raw="post.body"/>
+                        </article>
+
+                        <!-- Save-to-vocab notice for logged-in users -->
+                        <t t-if="not request.env.user._is_public()">
+                            <div class="alert alert-light border mt-5 small text-muted">
+                                💡 <strong>Tip:</strong> Select any word or phrase in this article and click the
+                                floating <em>Add to Vocabulary</em> button to save it directly to your word list.
+                            </div>
+                        </t>
+
+                        <div class="text-center mt-4">
+                            <a href="/posts" class="btn btn-outline-secondary btn-sm">← More Articles</a>
+                        </div>
+
+                    </div>
+                </div>
+            </div>
+        </t>
+    </template>
+
+</odoo>
