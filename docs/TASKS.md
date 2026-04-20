@@ -15,19 +15,62 @@
 
 ## Current Milestone
 
-### M11 + M7/M8 — XP Shop + Chat & Social
+### M7 — Posts, Articles, Comments (Full Implementation)
 
-**Status:** In progress.
+**Status:** In progress — foundation complete, tests green.
 **Started:** 2026-04-20
-**Branch:** `m10_social_shop`
+**Branch:** `m7_articles` (split from `m10_social_shop` after M11+M8 commit)
 
-**Scope:** Two parallel tracks:
-- **M11 (XP Shop):** `language.shop.item`, `language.user.item`, purchase logic,
-  item effect hooks (streak freeze, double XP, profile frame), `/my/shop` portal.
-- **M7/M8 (Social):** `language.post`, moderation flow, comments, copy-to-list
-  from posts/chat, Odoo Discuss channels, private DMs.
+**Scope:** Full M7 post/article workflow on `language_portal`:
+- `language.post` model: draft → pending → published/rejected state machine
+- `language.post.comment` model with @mention parsing
+- `language.entry.post_id` provenance field (via `_inherit` in `language_portal`)
+- Portal routes: `/posts`, `/posts/<slug>`, `/my/posts`, `/my/posts/new`,
+  `/my/posts/<id>/edit`, submit/retract/approve/reject, comment CRUD
+- Moderation queue at `/my/moderation`
+- Copy-to-list from post body (floating button JS on article detail)
+- 18 tests: state machine, comments, @mentions, provenance — all green
 
-Implementation order: M11 foundation first (shop model + portal), then M7/M8 social layer.
+**Branch split notes:**
+- `m10_social_shop` contains: M11 XP Shop (complete), M8 Chat (complete + 12 tests).
+  Committed + pushed 2026-04-20.
+- `m7_articles` branches from `m10_social_shop` and adds M7 Posts layer.
+
+---
+
+### Phase B — M7: Posts & Articles
+
+#### Sub-steps
+
+- [x] M7-01 · `language.post` model: full SPEC fields, 4-state machine
+  (draft/pending/published/rejected), `action_submit/approve/reject/retract`. ✅
+- [x] M7-02 · `language.post.comment` model: author, body, @mention → `mention_ids`. ✅
+- [x] M7-03 · `language.post.tag` model (was already present, kept). ✅
+- [x] M7-04 · Security: users create + write own posts; moderators write any post
+  (via `sudo()` in action methods); `record_rules.xml` for author-own + published read. ✅
+- [x] M7-05 · `language_portal/models/language_entry_post.py`: `copied_from_post_id`
+  Many2one → language.post added via `_inherit` (avoids circular dep in language_words). ✅
+- [x] M7-06 · Portal controller: all routes wired (`/posts`, `/my/posts`, new/edit,
+  submit/retract/approve/reject, comment, delete_comment, copy_text JSON). ✅
+- [x] M7-07 · `views/portal_posts.xml`: posts list (paginated + language filter),
+  article detail (copy-to-list JS + comment form + delete), my posts table,
+  post form (create/edit), moderation queue. ✅
+- [x] M7-08 · `data/website_menus.xml`: "My Posts" navbar entry (seq=62). ✅
+- [x] M7-09 · 18 tests green: state machine (tests 01–12), comments (13–16),
+  copy provenance (17–18). `--update language_portal` → 0 errors. ✅
+
+#### Next steps
+
+- [ ] M7-10 · Manual smoke test: create draft → submit → approve as moderator →
+  view at `/posts/<slug>` → add comment → copy text to vocabulary.
+- [ ] M7-11 · Verify `copied_from_post_id` set on entries created via copy-text route.
+- [ ] M7-12 · Commit M7 on `m7_articles` and push.
+- [ ] M7-13 · (Optional) Backend admin views for `language.post` with status bar
+  and moderator actions (Lexora → Posts menuitem).
+
+#### Blockers
+
+(none)
 
 ---
 

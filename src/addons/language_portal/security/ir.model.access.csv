@@ -1,5 +1,9 @@
 id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
-access_language_post_user,language.post user,model_language_post,language_security.group_language_user,1,0,0,0
+access_language_post_user,language.post user,model_language_post,language_security.group_language_user,1,1,1,1
+access_language_post_mod,language.post moderator,model_language_post,language_security.group_language_moderator,1,1,1,0
 access_language_post_admin,language.post admin,model_language_post,language_security.group_language_admin,1,1,1,1
 access_language_post_tag_user,language.post.tag user,model_language_post_tag,language_security.group_language_user,1,0,0,0
 access_language_post_tag_admin,language.post.tag admin,model_language_post_tag,language_security.group_language_admin,1,1,1,1
+access_language_post_comment_user,language.post.comment user,model_language_post_comment,language_security.group_language_user,1,0,1,0
+access_language_post_comment_mod,language.post.comment moderator,model_language_post_comment,language_security.group_language_moderator,1,1,1,1
+access_language_post_comment_admin,language.post.comment admin,model_language_post_comment,language_security.group_language_admin,1,1,1,1

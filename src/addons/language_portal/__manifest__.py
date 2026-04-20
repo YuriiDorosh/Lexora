@@ -15,9 +15,11 @@
     ],
     'data': [
         'security/ir.model.access.csv',
+        'security/record_rules.xml',
         'data/seeded_posts.xml',
         'data/website_menus.xml',
         'views/portal_homepage.xml',
+        'views/portal_posts.xml',
     ],
     'installable': True,
     'auto_install': False,
