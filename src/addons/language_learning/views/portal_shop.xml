@@ -1,0 +1,183 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- ============================================================ -->
+    <!-- XP Shop  /my/shop                                           -->
+    <!-- ============================================================ -->
+
+    <template id="portal_xp_shop" name="XP Shop">
+        <t t-call="portal.portal_layout">
+            <t t-set="breadcrumbs_searchbar" t-value="False"/>
+            <t t-set="o_portal_fullwidth_alert" t-value="False"/>
+
+            <div class="container py-4">
+
+                <!-- Header -->
+                <div class="d-flex align-items-center justify-content-between mb-4">
+                    <div>
+                        <h2 class="mb-0">⚡ XP Shop</h2>
+                        <p class="text-muted mb-0">Spend your XP on helpful boosts and cosmetics.</p>
+                    </div>
+                    <div class="text-end">
+                        <span class="badge bg-warning text-dark fs-5 px-3 py-2">
+                            <t t-esc="xp_balance"/> XP
+                        </span>
+                        <div class="mt-1">
+                            <a href="/my/inventory" class="small text-muted">My Inventory →</a>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Flash messages -->
+                <t t-if="flash == 'bought'">
+                    <div class="alert alert-success alert-dismissible fade show" role="alert">
+                        ✅ Purchase successful! Check your <a href="/my/inventory">Inventory</a>.
+                        <button type="button" class="btn-close" data-bs-dismiss="alert"/>
+                    </div>
+                </t>
+                <t t-if="flash == 'error'">
+                    <div class="alert alert-danger alert-dismissible fade show" role="alert">
+                        ❌ <t t-esc="request.params.get('msg', 'Purchase failed.')"/>
+                        <button type="button" class="btn-close" data-bs-dismiss="alert"/>
+                    </div>
+                </t>
+
+                <!-- Shop grid -->
+                <div class="row g-4">
+                    <t t-foreach="items" t-as="item">
+                        <div class="col-12 col-md-4">
+                            <div class="card h-100 shadow-sm">
+                                <div class="card-body d-flex flex-column">
+                                    <div class="text-center mb-3">
+                                        <span style="font-size:3rem;"><t t-esc="item.icon"/></span>
+                                    </div>
+                                    <h5 class="card-title text-center"><t t-esc="item.name"/></h5>
+                                    <p class="card-text text-muted small flex-grow-1">
+                                        <t t-esc="item.description"/>
+                                    </p>
+                                    <div class="mt-3">
+                                        <!-- Owned badge -->
+                                        <t t-if="owned.get(item.id)">
+                                            <div class="text-center mb-2">
+                                                <span class="badge bg-success">
+                                                    Owned: <t t-esc="owned[item.id]"/>
+                                                </span>
+                                            </div>
+                                        </t>
+                                        <!-- Buy button -->
+                                        <t t-if="xp_balance >= item.xp_cost">
+                                            <form method="post" t-attf-action="/my/shop/buy/#{item.id}">
+                                                <input type="hidden" name="csrf_token"
+                                                       t-att-value="request.csrf_token()"/>
+                                                <button type="submit"
+                                                        class="btn btn-primary w-100">
+                                                    Buy — <t t-esc="item.xp_cost"/> XP
+                                                </button>
+                                            </form>
+                                        </t>
+                                        <t t-else="">
+                                            <button class="btn btn-outline-secondary w-100" disabled="">
+                                                <t t-esc="item.xp_cost"/> XP needed
+                                            </button>
+                                            <div class="text-center mt-1">
+                                                <small class="text-danger">
+                                                    Need <t t-esc="item.xp_cost - xp_balance"/> more XP
+                                                </small>
+                                            </div>
+                                        </t>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </t>
+                    <t t-if="not items">
+                        <div class="col-12 text-center text-muted py-5">
+                            <p>No items available yet. Check back soon!</p>
+                        </div>
+                    </t>
+                </div>
+
+            </div>
+        </t>
+    </template>
+
+    <!-- ============================================================ -->
+    <!-- Inventory  /my/inventory                                     -->
+    <!-- ============================================================ -->
+
+    <template id="portal_xp_inventory" name="My Inventory">
+        <t t-call="portal.portal_layout">
+            <div class="container py-4">
+
+                <div class="d-flex align-items-center justify-content-between mb-4">
+                    <h2 class="mb-0">🎒 My Inventory</h2>
+                    <a href="/my/shop" class="btn btn-outline-primary btn-sm">← Back to Shop</a>
+                </div>
+
+                <t t-if="user_items">
+                    <div class="table-responsive">
+                        <table class="table table-hover align-middle">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>Item</th>
+                                    <th>Type</th>
+                                    <th class="text-center">Quantity</th>
+                                    <th>Status</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <t t-foreach="user_items" t-as="ui">
+                                    <tr>
+                                        <td>
+                                            <span class="me-2"><t t-esc="ui.item_id.icon"/></span>
+                                            <strong><t t-esc="ui.item_id.name"/></strong>
+                                        </td>
+                                        <td>
+                                            <span class="badge bg-secondary">
+                                                <t t-esc="dict(ui.item_id._fields['item_type'].selection).get(ui.item_type, ui.item_type)"/>
+                                            </span>
+                                        </td>
+                                        <td class="text-center">
+                                            <t t-esc="ui.quantity"/>
+                                        </td>
+                                        <td>
+                                            <t t-if="ui.is_consumed">
+                                                <span class="badge bg-light text-muted">Used</span>
+                                            </t>
+                                            <t t-else="">
+                                                <span class="badge bg-success">Active</span>
+                                            </t>
+                                        </td>
+                                    </tr>
+                                </t>
+                            </tbody>
+                        </table>
+                    </div>
+                </t>
+                <t t-else="">
+                    <div class="text-center text-muted py-5">
+                        <p>Your inventory is empty.</p>
+                        <a href="/my/shop" class="btn btn-primary">Visit the Shop</a>
+                    </div>
+                </t>
+
+            </div>
+        </t>
+    </template>
+
+    <!-- ============================================================ -->
+    <!-- Portal home widget                                           -->
+    <!-- ============================================================ -->
+
+    <template id="portal_my_home_shop" name="Portal: Shop Link"
+              inherit_id="portal.portal_my_home" priority="40">
+        <xpath expr="//div[hasclass('o_portal_docs')]" position="inside">
+            <t t-call="portal.portal_docs_entry">
+                <t t-set="title">XP Shop</t>
+                <t t-set="url">/my/shop</t>
+                <t t-set="placeholder_count">0</t>
+            </t>
+        </xpath>
+    </template>
+
+</odoo>

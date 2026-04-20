@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo noupdate="1">
+
+    <record id="shop_item_streak_freeze" model="language.shop.item">
+        <field name="name">Streak Freeze</field>
+        <field name="description">Protects your streak for one missed day. Consumed automatically when you skip practice.</field>
+        <field name="xp_cost">50</field>
+        <field name="item_type">streak_freeze</field>
+        <field name="icon">🧊</field>
+        <field name="is_active" eval="True"/>
+    </record>
+
+    <record id="shop_item_profile_frame" model="language.shop.item">
+        <field name="name">Profile Frame</field>
+        <field name="description">A cosmetic golden border displayed around your avatar on the leaderboard.</field>
+        <field name="xp_cost">100</field>
+        <field name="item_type">profile_frame</field>
+        <field name="icon">🖼️</field>
+        <field name="is_active" eval="True"/>
+    </record>
+
+    <record id="shop_item_double_xp" model="language.shop.item">
+        <field name="name">Double XP Booster</field>
+        <field name="description">Doubles XP earned from the next 5 practice reviews.</field>
+        <field name="xp_cost">80</field>
+        <field name="item_type">double_xp</field>
+        <field name="icon">⚡</field>
+        <field name="is_active" eval="True"/>
+    </record>
+
+</odoo>

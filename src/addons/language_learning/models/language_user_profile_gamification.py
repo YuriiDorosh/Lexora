@@ -101,6 +101,16 @@ class LanguageUserProfileGamification(models.Model):
         so the user's daily practice counts toward the streak.
         """
         xp_delta = XP_BY_GRADE.get(grade, 0)
+
+        # Double XP Booster — consume one use if active
+        if xp_delta and 'language.user.item' in self.env.registry:
+            booster = self.env['language.user.item'].sudo()._get_active_item(
+                user_id, 'double_xp'
+            )
+            if booster:
+                xp_delta *= 2
+                booster._consume()
+
         today = fields.Date.today()
         profile = self._get_or_create_for_user(user_id)
 
@@ -119,12 +129,22 @@ class LanguageUserProfileGamification(models.Model):
             return
 
         new_streak = profile.current_streak
-        if lp == today - timedelta(days=1):
+        if lp and lp == today - timedelta(days=1):
             # Consecutive day — extend streak
             new_streak = profile.current_streak + 1
         else:
-            # Gap (or first practice ever) — reset to 1
-            new_streak = 1
+            # Gap or first practice — check for streak freeze before resetting
+            freeze = None
+            if 'language.user.item' in self.env.registry:
+                freeze = self.env['language.user.item'].sudo()._get_active_item(
+                    user_id, 'streak_freeze'
+                )
+            if freeze and profile.current_streak > 0:
+                freeze._consume()
+                _logger.info('Streak freeze consumed for user %d', user_id)
+                new_streak = profile.current_streak  # streak preserved
+            else:
+                new_streak = 1
 
         profile.write({
             'xp_total':          profile.xp_total + xp_delta,
@@ -164,7 +184,17 @@ class LanguageUserProfileGamification(models.Model):
         if lp and lp == today - timedelta(days=1):
             new_streak = profile.current_streak + 1
         else:
-            new_streak = 1  # first ever activity, or gap
+            # Gap — check for streak freeze before resetting
+            freeze = None
+            if 'language.user.item' in self.env.registry:
+                freeze = self.env['language.user.item'].sudo()._get_active_item(
+                    user_id, 'streak_freeze'
+                )
+            if freeze and profile.current_streak > 0:
+                freeze._consume()
+                new_streak = profile.current_streak  # streak preserved
+            else:
+                new_streak = 1
 
         profile.write({
             'current_streak':     new_streak,

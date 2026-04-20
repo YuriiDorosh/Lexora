@@ -2,12 +2,13 @@ from odoo import fields, models
 
 
 REASON_LABELS = {
-    'duel_win':  'Duel Win',
-    'duel_loss': 'Duel Loss',
-    'duel_draw': 'Duel Draw',
-    'practice':  'Practice',
-    'bonus':     'Bonus',
-    'initial':   'Initial Balance',
+    'duel_win':       'Duel Win',
+    'duel_loss':      'Duel Loss',
+    'duel_draw':      'Duel Draw',
+    'practice':       'Practice',
+    'bonus':          'Bonus',
+    'initial':        'Initial Balance',
+    'shop_purchase':  'Shop Purchase',
 }
 
 
