@@ -1,6 +1,7 @@
 """Portal controllers for chat features.
 
 Routes:
+  GET  /my/chat                    — redirect to the #english public channel
   GET  /my/users/<id>              — public profile of another user
   POST /my/users/<id>/dm           — get or create DM channel, redirect to Discuss
   JSON /my/vocabulary/add_from_chat — save selected text as a vocabulary entry
@@ -31,6 +32,18 @@ def _try_detect_language(text: str):
 
 
 class ChatPortal(http.Controller):
+
+    # ------------------------------------------------------------------
+    # GET /my/chat — redirect to the #english public channel
+    # ------------------------------------------------------------------
+
+    @http.route('/my/chat', type='http', auth='user', website=True, methods=['GET'])
+    def chat_redirect(self, **kw):
+        Channel = request.env['discuss.channel'].sudo()
+        channel = Channel.search([('name', '=', 'english'), ('channel_type', '=', 'channel')], limit=1)
+        if channel:
+            return request.redirect(f'/discuss/channel/{channel.id}')
+        return request.redirect('/discuss')
 
     # ------------------------------------------------------------------
     # GET /my/users/<id> — public user profile
