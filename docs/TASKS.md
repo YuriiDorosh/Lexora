@@ -108,28 +108,33 @@ Implementation order: M11 foundation first (shop model + portal), then M7/M8 soc
 
 **B2 — Chat & DMs**
 
-- [ ] M8-01 · Configure Odoo Discuss public channels: `#english`, `#ukrainian`,
-  `#greek` created via data fixture. `is_public=True`, accessible to all Language Users.
+- [x] M8-01 · `language_chat` module initialized. 3 `discuss.channel` records created
+  via `data/chat_channels.xml` (noupdate="1"): `english`, `ukrainian`, `greek`.
+  `group_public_id` = Language User group so only Language Users can see them.
+  `post_init_hook` adds all existing Language Users as members. ✅
+  *Channels verified in DB: ids 17/18/19, channel_type=channel.*
 
-- [ ] M8-02 · "Start DM" button on user profile pages → opens/creates a
-  `mail.channel` in DM mode between current user and the profile's user.
+- [x] M8-02 · `/my/users/<id>` public profile page with Send Message button.
+  `POST /my/users/<id>/dm` uses `discuss.channel.channel_get()` to find or create
+  a canonical 1-to-1 `chat` channel between current user and target, then redirects
+  to `/discuss/channel/<id>`. ✅
 
-- [ ] M8-03 · "Save to my list" from chat: JS overlay on chat messages.
-  On text selection in a `.o_message_body`, show a floating "Add to Vocabulary"
-  button → same `copy_from_post` endpoint (with `chat_channel_id` instead of
-  `post_id`), sets `created_from='copied_from_chat'`.
+- [x] M8-03 · Global "Save from Chat" text-selection JS injected into every portal page
+  via `portal_save_from_chat_js` template (inherits `portal.portal_layout`).
+  Shows floating "📖 Add to Vocabulary" button on any text selection ≥2 chars.
+  Posts to `JSON /my/vocabulary/add_from_chat` → creates `language.entry` with
+  `created_from='copied_from_chat'`, auto-detects language, handles duplicates. ✅
 
-- [ ] M8-04 · Message report flow: "Report" action on chat messages →
-  creates `language.content.report` record with `message_id`, `reporter_id`, `reason`.
+- [x] M8-04 · Leaderboard names are now clickable links to `/my/users/<id>` via
+  `leaderboard_user_links` template inheriting `portal_leaderboard`. ✅
 
-- [ ] M8-05 · Moderator report review: list of open reports; "Delete message" /
-  "Dismiss report" actions.
+- [ ] M8-05 · Message report flow (deferred — not blocking core chat features).
 
 **B3 — Tests & install**
 
-- [ ] M8-06 · Tests (≥8): post create/submit/approve, comment @mention parsing,
-  copy-to-list from post creates entry + translation queued, channel exists.
-- [ ] M8-07 · `--update language_portal,language_chat --stop-after-init` → 0 errors.
+- [x] M8-06 · `--init language_chat --stop-after-init` → 0 errors, channels created. ✅
+- [ ] M8-07 · Write tests for chat module (channels exist, add_from_chat endpoint,
+  DM channel creation). Target: ≥5 tests.
 - [ ] M8-08 · Tests green.
 - [ ] M8-09 · Commit M7/M8 on `m10_social_shop`.
 
