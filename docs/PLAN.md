@@ -1,8 +1,8 @@
 # Lexora — Implementation Plan (MVP)
 
-> Version: 0.1 (post-discovery)
-> Last updated: 2026-04-13
-> Status: Ready for implementation (pending user confirmation)
+> Version: 0.2 (post-M10)
+> Last updated: 2026-04-20
+> Status: M0–M10 complete (resequenced); M7/M8 Social features next
 
 ---
 
@@ -18,21 +18,25 @@
 
 ## Milestone Overview
 
-| # | Name | What it delivers |
-|---|---|---|
-| M0 | Infrastructure Foundation | Docker Compose stack boots; Odoo reaches the setup screen |
-| M1 | Core Module Scaffold + Auth | All custom modules installed; signup assigns Language User role |
-| M2 | Learning Entries | Manual add, dedup, visibility, language detection prefill |
-| M3 | Translation Service | RabbitMQ-backed translation events flow end-to-end (engine choice finalised in M4c) |
-| M4 | LLM Enrichment Service | Enrichment events flow; results visible on entry |
-| M4b | Real CPU-only LLM | Replace enrichment stub with Qwen2.5-1.5B GGUF via llama-cpp-python (CPU-only, ADR-027) — *complete* |
-| M4c | Translation / Enrichment split | Pivot Translation to `deep_translator` (online free API); restrict LLM to source-language enrichment only (ADR-028) |
-| M5 | Anki Import Service | .apkg and .txt import with dedup and persistent import log |
-| M6 | Audio (Recording + TTS) | Record button works; TTS generation via async service |
-| M7 | Posts, Articles, Comments | Draft → review → publish flow; comments with @mentions |
-| M8 | Chat | Public channels + private DMs; save-to-list from chat |
-| M9 | Dashboards & Search | Personal + global dashboards; fuzzy + cross-language search |
-| M10 | PvP Battle System | Matchmaking → battle → result → leaderboard |
+> **Note (2026-04-20):** Implementation proceeded in a different order than originally planned.
+> M9 (Dashboards/SRS) and M10 (PvP Arena) were built before M7 (Posts) and M8 (Chat).
+> The table below reflects **actual** completion status.
+
+| # | Name | Status | What it delivers |
+|---|---|---|---|
+| M0 | Infrastructure Foundation | ✅ Complete | Docker Compose stack boots; Odoo reaches the setup screen |
+| M1 | Core Module Scaffold + Auth | ✅ Complete | All custom modules installed; signup assigns Language User role |
+| M2 | Learning Entries | ✅ Complete | Manual add, dedup, visibility, language detection prefill |
+| M3 | Translation Service | ✅ Complete | RabbitMQ-backed translation events flow end-to-end |
+| M4 | LLM Enrichment Service | ✅ Complete | Enrichment events flow; results visible on entry |
+| M4b | Real CPU-only LLM | ✅ Complete | Qwen2.5-1.5B GGUF via llama-cpp-python (ADR-027) |
+| M4c | Translation / Enrichment split | ✅ Complete | `deep_translator` online API; LLM restricted to source-language enrichment (ADR-028) |
+| M5 | Anki Import Service | ✅ Complete | .apkg and .txt import with dedup and persistent import log |
+| M6 | Audio (Recording + TTS) | ✅ Complete | Record button works; TTS generation via async service |
+| M7 | Posts, Articles, Comments | ⏳ **Next** | Draft → review → publish flow; comments with @mentions |
+| M8 | Chat & DMs | ⏳ **Next** | Public channels + private DMs; save-to-list from chat |
+| M9 | SRS Core + Dashboards | ✅ Complete (resequenced) | SM-2 spaced repetition, `/my/practice`, leaderboard, vocabulary pro dashboard |
+| M10 | PvP Arena + XP System | ✅ Complete (resequenced) | Async word duels, XP/streak/levels, personal dashboard, Lexora Bot |
 
 ---
 

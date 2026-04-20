@@ -1,5 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
+    <record id="rule_language_xp_log_owner" model="ir.rule">
+        <field name="name">language.xp.log: owner read only</field>
+        <field name="model_id" ref="model_language_xp_log"/>
+        <field name="groups" eval="[(4, ref('language_security.group_language_user'))]"/>
+        <field name="domain_force">[('user_id', '=', user.id)]</field>
+        <field name="perm_read" eval="True"/>
+        <field name="perm_write" eval="False"/>
+        <field name="perm_create" eval="False"/>
+        <field name="perm_unlink" eval="False"/>
+    </record>
+
     <record id="rule_language_review_owner" model="ir.rule">
         <field name="name">language.review: owner access only</field>
         <field name="model_id" ref="model_language_review"/>

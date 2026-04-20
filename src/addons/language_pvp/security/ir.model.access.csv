@@ -1,1 +1,5 @@
 id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_language_duel_user,language.duel user,model_language_duel,language_security.group_language_user,1,1,1,0
+access_language_duel_admin,language.duel admin,model_language_duel,base.group_system,1,1,1,1
+access_language_duel_line_user,language.duel.line user,model_language_duel_line,language_security.group_language_user,1,1,1,0
+access_language_duel_line_admin,language.duel.line admin,model_language_duel_line,base.group_system,1,1,1,1

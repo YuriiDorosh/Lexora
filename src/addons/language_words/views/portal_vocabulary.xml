@@ -518,7 +518,7 @@
                             })
                             .then(function (r) { return r.json(); })
                             .then(function (data) {
-                                var lang = data.result;
+                                var lang = data.result &amp;&amp; data.result.lang;
                                 if (lang) {
                                     langSelect.value = lang;
                                     hint.textContent = 'Auto-detected: ' + lang + ' (you can change it)';

@@ -15,177 +15,363 @@
 
 ## Current Milestone
 
-### M8 — Gamification & Progression Stats
+### M7/M8 — Chat & Social Features
 
-**Status:** In progress — core implementation complete; tests written; pending install & verify.
-**Started:** 2026-04-19
-**Branch:** `m8`
+**Status:** Not started.
+**Branch:** `m10` (to be created)
 
-**Scope:** XP system, daily streaks, and a public leaderboard. No new async
-services. All logic is pure Odoo — fields added to `language.user.profile` via
-`_inherit` in `language_learning`, wired into `action_register_review()`.
+**Scope:** Public channels, private DMs, moderation, and "Save to my list" from
+chat messages. M7 (Posts/Articles) and M8 (Chat) were deferred while M9/M10
+(SRS + PvP) were built. Now the social layer is the remaining MVP gap.
+
+#### Sub-steps
+
+- [ ] M7/M8-01 · Implement `language.post` model (title, body, status, author, tags).
+- [ ] M7/M8-02 · Draft → submit-for-review → moderator approve/reject flow.
+- [ ] M7/M8-03 · Comments model (flat, @mention parsing).
+- [ ] M7/M8-04 · "Copy to my list" inline popup from post/article text.
+- [ ] M7/M8-05 · Extend Odoo Discuss for public channels with language context.
+- [ ] M7/M8-06 · Private DM flow (start DM from user profile page).
+- [ ] M7/M8-07 · "Save to my list" from chat message text.
+- [ ] M7/M8-08 · Moderator report review UI.
+- [ ] M7/M8-09 · Tests + install verify.
+- [ ] M7/M8-10 · Commit on `m10`.
+
+#### Blockers
+
+(none)
 
 ---
 
-#### Precise Technical Specification
+### M10 — Personal Dashboard & XP Analytics (completed)
 
-**Database schema additions to `language.user.profile` (via `_inherit`):**
+**Status:** Complete and verified.
+**Started:** 2026-04-19
+**Completed:** 2026-04-20
+**Branch:** `m9`
 
-| Field | Type | Default | Notes |
-|---|---|---|---|
-| `xp_total` | Integer | 0 | Cumulative XP earned, never decremented |
-| `current_streak` | Integer | 0 | Consecutive days with ≥1 review submitted |
-| `longest_streak` | Integer | 0 | All-time peak streak |
-| `last_practice_date` | Date | False | Date of most recent `action_register_review` call |
-| `level` | Integer (computed, store=True) | 1 | `floor(sqrt(xp_total / 50)) + 1`, capped at 20 |
-| `level_progress_pct` | Integer (computed, store=False) | 0 | % progress within current level band (for progress bar) |
-
-**XP per grade (constants in `language_review.py`):**
-
-```python
-XP_BY_GRADE = {0: 0, 1: 5, 2: 10, 3: 15}
-# Again=0, Hard=5, Good=10, Easy=15
-```
-
-**Level formula:**
-
-```python
-import math
-def _xp_to_level(xp: int) -> int:
-    return min(20, 1 + int(math.sqrt(max(0, xp) / 50)))
-```
-
-Inflection points: Level 2 @ 50 XP, Level 3 @ 200, Level 4 @ 450, Level 5 @ 800,
-Level 10 @ 4050, Level 20 @ 18050. Level cap = 20 (representable in UI without
-layout overflow). Progress % within a level band = how far the user is between
-the current level's XP floor and the next level's XP floor.
-
-```python
-def _level_progress(xp: int) -> int:
-    lvl = _xp_to_level(xp)
-    if lvl >= 20:
-        return 100
-    floor_xp = 50 * (lvl - 1) ** 2   # XP needed for current level
-    ceil_xp  = 50 * lvl ** 2          # XP needed for next level
-    return round((xp - floor_xp) / max(1, ceil_xp - floor_xp) * 100)
-```
-
-**Streak logic (called inside `action_register_review` after SM-2 update):**
-
-```python
-today = fields.Date.today()
-profile = Profile._get_or_create_for_user(self.user_id.id)
-
-if profile.last_practice_date == today:
-    # already counted today — only add XP, no streak change
-    profile.xp_total += xp_delta
-elif profile.last_practice_date == today - timedelta(days=1):
-    # consecutive day — extend streak
-    profile.write({
-        'xp_total': profile.xp_total + xp_delta,
-        'current_streak': profile.current_streak + 1,
-        'longest_streak': max(profile.longest_streak, profile.current_streak + 1),
-        'last_practice_date': today,
-    })
-else:
-    # gap or first practice — reset streak to 1
-    profile.write({
-        'xp_total': profile.xp_total + xp_delta,
-        'current_streak': 1,
-        'last_practice_date': today,
-    })
-```
-
-**Key invariants:**
-- XP is monotonically increasing — never decremented (even on Again).
-- Streak advances at most once per calendar day per user, regardless of how
-  many cards are graded that day.
-- Streak resets to 1 (not 0) on the day it is broken — the current session counts.
-- `longest_streak` only updates when `current_streak + 1 > longest_streak`.
-- `level` is stored (not just computed) so it can be queried efficiently in the
-  leaderboard ORDER BY without a Python-side sort.
-- `action_register_review` calls `_update_gamification(grade)` as a single
-  `self.env['language.user.profile'].sudo()` write — one extra DB write per review.
-
-**Leaderboard (`/my/leaderboard`):**
-
-- Shows top 20 profiles ordered by `xp_total DESC`, then `current_streak DESC`.
-- Only profiles with `xp_total > 0` appear (excludes users who never practiced).
-- Privacy: displays only user's `display_name`, XP, level, streak — no vocabulary.
-- Paginated (20/page) via `portal_pager`.
-- Current user's own row highlighted.
-- Website navbar entry: "Leaderboard" at sequence 70, `user_logged=True`.
+**Scope:** XP transaction logging, `/my/dashboard` portal with stats header,
+XP history table, duel analytics, recent duels list, and "My Profile" navbar link.
 
 ---
 
 #### Sub-steps
 
-**Phase 1 — Profile gamification fields**
+- [x] M10-01 · `language.xp.log` model (`language_learning/models/language_xp_log.py`).
+  Fields: `user_id`, `amount` (int, +/-), `reason` (selection), `duel_id` (Integer soft-ref),
+  `date`, `note`. Ordered `date desc, id desc`.
 
-- [x] M8-01 · `src/addons/language_learning/models/language_user_profile_gamification.py`
-  `_inherit = 'language.user.profile'`
-  Fields: `xp_total`, `current_streak`, `longest_streak`, `last_practice_date`,
-  `level` (computed + stored, depends='xp_total'), `level_progress_pct` (computed, store=False).
-  `_update_gamification_for_user(user_id, grade)` method — atomic streak+XP update.
+- [x] M10-02 · XP log wired into `_update_gamification_for_user`: creates a `practice` log
+  entry for every non-zero XP award (both the streak-update path and the same-day path).
 
-**Phase 2 — Wire into SM-2**
+- [x] M10-03 · XP log wired into `language_duel._transfer_xp`: creates `duel_win` and
+  `duel_loss` log entries. Uses `'language.xp.log' in self.env.registry` guard so duel module
+  stays decoupled from `language_learning` in its manifest.
 
-- [x] M8-02 · `src/addons/language_learning/models/language_review.py`
-  At end of `action_register_review()`, calls:
-  `self.env['language.user.profile'].sudo()._update_gamification_for_user(self.user_id.id, grade)`.
-  `XP_BY_GRADE` dict lives in `language_user_profile_gamification.py`.
+- [x] M10-04 · Security — `ir.model.access.csv`: Language Users can read own logs (no
+  write/create from portal); Admins full CRUD. `record_rules.xml`: owner-only read rule.
 
-**Phase 3 — Backend views**
+- [x] M10-05 · `post_update_hook` / `post_init_hook` seed: `_seed_xp_logs(env)` creates
+  one `initial` log entry for each profile with `xp_total > 0` that has no existing entries.
 
-- [ ] M8-03 · `src/addons/language_learning/views/language_review_views.xml`
-  Extend to include XP/streak/level on `language.user.profile` list and form.
-  (Deferred — admin can view via DB; not blocking for M8 verification.)
+- [x] M10-06 · `/my/dashboard` portal route added to `language_learning/controllers/portal.py`.
+  Queries: profile, last-20 XP logs, global rank, duel stats (wins/losses/draws/win rate),
+  last-5 finished duels. `language.duel` access guarded by `registry` check for loose coupling.
 
-**Phase 4 — Portal leaderboard**
+- [x] M10-07 · `views/portal_dashboard.xml` — dashboard template + portal home widget.
+  Stats header (level badge + progress bar, total XP, global rank, streak fire icon).
+  XP history table (date | reason + duel link | +/- amount, colour-coded).
+  Duel analytics card (W/L/D counters + win-rate progress bar).
+  Recent duels list (last 5, W/L/D badge, link to `/my/arena/<id>`).
 
-- [x] M8-04 · `src/addons/language_learning/controllers/portal.py` — `GET /my/leaderboard`
-  route, paginated top-20 by XP desc then streak desc.
-- [x] M8-05 · `src/addons/language_learning/views/portal_leaderboard.xml` — ranked table
-  with current-user highlight (table-primary), level badge + progress bar, streak counter.
-  Medal icons for top-3. Empty state with CTA to practice.
-- [x] M8-06 · `data/website_menus.xml` + `__init__.py` hook — "Daily Practice" (seq=55)
-  and "Leaderboard" (seq=70) navbar entries propagated to all existing websites.
+- [x] M10-08 · "My Profile" navbar entry (seq=65) added to `website_menus.xml` and
+  `__init__.py` `_NAVBAR_MENUS` list. Propagated by `post_init_hook` / `post_update_hook`.
 
-**Phase 5 — Tests**
+- [x] M10-09 · `--update language_learning --stop-after-init` → 0 errors; `language.xp.log`
+  table created; seed hook ran; dashboard template registered.
+- [x] M10-10 · `--test-enable -u language_learning,language_pvp` → 0 failures, 0 errors.
+- [x] M10-11 · `docker restart odoo` → both modules load in 0.00s; routes registered.
+- [x] M10-11b · Bug fix: `portal_dashboard.xml` progress bar — two-stage fix.
+  Stage 1 `ValueError: incomplete format`: `arch_db` held `%d%` because `--update`
+  only overwrites `arch_db` on checksum change; initial install captured the bad value.
+  Stage 2 `ValueError: can only parse strings`: first repair attempt used
+  `to_jsonb(REPLACE(arch_db::text,...))` which double-encodes the jsonb object as a JSON
+  string (jsonb_typeof=string), corrupting the structure Odoo's XML parser expects.
+  Third repair: `(arch_db #>> '{}')::jsonb` fixed the type (object), but the extracted
+  content was verified via `substring(arch_db::text ...)` to STILL contain `%d%`.
+  Root cause of the persistent bug: `REPLACE(col::text, ...)::jsonb` is correct but
+  `to_jsonb(REPLACE(...))` is wrong — `to_jsonb(text)` wraps as a JSON string, while
+  `::jsonb` parses the text as JSON. The `#>> '{}'` unwrap only undid the wrapping,
+  leaving the original bad value underneath.
+  Final fix: `REPLACE(arch_db::text, 'width:%d%', 'width:%d%%')::jsonb` — plain `::jsonb`
+  cast re-parses the replaced text correctly. Verified via regex `width:%d[^%]` = false
+  and direct `substring()` showing `width:%d%%'`. `docker restart` to flush QWeb cache.
+- [x] M10-11c · Bug fix: streak logic decoupled from XP balance.
+  Root cause: `_transfer_xp` updated XP directly but never called gamification logic,
+  so duel activity (win/loss/draw) did not update `last_practice_date` or streak.
+  If a user only dueled (no practice reviews) their streak broke the next day.
+  Fix 1 — new `_record_duel_activity(user_id)` method on `language.user.profile`:
+    updates streak + `last_practice_date` without touching XP; called for both
+    challenger and opponent at the end of every `_transfer_xp` execution.
+  Fix 2 — draw case in `_transfer_xp` previously returned silently (no log, no streak);
+    now logs `duel_draw` (amount=0) for both players and records activity.
+  Fix 3 — loser XP log records actual deducted amount (`min(balance, staked)`) so
+    the log is accurate when the loser's balance was below the stake.
+  Fix 4 — leaderboard domain changed to
+    `['|', ('xp_total', '>', 0), ('current_streak', '>', 0)]` so active learners
+    who lost all XP in duels still appear. Dashboard rank check updated identically.
+  77 tests: 0 failures, 0 errors after the fix.
+- [x] M10-12 · Manual smoke: `/my/dashboard` renders; bot duel creates win/loss log entries;
+  XP history shows transactions; "My Profile" link appears in navbar.
+- [x] M10-13 · Commit M10 on branch `m9`. Progress-bar fix committed (format→.format()).
+- [x] M10-14 · Merge conflict resolved (m9 ← main). Branch pushed, PR #20 ready.
 
-- [x] M8-07 · `tests/test_gamification.py` — 24 tests:
-  Helper unit tests (levels, progress%), XP per grade, streak first/consecutive/same-day/gap,
-  longest_streak tracking, level stored field, leaderboard ordering query.
+#### Files changed
 
-**Phase 6 — Install & verify (pending)**
+- `language_learning/models/language_xp_log.py` (new)
+- `language_learning/models/__init__.py` (add import)
+- `language_learning/models/language_user_profile_gamification.py` (log practice XP)
+- `language_pvp/models/language_duel.py` (log duel XP in `_transfer_xp`)
+- `language_learning/security/ir.model.access.csv` (xp_log access rows)
+- `language_learning/security/record_rules.xml` (xp_log owner rule)
+- `language_learning/controllers/portal.py` (`/my/dashboard` route)
+- `language_learning/views/portal_dashboard.xml` (new)
+- `language_learning/data/website_menus.xml` ("My Profile" entry)
+- `language_learning/__init__.py` (_seed_xp_logs + navbar entry)
+- `language_learning/__manifest__.py` (portal_dashboard.xml in data)
 
-- [ ] M8-08 · `--update language_learning --stop-after-init --no-http` → 0 errors.
-- [ ] M8-09 · All tests (M7 + M8) green: `--test-enable -u language_learning`.
-- [ ] M8-10 · `docker restart odoo` → `/my/leaderboard` responds for authenticated user.
-- [ ] M8-11 · Grade cards → XP visible on `/my/leaderboard`; streak increments.
-- [ ] M8-12 · Commit M8 on branch `m8`.
+---
 
-**Pagination bug fix (applied this session):**
-- [x] BUG · `/my/vocabulary/page/2` returned 404.
-  Root cause: `@http.route('/my/vocabulary', ...)` did not declare the `/page/<int:page>`
-  URL pattern. Odoo's `portal_pager` generates `/my/vocabulary/page/2` links which the
-  router couldn't match.
-  Fix: `@http.route(['/my/vocabulary', '/my/vocabulary/page/<int:page>'], ...)` in
-  `src/addons/language_words/controllers/portal.py`.
+### M9 — PvP Arena: Asynchronous Word Duels
+
+**Status:** Complete and verified.
+**Started:** 2026-04-19
+**Completed:** 2026-04-19
+**Branch:** `m9`
+
+**Scope:** Asynchronous PvP duel system inside `language_pvp`. Players stake XP,
+challenge opponents (or leave open challenges), and play rounds against each
+other's PvP-eligible vocabulary. No Redis or real-time required — all state is
+in Odoo/Postgres. Real-time (Redis/Odoo bus) is deferred to M10.
+
+---
+
+#### Precise Technical Specification
+
+**`language.duel` state machine:**
+
+```
+draft → open → ongoing → finished
+```
+
+- `draft`: challenger filled in settings but hasn't published yet (reserved for UI; not yet surfaced)
+- `open`: open challenge, waiting for any opponent to join; `opponent_id = False`
+- `ongoing`: opponent joined, rounds being played
+- `finished`: all rounds complete or forfeit; `winner_id` set (or False for draw)
+
+**`language.duel` fields:**
+
+| Field | Type | Notes |
+|---|---|---|
+| `challenger_id` | Many2one → res.users | Required |
+| `opponent_id` | Many2one → res.users | Nullable; set when someone joins an open challenge |
+| `state` | Selection (draft/open/ongoing/finished) | Default: open |
+| `winner_id` | Many2one → res.users | Nullable; set on finish |
+| `xp_staked` | Integer | Default: 10; both players "risk" this XP |
+| `practice_language` | Selection (en/uk/el) | Required |
+| `native_language` | Selection (en/uk/el) | Required |
+| `rounds_total` | Integer | Default: 10 |
+| `challenger_score` | Integer | Default: 0 |
+| `opponent_score` | Integer | Default: 0 |
+| `start_date` | Datetime | Set when state→ongoing |
+| `end_date` | Datetime | Set when state→finished |
+
+**`language.duel.line` fields:**
+
+| Field | Type | Notes |
+|---|---|---|
+| `duel_id` | Many2one → language.duel | Required, cascade |
+| `player_id` | Many2one → res.users | Required |
+| `entry_id` | Many2one → language.entry | The word being tested |
+| `round_number` | Integer | 1-based round index |
+| `correct` | Boolean | Default: False |
+| `answer_given` | Char | The text the player submitted |
+| `time_taken_seconds` | Float | Optional; for UI display |
+
+**Key invariants:**
+- Only `pvp_eligible=True` entries (have at least one completed translation) appear in duels.
+- A player cannot join their own open challenge.
+- XP transfer: winner gains `xp_staked`, loser loses `xp_staked` (floor at 0). Draw: no XP change.
+- `language.user.profile.xp_total` is updated on `action_finish_duel()`.
+- Minimum entries check: user must have ≥10 `pvp_eligible` entries in `practice_language` to create/join a duel (reads `language.pvp.min_entries` system parameter from `language_core`).
+
+**Portal `/my/arena`:**
+
+- Section 1 — "Open Challenges": `state='open'`, `opponent_id=False`, `practice_language` matches user's profile learning languages, `challenger_id != uid`. "Accept" button → `POST /my/arena/<id>/join`.
+- Section 2 — "Your Active Duels": `state in ('open','ongoing')`, `challenger_id=uid OR opponent_id=uid`. Links to `/my/arena/<id>`.
+- Section 3 — "Recent History": `state='finished'`, `challenger_id=uid OR opponent_id=uid`, last 10. Shows outcome (W/L/D), opponent name, scores.
+- "New Challenge" button → `POST /my/arena/new` creates a duel with `state='open'` and redirects to the duel page.
+
+**Portal `/my/arena/<id>` (duel detail):**
+
+- Shows duel metadata (languages, XP staked, state).
+- If `state='ongoing'` and it's the current player's turn (rounds submitted < `rounds_total`): show a word card (source text of a `pvp_eligible` entry) and a text input for the translation answer. `POST /my/arena/<id>/answer` records the `language.duel.line`.
+- If both players submitted all rounds: `action_finish_duel()` is called automatically. Shows results table.
+
+---
+
+#### Sub-steps
+
+**Phase 1 — Models**
+
+- [x] M9-01 · `src/addons/language_pvp/models/language_duel.py`
+  `language.duel` with state machine methods:
+  `action_open()`, `action_join(user_id)`, `action_finish_duel()`.
+  `_get_eligible_entries(user_id)` — returns `pvp_eligible=True` entries for user in `practice_language`.
+  `_check_min_entries(user_id)` — raises `UserError` if below threshold.
+  `_select_round_entries(user_id, n)` — random sample of n pvp_eligible entries for user.
+
+- [x] M9-02 · `src/addons/language_pvp/models/language_duel_line.py`
+  `language.duel.line` — stores one player's answer for one round.
+
+- [x] M9-03 · `src/addons/language_pvp/models/__init__.py` — import both models.
+
+**Phase 2 — Security**
+
+- [x] M9-04 · `security/ir.model.access.csv` — Language Users: read/write/create on both models (no delete); Admins: full CRUD.
+- [x] M9-05 · `security/record_rules.xml` — duel visible to challenger_id or opponent_id or if state='open'. Duel line visible to player_id.
+
+**Phase 3 — Manifest**
+
+- [x] M9-06 · Update `__manifest__.py`:
+  - `depends: ['language_words', 'language_translation', 'portal']`
+  - Add security/record_rules.xml, views, controllers to `data`/`assets`
+
+**Phase 4 — Portal**
+
+- [x] M9-07 · `controllers/__init__.py` + `controllers/portal.py`
+  Routes: `GET /my/arena`, `POST /my/arena/new`, `GET /my/arena/<id>`,
+  `POST /my/arena/<id>/join`, `POST /my/arena/<id>/answer`.
+
+- [x] M9-08 · `views/portal_arena.xml` — arena lobby + duel detail templates.
+  Inherits `portal.portal_my_home` for home widget (active duel count).
+  `data/website_menus.xml` — "Arena" navbar entry (sequence=75, user_logged=True).
+
+**Phase 5 — Tests & install**
+
+- [x] M9-09 · `tests/test_language_duel.py` — 16 tests:
+  Duel creation, state transitions, join (own challenge blocked), min-entries gate,
+  eligible entry selection, duel line creation, score tallying, XP transfer on finish,
+  draw (no XP change), idempotent finish.
+
+- [x] M9-10 · `tests/__init__.py` — import new test module.
+
+- [x] M9-11 · `--init language_pvp --stop-after-init --no-http` → 0 errors, 111 queries.
+- [x] M9-12 · `--test-enable -u language_pvp --no-http` → 16 tests green, 0 failures, 0 errors.
+- [x] M9-13 · `docker restart odoo` → registry loads; `/my/arena` returns 404 for
+      unauthenticated (correct for `auth='user'`); all 56 modules loaded in 0.20s.
+- [x] M9-14 · Manual: create open challenge → second user joins → play rounds → verify XP transfer.
+- [x] M9-15 · Commit M9 on branch `m9`.
+
+---
+
+**Phase 6 — M9b: Bug fixes, M8 port, Cancel & Bot (2026-04-19)**
+
+- [x] M9-16 · **Port M8 to m9** — cherry-picked M8 gamification, leaderboard, vocabulary
+  pro dashboard, and pagination fix onto `m9`. All 56 tests green after port.
+
+- [x] M9-17 · **Fix Infinite Wait** — `_rounds_submitted_by` rewritten to use
+  `sudo().search_count()`, bypassing the `language.duel.line` record rule that
+  hides opponent lines. `action_finish_duel()` already used `sudo()`.
+  `controllers/portal.py` `arena_answer`: added `duel.invalidate_recordset()` after
+  line creation so the fresh count is accurate before the completion check.
+
+- [x] M9-18 · **Fix JS `[object Object]`** — `portal_vocabulary.xml` line 521:
+  `var lang = data.result;` → `var lang = data.result &amp;&amp; data.result.lang;`
+  (XML-escaped `&&`). Correctly unpacks the Odoo JSON-RPC `{"result":{"lang":"en"}}`.
+
+- [x] M9-19 · **Cancel state** — Added `('cancel', 'Cancelled')` to `language.duel`
+  state Selection. `action_cancel()` guards `state == 'open'`, writes `state='cancel'`.
+  Cancel button added to lobby "Your Active Duels" (open rows, challenger only).
+  `POST /my/arena/<id>/cancel` route added to portal controller.
+  Active duels queries already exclude `cancel` (only query `open`/`ongoing`).
+
+- [x] M9-20 · **Lexora Bot** — `_get_or_create_bot_user()` uses
+  `with_context(active_test=False)` to find existing bot even if previously archived;
+  reactivates if `active=False`; creates with `active=True` on first run (Odoo
+  blocks archived users as Many2one targets). `action_summon_bot()` sets
+  `opponent_id=bot`, `state='ongoing'`, generates `rounds_total` lines at 70% accuracy.
+  "🤖 Challenge Lexora Bot" button on duel detail. `POST /my/arena/<id>/summon_bot`.
+
+- [x] M9-21 · `--update language_pvp,language_learning,language_words --stop-after-init`
+  → 0 errors.
+- [x] M9-22 · `--test-enable -u language_pvp,language_learning,language_words` → 170 tests
+  started, 0 failures, 0 errors (16 M9 + 24 gamification + 16 vocab search + all prior).
+- [x] M9-23 · `docker restart odoo` → all routes load.
+- [x] M9-24 · Manual smoke: bot duel creation, cancel, JS lang detection.
+- [x] M9-25 · Commit M9b on branch `m9`.
 
 #### Files to create/change
 
-- `src/addons/language_learning/models/language_user_profile_gamification.py` (M8-01) — new
-- `src/addons/language_learning/models/language_review.py` (M8-02) — update action_register_review
-- `src/addons/language_learning/models/__init__.py` — add new module
-- `src/addons/language_learning/views/language_review_views.xml` (M8-03) — profile gamification views
-- `src/addons/language_learning/controllers/portal.py` (M8-04) — leaderboard route
-- `src/addons/language_learning/views/portal_leaderboard.xml` (M8-05) — new
-- `src/addons/language_learning/data/website_menus.xml` (M8-06) — leaderboard navbar
-- `src/addons/language_learning/__init__.py` (M8-06) — add leaderboard to hook list
-- `src/addons/language_learning/tests/test_gamification.py` (M8-07) — new
-- `src/addons/language_learning/tests/__init__.py` — import new test
+- `src/addons/language_pvp/models/language_duel.py` (M9-01) — new
+- `src/addons/language_pvp/models/language_duel_line.py` (M9-02) — new
+- `src/addons/language_pvp/models/__init__.py` (M9-03) — update
+- `src/addons/language_pvp/security/ir.model.access.csv` (M9-04) — update
+- `src/addons/language_pvp/security/record_rules.xml` (M9-05) — new
+- `src/addons/language_pvp/__manifest__.py` (M9-06) — update
+- `src/addons/language_pvp/controllers/__init__.py` (M9-07) — new
+- `src/addons/language_pvp/controllers/portal.py` (M9-07) — new
+- `src/addons/language_pvp/views/portal_arena.xml` (M9-08) — new
+- `src/addons/language_pvp/data/website_menus.xml` (M9-08) — new
+- `src/addons/language_pvp/tests/__init__.py` (M9-10) — new
+- `src/addons/language_pvp/tests/test_language_duel.py` (M9-09) — new
 - `docs/TASKS.md` (this file)
+
+#### Blockers
+
+(none)
+
+---
+
+## Completed Milestones
+
+### M8 — Gamification & Progression Stats
+
+**Status:** Complete and verified.
+**Started:** 2026-04-19
+**Completed:** 2026-04-19
+**Branch:** `m8` (merged to `main`)
+
+**Scope:** XP system, daily streaks, level computation, `/my/leaderboard` portal,
+Vocabulary Pro Dashboard with search/filter/sort, and 40 new tests (24 gamification +
+16 vocabulary search).
+
+**Key deliverables:**
+- `language.user.profile` extended via `_inherit` in `language_learning` with:
+  `xp_total`, `current_streak`, `longest_streak`, `last_practice_date`,
+  `level` (stored, `compute_sudo=True`), `level_progress_pct` (not stored, `compute_sudo=True`).
+  `_update_gamification_for_user(user_id, grade)` wired into `action_register_review()`.
+- XP per grade: `{0:0, 1:5, 2:10, 3:15}`. Level = `min(20, 1 + floor(sqrt(xp/50)))`.
+- Streak: extends on consecutive day, resets to 1 on gap, XP-only on same day.
+- `/my/leaderboard` portal: top-20 by XP, paginated, current-user highlight, 4-tier level badge.
+- Vocabulary list pagination fix: route declares both `/my/vocabulary` and `/my/vocabulary/page/<int:page>`.
+- Vocabulary Pro Dashboard: search (source text + cross-language via translations), filterby SRS state, sortby (newest/az/difficulty).
+- `language_learning` manifest: added `language_translation` to `depends` (required for test isolation).
+- 24 gamification tests + 16 vocabulary search tests, all green.
+
+**Files changed (summary):**
+- `language_learning/models/language_user_profile_gamification.py` (new)
+- `language_learning/models/language_review.py` (wired gamification call)
+- `language_learning/models/__init__.py` (added new model)
+- `language_learning/controllers/portal.py` (leaderboard route)
+- `language_learning/views/portal_leaderboard.xml` (new)
+- `language_learning/data/website_menus.xml` (leaderboard navbar entry, seq=70)
+- `language_learning/__manifest__.py` (added language_translation dep + leaderboard files)
+- `language_learning/tests/test_gamification.py` (new, 24 tests)
+- `language_learning/tests/test_vocabulary_search.py` (new, 16 tests)
+- `language_learning/tests/__init__.py` (imports)
+- `language_words/controllers/portal.py` (pagination fix + Pro Dashboard search/filter/sort)
+- `language_words/views/portal_vocabulary.xml` (Pro Dashboard UI)
 
 #### Blockers
 

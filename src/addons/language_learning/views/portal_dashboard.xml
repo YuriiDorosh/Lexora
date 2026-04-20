@@ -1,0 +1,247 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- ============================================================== -->
+    <!-- User Dashboard /my/dashboard                                   -->
+    <!-- ============================================================== -->
+    <template id="portal_user_dashboard" name="My Dashboard">
+        <t t-call="portal.portal_layout">
+            <t t-set="breadcrumbs_searchbar" t-value="False"/>
+
+            <div class="container py-4">
+
+                <div class="d-flex align-items-center justify-content-between mb-4">
+                    <h2 class="mb-0">My Dashboard</h2>
+                    <a href="/my/leaderboard" class="btn btn-sm btn-outline-secondary">
+                        🏆 Leaderboard
+                    </a>
+                </div>
+
+                <!-- ── Stats Header ───────────────────────────────── -->
+                <div class="row g-3 mb-4">
+
+                    <!-- Level -->
+                    <div class="col-6 col-md-3">
+                        <div class="card shadow-sm h-100 text-center">
+                            <div class="card-body py-3">
+                                <div class="small text-muted mb-1">Level</div>
+                                <t t-set="_lvl" t-value="profile.level if profile else 1"/>
+                                <span class="badge fs-4 rounded-pill px-3 py-2"
+                                      t-att-class="'bg-danger text-white' if _lvl >= 20 else ('bg-warning text-dark' if _lvl >= 10 else ('bg-info text-white' if _lvl >= 5 else 'bg-primary text-white'))">
+                                    Lv <t t-esc="_lvl"/>
+                                </span>
+                                <div class="progress mt-2" style="height:6px;">
+                                    <div class="progress-bar"
+                                         t-att-style="'width:{}%'.format(profile.level_progress_pct if profile else 0)"/>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Total XP -->
+                    <div class="col-6 col-md-3">
+                        <div class="card shadow-sm h-100 text-center">
+                            <div class="card-body py-3">
+                                <div class="small text-muted mb-1">Total XP</div>
+                                <div class="fw-bold fs-3 text-warning">
+                                    <t t-esc="profile.xp_total if profile else 0"/>
+                                </div>
+                                <div class="small text-muted">points</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Global Rank -->
+                    <div class="col-6 col-md-3">
+                        <div class="card shadow-sm h-100 text-center">
+                            <div class="card-body py-3">
+                                <div class="small text-muted mb-1">Global Rank</div>
+                                <div class="fw-bold fs-3 text-primary">
+                                    <t t-if="my_rank">#<t t-esc="my_rank"/></t>
+                                    <t t-else="">–</t>
+                                </div>
+                                <div class="small text-muted">on leaderboard</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Streak -->
+                    <div class="col-6 col-md-3">
+                        <div class="card shadow-sm h-100 text-center">
+                            <div class="card-body py-3">
+                                <div class="small text-muted mb-1">Streak</div>
+                                <div class="fw-bold fs-3">
+                                    🔥 <t t-esc="profile.current_streak if profile else 0"/>
+                                </div>
+                                <div class="small text-muted">
+                                    days (best: <t t-esc="profile.longest_streak if profile else 0"/>)
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                </div>
+
+                <!-- ── Two-column body ────────────────────────────── -->
+                <div class="row g-4">
+
+                    <!-- Left: XP History -->
+                    <div class="col-lg-7">
+                        <div class="card shadow-sm">
+                            <div class="card-header d-flex justify-content-between align-items-center">
+                                <h5 class="mb-0">XP History</h5>
+                                <span class="badge bg-secondary">last 20</span>
+                            </div>
+                            <div class="card-body p-0">
+                                <t t-if="xp_logs">
+                                    <table class="table table-sm table-hover mb-0">
+                                        <thead class="table-light">
+                                            <tr>
+                                                <th>Date</th>
+                                                <th>Reason</th>
+                                                <th class="text-end">Change</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <t t-foreach="xp_logs" t-as="log">
+                                                <tr>
+                                                    <td class="text-muted small">
+                                                        <t t-esc="log.date.strftime('%d %b %Y %H:%M')"/>
+                                                    </td>
+                                                    <td>
+                                                        <t t-set="_label" t-value="reason_labels.get(log.reason, log.reason)"/>
+                                                        <t t-esc="_label"/>
+                                                        <t t-if="log.duel_id">
+                                                            <a t-attf-href="/my/arena/#{log.duel_id}"
+                                                               class="ms-1 small text-muted">#<t t-esc="log.duel_id"/></a>
+                                                        </t>
+                                                    </td>
+                                                    <td class="text-end fw-semibold"
+                                                        t-att-class="'text-success' if log.amount > 0 else 'text-danger'">
+                                                        <t t-if="log.amount > 0">+</t><t t-esc="log.amount"/> XP
+                                                    </td>
+                                                </tr>
+                                            </t>
+                                        </tbody>
+                                    </table>
+                                </t>
+                                <t t-else="">
+                                    <div class="text-center text-muted py-4">
+                                        No XP transactions yet. Start practising!
+                                    </div>
+                                </t>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Right: Duel Analytics + Recent Duels -->
+                    <div class="col-lg-5">
+
+                        <!-- Duel Analytics -->
+                        <div class="card shadow-sm mb-4">
+                            <div class="card-header">
+                                <h5 class="mb-0">⚔ Duel Analytics</h5>
+                            </div>
+                            <div class="card-body">
+                                <div class="row text-center g-2">
+                                    <div class="col-4">
+                                        <div class="fw-bold fs-4 text-success">
+                                            <t t-esc="duel_wins"/>
+                                        </div>
+                                        <div class="small text-muted">Wins</div>
+                                    </div>
+                                    <div class="col-4">
+                                        <div class="fw-bold fs-4 text-danger">
+                                            <t t-esc="duel_losses"/>
+                                        </div>
+                                        <div class="small text-muted">Losses</div>
+                                    </div>
+                                    <div class="col-4">
+                                        <div class="fw-bold fs-4 text-secondary">
+                                            <t t-esc="duel_draws"/>
+                                        </div>
+                                        <div class="small text-muted">Draws</div>
+                                    </div>
+                                </div>
+                                <t t-if="duel_total > 0">
+                                    <div class="mt-3">
+                                        <div class="d-flex justify-content-between small text-muted mb-1">
+                                            <span>Win rate</span>
+                                            <span><t t-esc="win_rate_pct"/>%</span>
+                                        </div>
+                                        <div class="progress" style="height:8px;">
+                                            <div class="progress-bar bg-success"
+                                                 t-att-style="'width:{}%'.format(win_rate_pct)"/>
+                                        </div>
+                                    </div>
+                                </t>
+                                <t t-else="">
+                                    <div class="text-center text-muted small mt-2">
+                                        No duels yet. <a href="/my/arena">Start one!</a>
+                                    </div>
+                                </t>
+                            </div>
+                        </div>
+
+                        <!-- Recent Duels -->
+                        <div class="card shadow-sm">
+                            <div class="card-header">
+                                <h5 class="mb-0">Recent Duels</h5>
+                            </div>
+                            <div class="card-body p-0">
+                                <t t-if="recent_duels">
+                                    <ul class="list-group list-group-flush">
+                                        <t t-foreach="recent_duels" t-as="duel">
+                                            <t t-set="_is_ch" t-value="duel.challenger_id.id == uid"/>
+                                            <t t-set="_opp"   t-value="duel.opponent_id if _is_ch else duel.challenger_id"/>
+                                            <t t-set="_won"   t-value="duel.winner_id and duel.winner_id.id == uid"/>
+                                            <t t-set="_draw"  t-value="not duel.winner_id"/>
+                                            <li class="list-group-item d-flex justify-content-between align-items-center py-2">
+                                                <div>
+                                                    <a t-attf-href="/my/arena/#{duel.id}" class="fw-semibold text-decoration-none">
+                                                        vs <t t-esc="_opp.name if _opp else 'Unknown'"/>
+                                                    </a>
+                                                    <div class="small text-muted">
+                                                        <t t-esc="lang_names.get(duel.practice_language, duel.practice_language)"/>
+                                                        <t t-if="duel.end_date">
+                                                            · <t t-esc="duel.end_date.strftime('%d %b')"/>
+                                                        </t>
+                                                    </div>
+                                                </div>
+                                                <span t-att-class="'badge ' + ('bg-success' if _won else ('bg-secondary' if _draw else 'bg-danger'))">
+                                                    <t t-if="_won">W</t>
+                                                    <t t-elif="_draw">D</t>
+                                                    <t t-else="">L</t>
+                                                </span>
+                                            </li>
+                                        </t>
+                                    </ul>
+                                </t>
+                                <t t-else="">
+                                    <div class="text-center text-muted py-3 small">
+                                        No completed duels yet.
+                                    </div>
+                                </t>
+                            </div>
+                        </div>
+
+                    </div>
+                </div>
+
+            </div>
+        </t>
+    </template>
+
+    <!-- Portal home widget -->
+    <template id="portal_my_home_dashboard" name="Portal Home: My Dashboard"
+              inherit_id="portal.portal_my_home" priority="20">
+        <xpath expr="//div[hasclass('o_portal_my_home')]" position="inside">
+            <t t-call="portal.portal_docs_entry">
+                <t t-set="title">My Dashboard</t>
+                <t t-set="url">/my/dashboard</t>
+                <t t-set="count" t-value="0"/>
+            </t>
+        </xpath>
+    </template>
+
+</odoo>

@@ -14,6 +14,7 @@
         'views/language_review_views.xml',
         'views/portal_practice.xml',
         'views/portal_leaderboard.xml',
+        'views/portal_dashboard.xml',
     ],
     'post_init_hook': 'post_init_hook',
     'post_update_hook': 'post_update_hook',
