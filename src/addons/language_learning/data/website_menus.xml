@@ -38,5 +38,14 @@
             <field name="user_logged">True</field>
         </record>
 
+        <!-- "My Inventory" link in the website navbar (logged-in users only) -->
+        <record id="menu_navbar_inventory" model="website.menu">
+            <field name="name">My Inventory</field>
+            <field name="url">/my/inventory</field>
+            <field name="parent_id" ref="website.main_menu"/>
+            <field name="sequence">85</field>
+            <field name="user_logged">True</field>
+        </record>
+
     </data>
 </odoo>

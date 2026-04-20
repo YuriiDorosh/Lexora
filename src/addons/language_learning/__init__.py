@@ -8,6 +8,8 @@ _NAVBAR_MENUS = [
     ('Daily Practice', '/my/practice', 55),
     ('My Profile',     '/my/dashboard', 65),
     ('Leaderboard',    '/my/leaderboard', 70),
+    ('XP Shop',        '/my/shop', 80),
+    ('My Inventory',   '/my/inventory', 85),
 ]
 
 

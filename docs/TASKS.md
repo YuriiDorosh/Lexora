@@ -37,58 +37,36 @@ Implementation order: M11 foundation first (shop model + portal), then M7/M8 soc
 
 **A1 — Models**
 
-- [ ] M11-01 · `language.shop.item` model (`language_learning/models/language_shop_item.py`).
-  Fields: `name` (Char), `description` (Text), `xp_cost` (Integer, required),
-  `item_type` (Selection: `streak_freeze`/`profile_frame`/`double_xp`),
-  `icon` (Char emoji), `is_active` (Boolean, default True).
-  `action_buy(user_id)` method: checks balance, deducts XP via `language.xp.log`
-  (`reason='shop_purchase'`, negative amount), creates `language.user.item`,
-  raises `UserError` if XP < cost.
-
-- [ ] M11-02 · `language.user.item` model (`language_learning/models/language_user_item.py`).
-  Fields: `user_id` (Many2one → res.users), `item_id` (Many2one → language.shop.item),
-  `quantity` (Integer, default 1), `activated_at` (Datetime), `expires_at` (Datetime),
-  `is_consumed` (Boolean, default False).
-  Helper: `_get_active_item(user_id, item_type)` — returns first non-consumed item of type.
-
-- [ ] M11-03 · `language.xp.log`: add `'shop_purchase'` to `reason` selection.
-
-- [ ] M11-04 · Wire item effects:
-  - `streak_freeze`: in `_update_gamification_for_user` and `_record_duel_activity`,
-    before resetting streak to 1 on a gap, check for an active freeze; if found,
-    keep current streak and mark freeze as consumed.
-  - `double_xp`: in `_update_gamification_for_user`, if active booster exists,
-    double `xp_delta` and decrement booster quantity (consume when quantity=0).
-  - `profile_frame`: computed field `active_frame_type` on `language.user.profile`
-    (reads first non-consumed `profile_frame` item for this user).
+- [x] M11-01 · `language.shop.item` model (`language_learning/models/language_shop_item.py`). ✅
+- [x] M11-02 · `language.user.item` model with `_get_active_item()` and `_consume()`. ✅
+- [x] M11-03 · `language.xp.log`: `'shop_purchase'` reason added. ✅
+- [x] M11-04 · Item effects wired: streak_freeze in `_update_gamification_for_user` +
+  `_record_duel_activity`; double_xp doubles XP award and auto-consumes. ✅
 
 **A2 — Security & data**
 
-- [ ] M11-05 · `ir.model.access.csv`: Language Users read shop items; read/create
-  user items. Admins full CRUD on both models.
-- [ ] M11-06 · `record_rules.xml`: user items visible only to owner.
-- [ ] M11-07 · `data/shop_items.xml`: seed the 3 initial items (Streak Freeze 50 XP,
-  Profile Frame 100 XP, Double XP Booster 80 XP) as `noupdate="1"` records.
+- [x] M11-05 · `ir.model.access.csv` updated with shop.item + user.item rows. ✅
+- [x] M11-06 · `record_rules.xml`: owner-only rule for user items. ✅
+- [x] M11-07 · `data/shop_items.xml`: 3 seeded items (noupdate="1"). ✅
 
 **A3 — Portal**
 
-- [ ] M11-08 · `GET /my/shop` — shop grid: items list, XP cost badge, owned count,
-  "Buy" button (POST), disabled + "Insufficient XP" when balance < cost.
-- [ ] M11-09 · `POST /my/shop/buy/<item_id>` — calls `item.action_buy(uid)`,
-  redirects to `/my/shop` with flash message.
-- [ ] M11-10 · `GET /my/inventory` — list owned/active items with type, quantity,
-  consumed status. Link from `/my/shop` and navbar.
-- [ ] M11-11 · `views/portal_shop.xml` — shop + inventory templates.
-  Navbar entry "Shop" (seq=80).
+- [x] M11-08 · `GET /my/shop` renders card grid with XP balance, owned count, Buy/disabled state. ✅
+- [x] M11-09 · `POST /my/shop/buy/<item_id>` → purchase + flash redirect. ✅
+- [x] M11-10 · `GET /my/inventory` → item table with quantity + status badge. ✅
+- [x] M11-11 · `views/portal_shop.xml` templates; Shop (seq=80) + Inventory (seq=85) navbar entries. ✅
 
 **A4 — Tests & install**
 
-- [ ] M11-12 · Tests (≥10): buy success, buy insufficient XP, XP log created,
-  streak freeze activates and is consumed, double XP doubles award and decrements,
-  buy deducts correct amount, can't go below 0.
-- [ ] M11-13 · `--init`/`--update language_learning` → 0 errors.
-- [ ] M11-14 · Tests green.
-- [ ] M11-15 · Commit M11 on `m10_social_shop`.
+- [x] M11-12 · 13 tests: buy success/fail, XP log, consume, booster doubles XP, inactive items. ✅
+- [x] M11-13 · `--update language_learning` → 0 errors. ✅
+- [x] M11-14 · 13/13 tests green. ✅
+- [x] M11-15 · Committed on `m10_social_shop` (commit 24f02e0). ✅
+
+**M11-16 · Bug fix (2026-04-20):** 404 on `/my/shop` and `/my/inventory` — root cause was that
+  the running Odoo server had not been restarted after new routes were committed. Routes were
+  correctly implemented; `docker restart odoo` resolved the 404s. Added "My Inventory" navbar
+  entry (seq=85) and "🎒 View My Inventory" button in shop header. ✅
 
 ---
 
