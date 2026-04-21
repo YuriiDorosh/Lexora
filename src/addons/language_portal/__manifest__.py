@@ -21,6 +21,7 @@
         'data/seeded_posts.xml',
         'data/grammar_sections.xml',
         'data/website_menus.xml',
+        'views/branding.xml',
         'views/portal_homepage.xml',
         'views/portal_posts.xml',
         'views/portal_library.xml',
@@ -31,6 +32,7 @@
     'assets': {
         'web.assets_frontend': [
             'language_portal/static/src/js/spotlight.js',
+            'language_portal/static/src/css/premium_ui.css',
             'language_portal/static/src/css/print_style.css',
         ],
     },

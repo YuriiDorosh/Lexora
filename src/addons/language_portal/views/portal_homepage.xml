@@ -3,143 +3,320 @@
 
     <!-- ============================================================ -->
     <!-- Homepage  /                                                   -->
+    <!-- Premium dark hero · glassmorphism · Avantgarde branding      -->
     <!-- ============================================================ -->
 
     <template id="homepage" name="Lexora Homepage">
         <t t-call="portal.portal_layout">
-            <div class="container py-5">
 
-                <!-- Hero -->
-                <div class="text-center mb-5">
-                    <h1 class="display-4 fw-bold mb-2">Welcome to Lexora</h1>
-                    <p class="lead text-muted">Build your vocabulary. Practice daily. Compete with others.</p>
-                    <t t-if="not request.env.user._is_public()">
-                        <a href="/my/vocabulary" class="btn btn-primary btn-lg px-4 me-2">My Vocabulary</a>
-                        <a href="/my/practice" class="btn btn-outline-primary btn-lg px-4">Daily Practice</a>
-                    </t>
-                    <t t-else="">
-                        <a href="/web/signup" class="btn btn-primary btn-lg px-4 me-2">Get Started Free</a>
-                        <a href="/web/login" class="btn btn-outline-secondary btn-lg px-4">Sign In</a>
-                    </t>
-                </div>
+            <!-- ══════════════════════════════════════════════
+                 DARK ANIMATED HERO
+            ══════════════════════════════════════════════ -->
+            <section class="lx-hero">
+                <div class="container text-center lx-hero-content">
 
-                <!-- Global Stats Row -->
-                <div class="row text-center g-3 mb-5">
-                    <div class="col-4">
-                        <div class="card border-0 bg-light h-100 py-3">
-                            <div class="fw-bold fs-3 text-primary">
-                                <t t-esc="stats.get('total_entries', 0)"/>
-                            </div>
-                            <div class="text-muted small">Words &amp; Phrases</div>
-                        </div>
+                    <!-- Eyebrow pill -->
+                    <div class="mb-4">
+                        <span class="lx-badge-gradient">✦ Language Learning · Reimagined</span>
                     </div>
-                    <div class="col-4">
-                        <div class="card border-0 bg-light h-100 py-3">
-                            <div class="fw-bold fs-3 text-success">
-                                <t t-esc="stats.get('total_users', 0)"/>
-                            </div>
-                            <div class="text-muted small">Active Learners</div>
-                        </div>
-                    </div>
-                    <div class="col-4">
-                        <div class="card border-0 bg-light h-100 py-3">
-                            <div class="fw-bold fs-3 text-info">
-                                <t t-esc="stats.get('total_translations', 0)"/>
-                            </div>
-                            <div class="text-muted small">Translations</div>
-                        </div>
-                    </div>
-                </div>
 
-                <!-- Word of the Day -->
-                <t t-if="word_of_day">
-                    <div class="row justify-content-center mb-5">
-                        <div class="col-lg-6">
-                            <div class="card shadow-sm border-0">
-                                <div class="card-header bg-primary text-white text-center py-2">
-                                    <small class="text-uppercase fw-semibold letter-spacing-1">Word of the Day</small>
+                    <!-- Headline -->
+                    <h1 class="lx-hero-title mb-0">
+                        Master Languages<br/>
+                        <span class="lx-gradient-text">Faster Than Ever</span>
+                    </h1>
+
+                    <!-- Sub-headline -->
+                    <p class="lx-hero-subtitle mx-auto">
+                        Build a smart vocabulary, get AI-powered insights, challenge
+                        learners worldwide, and level up every day.
+                    </p>
+
+                    <!-- CTAs -->
+                    <div class="d-flex gap-3 justify-content-center flex-wrap">
+                        <t t-if="not request.env.user._is_public()">
+                            <a href="/my/vocabulary" class="lx-btn-primary">📚 My Vocabulary</a>
+                            <a href="/my/practice"   class="lx-btn-ghost">⚡ Daily Practice</a>
+                        </t>
+                        <t t-else="">
+                            <a href="/web/signup" class="lx-btn-primary">🚀 Get Started Free</a>
+                            <a href="/web/login"  class="lx-btn-ghost">Sign In</a>
+                        </t>
+                    </div>
+
+                    <!-- Glassmorphism stats row -->
+                    <div class="row g-3 mt-5 justify-content-center">
+                        <div class="col-4 col-md-3 lx-animate-up">
+                            <div class="lx-glass py-3 px-2">
+                                <div class="lx-stat-number">
+                                    <t t-esc="stats.get('total_entries', 0)"/>
                                 </div>
-                                <div class="card-body text-center py-4">
-                                    <h2 class="display-6 fw-bold mb-1">
+                                <div class="lx-stat-label">Words &amp; Phrases</div>
+                            </div>
+                        </div>
+                        <div class="col-4 col-md-3 lx-animate-up">
+                            <div class="lx-glass py-3 px-2">
+                                <div class="lx-stat-number">
+                                    <t t-esc="stats.get('total_users', 0)"/>
+                                </div>
+                                <div class="lx-stat-label">Active Learners</div>
+                            </div>
+                        </div>
+                        <div class="col-4 col-md-3 lx-animate-up">
+                            <div class="lx-glass py-3 px-2">
+                                <div class="lx-stat-number">
+                                    <t t-esc="stats.get('total_translations', 0)"/>
+                                </div>
+                                <div class="lx-stat-label">Translations</div>
+                            </div>
+                        </div>
+                    </div>
+
+                </div>
+            </section>
+
+            <!-- ══════════════════════════════════════════════
+                 WORD OF THE DAY
+            ══════════════════════════════════════════════ -->
+            <t t-if="word_of_day">
+                <section class="lx-section lx-section-dark">
+                    <div class="container">
+                        <div class="row justify-content-center">
+                            <div class="col-lg-6 text-center">
+
+                                <div class="lx-section-eyebrow">✦ Word of the Day</div>
+
+                                <div class="lx-wotd-card p-4 p-md-5 text-center">
+                                    <div class="mb-3">
+                                        <span class="lx-wotd-badge">
+                                            ✦ Word of the Day
+                                        </span>
+                                    </div>
+                                    <h2 class="lx-wotd-word mb-2">
                                         <t t-esc="word_of_day.word_text"/>
                                     </h2>
                                     <t t-if="word_of_day.translation_text">
-                                        <p class="text-muted fs-5 mb-2">
+                                        <p class="lx-wotd-translation mb-3">
                                             <t t-esc="word_of_day.translation_text"/>
                                         </p>
                                     </t>
                                     <t t-if="word_of_day.entry_id">
                                         <a t-attf-href="/my/vocabulary/#{word_of_day.entry_id.id}"
-                                           class="btn btn-sm btn-outline-primary mt-2">View Entry →</a>
+                                           class="lx-btn-ghost d-inline-block py-2 px-4"
+                                           style="font-size:.9rem">
+                                            View Entry →
+                                        </a>
                                     </t>
                                 </div>
+
                             </div>
                         </div>
                     </div>
-                </t>
+                </section>
+            </t>
 
-                <!-- Latest Articles -->
-                <t t-if="articles">
-                    <h2 class="fw-bold mb-4">Latest Articles</h2>
-                    <div class="row g-4 mb-4">
-                        <t t-foreach="articles" t-as="article">
-                            <div class="col-md-4">
-                                <div class="card h-100 shadow-sm border-0">
-                                    <div class="card-body d-flex flex-column">
-                                        <div class="mb-2">
-                                            <span t-att-class="'badge me-1 ' + ('bg-primary' if article.language == 'en' else ('bg-warning text-dark' if article.language == 'uk' else 'bg-info text-white'))">
-                                                <t t-esc="{'en': 'English', 'uk': 'Ukrainian', 'el': 'Greek'}.get(article.language, article.language)"/>
-                                            </span>
-                                            <t t-foreach="article.tag_ids[:2]" t-as="tag">
-                                                <span class="badge bg-secondary me-1"><t t-esc="tag.name"/></span>
-                                            </t>
+            <!-- ══════════════════════════════════════════════
+                 FEATURES GRID
+            ══════════════════════════════════════════════ -->
+            <section class="lx-section lx-section-light">
+                <div class="container">
+
+                    <div class="text-center mb-5">
+                        <div class="lx-section-eyebrow">✦ Everything you need</div>
+                        <h2 class="lx-section-title-light">Why learners choose Lexora</h2>
+                    </div>
+
+                    <div class="row g-4">
+                        <div class="col-md-4 lx-animate-up">
+                            <div class="lx-feature-card p-4">
+                                <div class="lx-feature-icon lx-feature-icon-indigo">📚</div>
+                                <h5 class="fw-bold mb-2">Personal Vocabulary</h5>
+                                <p class="text-muted small mb-0">
+                                    Build your own word list with automatic translations
+                                    and AI-powered enrichment into synonyms, antonyms, and examples.
+                                </p>
+                            </div>
+                        </div>
+                        <div class="col-md-4 lx-animate-up">
+                            <div class="lx-feature-card p-4">
+                                <div class="lx-feature-icon lx-feature-icon-purple">🧠</div>
+                                <h5 class="fw-bold mb-2">Spaced Repetition</h5>
+                                <p class="text-muted small mb-0">
+                                    Lexora's SM-2 algorithm schedules reviews at exactly
+                                    the right moment — so you never forget what you learned.
+                                </p>
+                            </div>
+                        </div>
+                        <div class="col-md-4 lx-animate-up">
+                            <div class="lx-feature-card p-4">
+                                <div class="lx-feature-icon lx-feature-icon-cyan">⚔️</div>
+                                <h5 class="fw-bold mb-2">PvP Duels</h5>
+                                <p class="text-muted small mb-0">
+                                    Challenge other learners to real-time vocabulary duels,
+                                    stake XP, and climb the global leaderboard.
+                                </p>
+                            </div>
+                        </div>
+                        <div class="col-md-4 lx-animate-up">
+                            <div class="lx-feature-card p-4">
+                                <div class="lx-feature-icon lx-feature-icon-pink">📥</div>
+                                <h5 class="fw-bold mb-2">Anki Import</h5>
+                                <p class="text-muted small mb-0">
+                                    Import your existing Anki decks (.apkg or .txt) in seconds —
+                                    complete with audio extraction and smart deduplication.
+                                </p>
+                            </div>
+                        </div>
+                        <div class="col-md-4 lx-animate-up">
+                            <div class="lx-feature-card p-4">
+                                <div class="lx-feature-icon lx-feature-icon-amber">🔊</div>
+                                <h5 class="fw-bold mb-2">Audio &amp; TTS</h5>
+                                <p class="text-muted small mb-0">
+                                    Record your own pronunciation or generate instant text-to-speech
+                                    for English, Ukrainian, and Greek — offline-first.
+                                </p>
+                            </div>
+                        </div>
+                        <div class="col-md-4 lx-animate-up">
+                            <div class="lx-feature-card p-4">
+                                <div class="lx-feature-icon lx-feature-icon-emerald">🏪</div>
+                                <h5 class="fw-bold mb-2">XP &amp; Rewards</h5>
+                                <p class="text-muted small mb-0">
+                                    Earn XP for every session, maintain daily streaks, and spend
+                                    your points in the in-app shop for boosters and profile frames.
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+
+                </div>
+            </section>
+
+            <!-- ══════════════════════════════════════════════
+                 HOW IT WORKS + VIDEO PLACEHOLDER
+            ══════════════════════════════════════════════ -->
+            <section class="lx-section" style="background:#f0eeff">
+                <div class="container">
+
+                    <div class="row align-items-center g-5">
+
+                        <!-- Steps -->
+                        <div class="col-lg-6">
+                            <div class="lx-section-eyebrow">✦ Simple Process</div>
+                            <h2 class="lx-section-title-light mb-4">
+                                Start learning in<br/>three easy steps
+                            </h2>
+
+                            <div class="lx-steps">
+                                <div class="lx-step">
+                                    <div class="lx-step-num">1</div>
+                                    <div>
+                                        <div class="lx-step-title">Add words you encounter</div>
+                                        <div class="lx-step-desc">
+                                            Type any word, paste from an article, or import
+                                            your Anki deck. Lexora auto-detects the language.
                                         </div>
-                                        <h5 class="card-title fw-semibold">
-                                            <a t-attf-href="/posts/#{article.slug}"
-                                               class="text-decoration-none text-reset stretched-link">
-                                                <t t-esc="article.title"/>
-                                            </a>
-                                        </h5>
-                                        <p class="card-text text-muted small flex-grow-1">
-                                            <t t-esc="(article.summary or '')[:150]"/>…
-                                        </p>
-                                        <div class="text-muted small mt-auto pt-2">
-                                            <t t-esc="article.published_date and article.published_date.strftime('%B %d, %Y') or ''"/>
+                                    </div>
+                                </div>
+                                <div class="lx-step mt-2">
+                                    <div class="lx-step-num">2</div>
+                                    <div>
+                                        <div class="lx-step-title">Get instant AI enrichment</div>
+                                        <div class="lx-step-desc">
+                                            Translations in seconds, plus AI-generated synonyms,
+                                            example sentences, and pronunciation audio.
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="lx-step mt-2">
+                                    <div class="lx-step-num">3</div>
+                                    <div>
+                                        <div class="lx-step-title">Practice &amp; compete daily</div>
+                                        <div class="lx-step-desc">
+                                            Spaced-repetition flashcards keep knowledge fresh.
+                                            PvP duels make practice genuinely fun.
                                         </div>
                                     </div>
                                 </div>
                             </div>
-                        </t>
-                    </div>
-                    <div class="text-center">
-                        <a href="/posts" class="btn btn-outline-secondary">Browse All Articles →</a>
-                    </div>
-                </t>
+                        </div>
 
-                <!-- Feature Cards for non-logged-in users -->
-                <t t-if="request.env.user._is_public()">
-                    <hr class="my-5"/>
-                    <h2 class="fw-bold text-center mb-4">Why Lexora?</h2>
-                    <div class="row g-4">
-                        <div class="col-md-4 text-center">
-                            <div class="fs-1 mb-2">📚</div>
-                            <h5 class="fw-semibold">Personal Vocabulary</h5>
-                            <p class="text-muted small">Build your own word list with automatic translations and AI-powered enrichment.</p>
+                        <!-- Video placeholder -->
+                        <div class="col-lg-6">
+                            <div class="lx-video-placeholder">
+                                <div class="lx-play-btn">▶</div>
+                                <div class="lx-video-label">Watch the 60-second demo (coming soon)</div>
+                            </div>
                         </div>
-                        <div class="col-md-4 text-center">
-                            <div class="fs-1 mb-2">🧠</div>
-                            <h5 class="fw-semibold">Spaced Repetition</h5>
-                            <p class="text-muted small">Lexora's SM-2 algorithm schedules reviews at exactly the right moment to maximise retention.</p>
-                        </div>
-                        <div class="col-md-4 text-center">
-                            <div class="fs-1 mb-2">⚔️</div>
-                            <h5 class="fw-semibold">PvP Duels</h5>
-                            <p class="text-muted small">Challenge other learners to vocabulary duels and climb the global leaderboard.</p>
-                        </div>
-                    </div>
-                </t>
 
+                    </div>
+
+                </div>
+            </section>
+
+            <!-- ══════════════════════════════════════════════
+                 LATEST ARTICLES
+            ══════════════════════════════════════════════ -->
+            <t t-if="articles">
+                <section class="lx-section lx-section-light">
+                    <div class="container">
+
+                        <div class="d-flex align-items-end justify-content-between mb-4 flex-wrap gap-2">
+                            <div>
+                                <div class="lx-section-eyebrow">✦ From the community</div>
+                                <h2 class="lx-section-title-light mb-0">Latest Articles</h2>
+                            </div>
+                            <a href="/posts" class="btn btn-outline-primary btn-sm fw-semibold">
+                                Browse All →
+                            </a>
+                        </div>
+
+                        <div class="row g-4">
+                            <t t-foreach="articles" t-as="article">
+                                <div class="col-md-4">
+                                    <div class="lx-article-card">
+                                        <div class="card-body p-4 d-flex flex-column h-100">
+                                            <div class="mb-2 d-flex flex-wrap gap-1">
+                                                <span t-att-class="'badge ' + ('bg-primary' if article.language == 'en' else ('bg-warning text-dark' if article.language == 'uk' else 'bg-info text-white'))">
+                                                    <t t-esc="{'en': 'English', 'uk': 'Ukrainian', 'el': 'Greek'}.get(article.language, article.language)"/>
+                                                </span>
+                                                <t t-foreach="article.tag_ids[:2]" t-as="tag">
+                                                    <span class="badge bg-secondary"><t t-esc="tag.name"/></span>
+                                                </t>
+                                            </div>
+                                            <h5 class="fw-bold mb-2" style="font-family:var(--lx-font-display)">
+                                                <a t-attf-href="/posts/#{article.slug}"
+                                                   class="text-decoration-none text-reset stretched-link">
+                                                    <t t-esc="article.title"/>
+                                                </a>
+                                            </h5>
+                                            <p class="text-muted small flex-grow-1 mb-0">
+                                                <t t-esc="(article.summary or '')[:140]"/>…
+                                            </p>
+                                            <div class="text-muted" style="font-size:.78rem;margin-top:.75rem">
+                                                <t t-esc="article.published_date and article.published_date.strftime('%B %d, %Y') or ''"/>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </t>
+                        </div>
+
+                    </div>
+                </section>
+            </t>
+
+            <!-- ══════════════════════════════════════════════
+                 AVANTGARDE FOOTER STRIP
+            ══════════════════════════════════════════════ -->
+            <div class="text-center py-3" style="background:#0f172a;color:rgba(255,255,255,0.35);font-size:.78rem">
+                Lexora · powered by
+                <a href="https://avantgarde.systems" target="_blank" rel="noopener"
+                   style="color:rgba(167,139,250,0.7);text-decoration:none;font-weight:600">
+                    Avantgarde Systems
+                </a>
             </div>
+
         </t>
     </template>
 
@@ -158,9 +335,9 @@
                 <div class="row g-4">
                     <t t-foreach="posts" t-as="post">
                         <div class="col-md-4">
-                            <div class="card h-100 shadow-sm border-0">
-                                <div class="card-body d-flex flex-column">
-                                    <div class="mb-2">
+                            <div class="lx-article-card">
+                                <div class="card-body p-4 d-flex flex-column h-100">
+                                    <div class="mb-2 d-flex flex-wrap gap-1">
                                         <span t-att-class="'badge me-1 ' + ('bg-primary' if post.language == 'en' else ('bg-warning text-dark' if post.language == 'uk' else 'bg-info text-white'))">
                                             <t t-esc="{'en': 'English', 'uk': 'Ukrainian', 'el': 'Greek'}.get(post.language, post.language)"/>
                                         </span>
@@ -168,7 +345,7 @@
                                             <span class="badge bg-secondary me-1"><t t-esc="tag.name"/></span>
                                         </t>
                                     </div>
-                                    <h5 class="card-title fw-semibold">
+                                    <h5 class="fw-bold mb-2">
                                         <a t-attf-href="/posts/#{post.slug}"
                                            class="text-decoration-none text-reset stretched-link">
                                             <t t-esc="post.title"/>
@@ -186,7 +363,6 @@
                     </t>
                 </div>
 
-                <!-- Pagination -->
                 <t t-if="total_pages > 1">
                     <nav class="mt-5">
                         <ul class="pagination justify-content-center">
@@ -219,7 +395,7 @@
                         </nav>
 
                         <article>
-                            <div class="mb-3">
+                            <div class="mb-3 d-flex flex-wrap gap-1">
                                 <span t-att-class="'badge me-1 ' + ('bg-primary' if post.language == 'en' else ('bg-warning text-dark' if post.language == 'uk' else 'bg-info text-white'))">
                                     <t t-esc="{'en': 'English', 'uk': 'Ukrainian', 'el': 'Greek'}.get(post.language, post.language)"/>
                                 </span>
@@ -239,7 +415,6 @@
                             <div class="article-body lh-lg" t-raw="post.body"/>
                         </article>
 
-                        <!-- Save-to-vocab notice for logged-in users -->
                         <t t-if="not request.env.user._is_public()">
                             <div class="alert alert-light border mt-5 small text-muted">
                                 💡 <strong>Tip:</strong> Select any word or phrase in this article and click the

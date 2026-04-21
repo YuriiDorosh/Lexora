@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- ============================================================ -->
+    <!-- Avantgarde Systems branding — portal footer credit           -->
+    <!-- Appended to every portal page via portal.frontend_layout     -->
+    <!-- ============================================================ -->
+
+    <template id="portal_footer_avantgarde"
+              inherit_id="portal.frontend_layout"
+              name="Lexora · Avantgarde Footer Credit">
+        <xpath expr="//footer" position="inside">
+            <div class="text-center pb-2">
+                <div class="lx-avantgarde-credit">
+                    Developed with <span class="lx-heart">❤</span> by
+                    <a href="https://avantgarde.systems" target="_blank" rel="noopener">Avantgarde Systems</a>
+                </div>
+            </div>
+        </xpath>
+    </template>
+
+    <!-- ============================================================ -->
+    <!-- Login page — replace "Powered by Odoo" with Lexora branding  -->
+    <!-- ============================================================ -->
+
+    <template id="login_avantgarde_brand"
+              inherit_id="web.login_layout"
+              name="Lexora · Login Branding">
+
+        <!-- Replace the company logo img area with Lexora premium brand block -->
+        <xpath expr="//div[hasclass('text-center','pb-3','border-bottom','mb-4')]" position="replace">
+            <div class="text-center pb-3 border-bottom mb-4">
+                <div class="lx-login-brand-title">Lexora</div>
+                <div class="lx-login-brand-sub">powered by Avantgarde Systems</div>
+            </div>
+        </xpath>
+
+        <!-- Replace the "Powered by Odoo" link at the bottom -->
+        <xpath expr="//a[contains(@href,'odoo.com')]" position="replace">
+            <span class="lx-login-footer-credit">
+                Developed with ❤ by
+                <a href="https://avantgarde.systems" target="_blank" rel="noopener">Avantgarde Systems</a>
+            </span>
+        </xpath>
+
+    </template>
+
+</odoo>

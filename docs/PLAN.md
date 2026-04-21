@@ -1,8 +1,8 @@
 # Lexora — Implementation Plan (MVP)
 
-> Version: 0.6 (M13 in progress)
+> Version: 0.7 (M14 complete)
 > Last updated: 2026-04-21
-> Status: M0–M12 complete; M13 PDF Export Suite in progress
+> Status: M0–M14 complete
 
 ---
 
@@ -39,7 +39,8 @@
 | M10 | PvP Arena + XP System | ✅ Complete (resequenced) | Async word duels, XP/streak/levels, personal dashboard, Lexora Bot |
 | M11 | XP Shop | ✅ Complete | Spend XP on Streak Freeze, Profile Frames, Double XP Booster; `/my/shop` portal |
 | M12 | Knowledge Hub | ✅ Complete | Gold Vocabulary (3184 most common EN words with CEFR/POS); Grammar Encyclopedia (6 sections); `/useful-words` + `/grammar` portal |
-| M13 | PDF Export Suite | 🚧 In Progress | Printable PDF cheat sheets from personal vocabulary, Gold Vocabulary (by CEFR level), and Grammar sections |
+| M13 | PDF Export Suite | ✅ Complete | Printable PDF cheat sheets from personal vocabulary, Gold Vocabulary (by CEFR level), and Grammar sections |
+| M14 | Premium Visual Identity | ✅ Complete | Dark animated hero, glassmorphism, Inter/Montserrat fonts, Avantgarde Systems branding, premium login page |
 
 ---
 
