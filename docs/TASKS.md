@@ -38,7 +38,11 @@
   Returns grouped results JSON for JS; also renders full-page template. ✅
 - [x] M13-02 · `language_portal/static/src/js/spotlight.js` — ⌘K/Ctrl+K opens overlay input,
   debounced fetch to `/search?q=&format=json`, renders grouped results, keyboard navigation
-  (↑↓ Enter Esc). Self-contained IIFE, no jQuery dependency. Loaded via `web.assets_frontend`. ✅
+  (↑↓ Enter Esc). Self-contained IIFE, no jQuery dependency. Loaded via `web.assets_frontend`.
+  **Polish (2026-04-21):** Enter on highlighted result navigates to that item. Enter with no
+  selection falls back to `/search?q=<query>`. "Search all results for X →" row added at
+  bottom of results — keyboard-selectable, visually distinct (indigo, border-top), navigates to
+  full `/search` page. `_currentQuery` tracked at module level. ✅
 - [x] M13-03 · Full-page search results template `portal_search_results` in `portal_library.xml`.
   Ctrl+K shortcut fires JS overlay; fallback full-page form at `/search`. ✅
 

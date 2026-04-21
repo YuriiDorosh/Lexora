@@ -10,6 +10,7 @@
 
     var _debounceTimer = null;
     var _activeIdx = -1;
+    var _currentQuery = '';
 
     function buildModal() {
         var existing = document.getElementById('lexora-spotlight-modal');
@@ -58,6 +59,8 @@
             '.sl-item-title{font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
             '.sl-item-sub{font-size:12px;color:#6b7280;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
             '.sl-empty{padding:24px 16px;text-align:center;color:#9ca3af;font-size:14px}',
+            '.sl-all-results{border-top:1px solid #e5e7eb;margin-top:4px;color:#4f46e5 !important;font-weight:500}',
+            '.sl-all-results:hover,.sl-all-results.active{background:#f0f4ff}',
             '.sl-hint{padding:8px 16px;font-size:12px;color:#9ca3af;border-top:1px solid #f3f4f6;',
             '  display:flex;gap:16px}',
             '.sl-hint kbd{background:#f3f4f6;border:1px solid #d1d5db;border-radius:3px;',
@@ -112,6 +115,13 @@
                     + '</span></a>';
             });
         });
+        html += '<a class="sl-item sl-all-results" href="/search?q=' + encodeURIComponent(data.q || '') + '">'
+            + '<span class="sl-item-icon">🔍</span>'
+            + '<span class="sl-item-body">'
+            + '<div class="sl-item-title">Search all results for \u201c' + escHtml(data.q || '') + '\u201d</div>'
+            + '</span>'
+            + '<span style="color:#6b7280;font-size:13px">→</span>'
+            + '</a>';
         html += '<div class="sl-hint">'
             + '<span><kbd>↑↓</kbd> navigate</span>'
             + '<span><kbd>Enter</kbd> open</span>'
@@ -136,7 +146,11 @@
 
     function activateSelected() {
         var item = document.querySelector('#lexora-spotlight-results .sl-item.active');
-        if (item) { window.location.href = item.href; }
+        if (item) {
+            window.location.href = item.href;
+        } else if (_currentQuery) {
+            window.location.href = '/search?q=' + encodeURIComponent(_currentQuery);
+        }
     }
 
     function doSearch(q) {
@@ -159,8 +173,8 @@
         var input = document.getElementById('lexora-spotlight-input');
         input.addEventListener('input', function () {
             clearTimeout(_debounceTimer);
-            var q = input.value.trim();
-            _debounceTimer = setTimeout(function () { doSearch(q); }, 220);
+            _currentQuery = input.value.trim();
+            _debounceTimer = setTimeout(function () { doSearch(_currentQuery); }, 220);
         });
         input.addEventListener('keydown', function (e) {
             if (e.key === 'ArrowDown') { e.preventDefault(); moveSelection(1); }
