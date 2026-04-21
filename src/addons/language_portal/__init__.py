@@ -472,9 +472,31 @@ def _seed_grammar(env):
             GS.create(s)
 
 
+def _fix_library_menu_parents(env):
+    """Wire Useful Words + Grammar Guide under each website's Library parent.
+
+    The XML data file creates children with parent_id pointing to the global
+    template Library entry. Odoo also creates website-specific copies of that
+    parent (one per website). The children must point to the website-specific
+    copies so the dropdown renders on each website.
+    """
+    Menu = env['website.menu'].sudo()
+    library_parents = Menu.search([('name', 'ilike', 'Library'), ('parent_id.parent_id', '=', False)])
+    # website-specific Library entries (have website_id set)
+    site_libs = library_parents.filtered(lambda m: m.website_id)
+    for lib in site_libs:
+        children = Menu.search([
+            ('parent_id.name', 'ilike', 'Library'),
+            ('website_id', '=', lib.website_id.id),
+        ])
+        children.write({'parent_id': lib.id})
+
+
 def post_init_hook(env):
     _seed_knowledge_hub(env)
+    _fix_library_menu_parents(env)
 
 
 def post_update_hook(env):
     _seed_knowledge_hub(env)
+    _fix_library_menu_parents(env)

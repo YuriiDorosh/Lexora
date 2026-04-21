@@ -225,4 +225,63 @@
         </t>
     </template>
 
+    <!-- ============================================================ -->
+    <!-- /search — Spotlight Search results page                     -->
+    <!-- ============================================================ -->
+
+    <template id="portal_search_results" name="Search Results">
+        <t t-call="portal.portal_layout">
+            <div id="wrap" class="oe_structure">
+            <div class="container py-4" style="max-width:760px">
+
+                <h1 class="h3 fw-bold mb-4">Search Results
+                    <t t-if="q">
+                        <span class="text-muted fw-normal fs-5"> for "<t t-esc="q"/>"</span>
+                    </t>
+                </h1>
+
+                <t t-if="not q">
+                    <div class="alert alert-info">Enter a query to search across vocabulary, grammar, words and articles.</div>
+                </t>
+                <t t-elif="not groups">
+                    <div class="alert alert-warning">No results found for "<strong><t t-esc="q"/></strong>". Try a different term.</div>
+                </t>
+                <t t-else="">
+                    <t t-foreach="groups" t-as="group">
+                        <div class="mb-4">
+                            <h6 class="text-uppercase text-muted small fw-bold mb-2 letter-spacing-1">
+                                <t t-esc="group['label']"/>
+                            </h6>
+                            <div class="list-group list-group-flush border rounded">
+                                <t t-foreach="group['items']" t-as="item">
+                                    <a t-att-href="item['url']" class="list-group-item list-group-item-action d-flex align-items-center gap-3 py-3">
+                                        <div class="flex-grow-1 min-w-0">
+                                            <div class="fw-medium text-truncate"><t t-esc="item['title']"/></div>
+                                            <t t-if="item.get('sub')">
+                                                <div class="text-muted small text-truncate"><t t-esc="item['sub']"/></div>
+                                            </t>
+                                        </div>
+                                        <span class="text-muted">→</span>
+                                    </a>
+                                </t>
+                            </div>
+                        </div>
+                    </t>
+                </t>
+
+                <!-- Full-page search form -->
+                <form method="get" action="/search" class="mt-4">
+                    <div class="input-group">
+                        <input type="text" name="q" class="form-control form-control-lg"
+                               t-att-value="q" placeholder="Search again…" autofocus="autofocus"/>
+                        <button type="submit" class="btn btn-primary">Search</button>
+                    </div>
+                </form>
+
+            </div>
+            </div>
+        </t>
+    </template>
+
+
 </odoo>

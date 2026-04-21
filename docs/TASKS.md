@@ -17,8 +17,9 @@
 
 ### M13 — Productivity Suite
 
-**Status:** Planned
-**Branch:** TBD (will cut from `m12_knowledge_hub` after merge)
+**Status:** In progress — M12 polish done; Spotlight Search (A) scaffolded
+**Started:** 2026-04-21
+**Branch:** `m12_knowledge_hub`
 
 **Scope:**
 - Spotlight Search (`/search?q=`) — global cross-model search with ⌘K shortcut
@@ -32,12 +33,20 @@
 
 **A — Spotlight Search**
 
-- [ ] M13-01 · Global search controller `GET /search` in `language_portal/controllers/portal.py`.
+- [x] M13-01 · Global search controller `GET /search` in `language_portal/controllers/portal.py`.
   Queries: `language.entry`, `language.seeded.word`, `language.grammar.section`, `language.post`.
-  Returns grouped results JSON for JS; also renders full-page template.
-- [ ] M13-02 · `language_portal/static/src/js/spotlight.js` — ⌘K/Ctrl+K opens overlay input,
-  debounced fetch to `/search?q=`, renders grouped results, keyboard navigation (↑↓ Enter Esc).
-- [ ] M13-03 · Portal navbar search input (inherits `portal.portal_layout`).
+  Returns grouped results JSON for JS; also renders full-page template. ✅
+- [x] M13-02 · `language_portal/static/src/js/spotlight.js` — ⌘K/Ctrl+K opens overlay input,
+  debounced fetch to `/search?q=&format=json`, renders grouped results, keyboard navigation
+  (↑↓ Enter Esc). Self-contained IIFE, no jQuery dependency. Loaded via `web.assets_frontend`. ✅
+- [x] M13-03 · Full-page search results template `portal_search_results` in `portal_library.xml`.
+  Ctrl+K shortcut fires JS overlay; fallback full-page form at `/search`. ✅
+
+  **M12 Polish (same commit):**
+- [x] · Library dropdown menu fix — children were pointing to global template parent (id=51)
+  instead of website-specific copies. Fixed via DB UPDATE + `_fix_library_menu_parents` hook in
+  `__init__.py` that runs on every post_init/post_update and rewires children to their correct
+  website-specific parents. ✅
 
 **B — Interactive Drills**
 

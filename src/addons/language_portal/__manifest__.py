@@ -25,6 +25,11 @@
         'views/portal_posts.xml',
         'views/portal_library.xml',
     ],
+    'assets': {
+        'web.assets_frontend': [
+            'language_portal/static/src/js/spotlight.js',
+        ],
+    },
     'installable': True,
     'auto_install': False,
     'application': False,
