@@ -24,10 +24,14 @@
         'views/portal_homepage.xml',
         'views/portal_posts.xml',
         'views/portal_library.xml',
+        'views/pdf_vocabulary.xml',
+        'views/pdf_gold_vocab.xml',
+        'views/pdf_grammar.xml',
     ],
     'assets': {
         'web.assets_frontend': [
             'language_portal/static/src/js/spotlight.js',
+            'language_portal/static/src/css/print_style.css',
         ],
     },
     'installable': True,

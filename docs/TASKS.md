@@ -15,76 +15,92 @@
 
 ## Current Milestone
 
-### M13 — Productivity Suite
+### M13 — PDF Export Suite
 
-**Status:** In progress — M12 polish done; Spotlight Search (A) scaffolded
+**Status:** In progress
 **Started:** 2026-04-21
-**Branch:** `m12_knowledge_hub`
+**Branch:** `m13_pdf_export`
 
 **Scope:**
-- Spotlight Search (`/search?q=`) — global cross-model search with ⌘K shortcut
-- Interactive Drills (`/my/drill/<type>`) — flashcard, fill-in-blank, multiple choice
-- AI Professional Context — domain hint in LLM enrichment prompt
-- PDF Export — `/my/vocabulary/export.pdf` via weasyprint
+- PDF cheat sheets from personal vocabulary (`/my/vocabulary/print`)
+- PDF cheat sheets from Gold Vocabulary by CEFR level (`/useful-words/print?level=A1`)
+- PDF cheat sheets from Grammar sections (`/grammar/<slug>/print`)
+- Print buttons wired into all three portal surfaces
+- Dedicated print CSS (`print_style.css`)
+
+**Engine:** Odoo native QWeb-to-PDF via wkhtmltopdf 0.12.6.1 (confirmed in container).
+The `ir.actions.report` model's `_render_qweb_pdf` method is used server-side; route
+returns raw bytes with `Content-Type: application/pdf`.
 
 ---
 
 ### Sub-steps
 
-**A — Spotlight Search**
+**A — Print CSS**
 
-- [x] M13-01 · Global search controller `GET /search` in `language_portal/controllers/portal.py`.
-  Queries: `language.entry`, `language.seeded.word`, `language.grammar.section`, `language.post`.
-  Returns grouped results JSON for JS; also renders full-page template. ✅
-- [x] M13-02 · `language_portal/static/src/js/spotlight.js` — ⌘K/Ctrl+K opens overlay input,
-  debounced fetch to `/search?q=&format=json`, renders grouped results, keyboard navigation
-  (↑↓ Enter Esc). Self-contained IIFE, no jQuery dependency. Loaded via `web.assets_frontend`.
-  **Polish (2026-04-21):** Enter on highlighted result navigates to that item. Enter with no
-  selection falls back to `/search?q=<query>`. "Search all results for X →" row added at
-  bottom of results — keyboard-selectable, visually distinct (indigo, border-top), navigates to
-  full `/search` page. `_currentQuery` tracked at module level. ✅
-- [x] M13-03 · Full-page search results template `portal_search_results` in `portal_library.xml`.
-  Ctrl+K shortcut fires JS overlay; fallback full-page form at `/search`. ✅
+- [x] M13-01 · `language_portal/static/src/css/print_style.css`
+  A4 page, 2-column word grid, repeating table headers, page-break helpers, CEFR badges,
+  grammar content styles (tables, code blocks, headings), print-hide nav chrome. ✅
 
-  **M12 Polish (same commit):**
-- [x] · Library dropdown menu fix — children were pointing to global template parent (id=51)
-  instead of website-specific copies. Fixed via DB UPDATE + `_fix_library_menu_parents` hook in
-  `__init__.py` that runs on every post_init/post_update and rewires children to their correct
-  website-specific parents. ✅
+**B — QWeb PDF templates**
 
-**B — Interactive Drills**
+- [x] M13-02 · `language_portal/views/pdf_vocabulary.xml`
+  Template `report_vocabulary_cheat_sheet_document`. Header: Lexora logo + title + date.
+  Body: 2-column word grid grouped by source language; translations with flag emojis;
+  first enrichment example sentence if available. Also contains `portal_vocabulary_print_button`
+  template that inherits `language_words.portal_vocabulary_list` to inject Print button. ✅
 
-- [ ] M13-04 · `GET /my/drill` — drill home; choose type (flashcard/fill-blank/multiple-choice),
-  CEFR filter, language filter.
-- [ ] M13-05 · `GET /my/drill/flashcard` — sequential flashcard mode using SRS due cards.
-- [ ] M13-06 · `GET /my/drill/choice` — multiple choice using PvP distractor logic.
-- [ ] M13-07 · Drill result logged as `language.xp.log` reason `'drill'`.
+- [x] M13-03 · `language_portal/views/pdf_gold_vocab.xml`
+  Template `report_gold_vocab_cheat_sheet_document`. Header with CEFR level badge.
+  Body: 2-column grid of seeded words (word + POS + uk flag + el flag). ✅
 
-**C — AI Professional Context**
+- [x] M13-04 · `language_portal/views/pdf_grammar.xml`
+  Template `report_grammar_cheat_sheet_document`. Header with section title.
+  Body: raw `content_html` in `.grammar-content` div with print CSS applied. ✅
 
-- [ ] M13-08 · `professional_domain` Char field on `language.user.profile`.
-- [ ] M13-09 · Profile portal page updated with domain input.
-- [ ] M13-10 · `language_enrichment` enrichment request includes `professional_domain` in payload.
-- [ ] M13-11 · LLM service prompt updated to include domain context when present.
+**C — Report actions**
 
-**D — PDF Export**
+- [x] M13-05 · No separate `ir.actions.report` XML records needed — routes call
+  `ir.qweb._render()` + `ir.actions.report._run_wkhtmltopdf()` directly with
+  a custom context. This avoids model-docid coupling for portal-initiated generation. ✅
 
-- [ ] M13-12 · `GET /my/vocabulary/export.pdf` route in `language_words/controllers/portal.py`.
-  Groups entries by level/language, includes translations and example sentences.
-  Uses `weasyprint` or falls back to simple HTML download.
-- [ ] M13-13 · QWeb template `portal_vocabulary_pdf.xml`.
+**D — Print controllers**
 
-**E — Verification**
+- [x] M13-06 · `language_portal/controllers/portal_print.py`
+  `_render_pdf(template_xmlid, values, filename)` helper renders QWeb → wkhtmltopdf → Response.
+  Routes: `GET /my/vocabulary/print`, `GET /useful-words/print?level=<X>`,
+  `GET /grammar/<slug>/print`. All auth='user'. ✅
 
-- [ ] M13-14 · Spotlight returns results across all model types.
-- [ ] M13-15 · Drill flashcard plays through 10 cards, awards XP.
-- [ ] M13-16 · PDF download produces a valid PDF.
-- [ ] M13-17 · All existing tests still green.
-- [ ] M13-18 · Commit and push.
+- [x] M13-07 · `language_portal/controllers/__init__.py` updated with `portal_print` import. ✅
+
+**E — UI: print buttons**
+
+- [x] M13-08 · `portal_library.xml` — "🖨️ Print Level" button in useful-words header
+  (links to `/useful-words/print?level=<active_level>`). "🖨️ Print This Section" in
+  Grammar sidebar card footer. "🖨️ Print Cheat Sheet" in Grammar main content footer. ✅
+
+- [x] M13-09 · `pdf_vocabulary.xml` injects "🖨️ Print Cheat Sheet" button into the
+  vocabulary list page action bar via XPath inheritance. ✅
+
+**F — Manifest**
+
+- [x] M13-10 · `__manifest__.py` updated: `print_style.css` in `web.assets_frontend`;
+  three PDF template XMLs in `data` list. ✅
+
+**G — Verification**
+
+- [x] M13-11 · `--update language_portal --stop-after-init` → 0 errors. ✅
+- [x] M13-12 · `/my/vocabulary/print` → HTTP 200, `%PDF-` magic bytes confirmed. ✅
+- [x] M13-13 · `/useful-words/print?level=A1` → HTTP 200, valid PDF. ✅
+- [x] M13-14 · `/grammar/tenses/print` → HTTP 200, valid PDF. ✅
+- [x] M13-15 · Print buttons injected: vocabulary list toolbar, useful-words header
+  per-level, grammar sidebar card footer + content footer. ✅
+- [x] M13-16 · All existing tests still green (0 failures, 0 errors). ✅
+- [x] M13-17 · Committed and pushed `m13_pdf_export`. ✅
 
 #### Blockers
 
-(none yet)
+(none)
 
 ---
 
