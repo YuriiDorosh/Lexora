@@ -1,8 +1,8 @@
 # Lexora — Implementation Plan (MVP)
 
-> Version: 0.5 (post-M12 complete)
+> Version: 0.6 (M13 in progress)
 > Last updated: 2026-04-21
-> Status: M0–M12 complete; M13 Productivity Suite planned
+> Status: M0–M12 complete; M13 PDF Export Suite in progress
 
 ---
 
@@ -39,7 +39,7 @@
 | M10 | PvP Arena + XP System | ✅ Complete (resequenced) | Async word duels, XP/streak/levels, personal dashboard, Lexora Bot |
 | M11 | XP Shop | ✅ Complete | Spend XP on Streak Freeze, Profile Frames, Double XP Booster; `/my/shop` portal |
 | M12 | Knowledge Hub | ✅ Complete | Gold Vocabulary (3184 most common EN words with CEFR/POS); Grammar Encyclopedia (6 sections); `/useful-words` + `/grammar` portal |
-| M13 | Productivity Suite | 🔜 Planned | Spotlight Search, Interactive Drills, AI Professional Context, PDF Export |
+| M13 | PDF Export Suite | 🚧 In Progress | Printable PDF cheat sheets from personal vocabulary, Gold Vocabulary (by CEFR level), and Grammar sections |
 
 ---
 
@@ -555,48 +555,50 @@ docker exec odoo odoo --config /etc/odoo/odoo.conf \
 
 ---
 
-## M13 — Productivity Suite
+## M13 — PDF Export Suite
 
-**Goal:** Power-user features that make Lexora faster to use and more integrated into daily learning workflows.
+**Goal:** Users can generate beautiful, printable PDF "cheat sheets" from three sources: their personal vocabulary list, the Gold Vocabulary filtered by CEFR level, and any Grammar section. Uses Odoo's native QWeb-to-PDF engine (wkhtmltopdf 0.12.6.1, available in the container).
 
-**Part A — Spotlight Search**
-- Global `/search?q=` endpoint: simultaneous lookup across vocabulary entries, grammar sections, gold vocabulary, posts, users.
-- Results grouped by type with keyboard-navigable UI (⌘K / Ctrl+K shortcut).
-- Portal navbar search input triggers Spotlight.
+**Routes:**
+- `GET /my/vocabulary/print` — personal vocabulary PDF (word | translation | example)
+- `GET /useful-words/print?level=<CEFR>` — Gold Vocabulary for one CEFR level
+- `GET /grammar/<slug>/print` — Grammar section with styled tables + code blocks
 
-**Part B — Interactive Drills**
-- `/my/drill/<type>` routes for focused practice: flashcard mode, fill-in-the-blank, multiple choice (reuses PvP distractor logic).
-- Drill history logged alongside SRS reviews.
-- CEFR-level filter: drill only A1 words, only B2 entries, etc.
+**UI integration:**
+- "🖨️ Print Cheat Sheet" button on vocabulary list page
+- "🖨️ Print Level" button on each CEFR tab in Useful Words
+- "🖨️ Print" button in Grammar section sidebar
 
-**Part C — AI Professional Context**
-- "Explain in my professional context" feature on enrichment page.
-- User sets professional domain (e.g. "software engineering", "medicine", "law") in profile.
-- LLM enrichment prompt gains a domain hint for more relevant example sentences.
-
-**Part D — PDF Export**
-- `GET /my/vocabulary/export.pdf` — generates a formatted PDF of the user's vocabulary list.
-- Sections by CEFR level (if available), with translations and example sentences.
-- Uses `weasyprint` (already a common Odoo dep) or `reportlab`.
+**Design:** 2-column layout for word lists, A4 page, minimal margins, repeating table headers across pages, dedicated `print_style.css`.
 
 **Work:**
-1. Global search controller + template in `language_portal`.
-2. `language_portal/static/src/js/spotlight.js` — keyboard shortcut + search API call.
-3. Drill routes and templates in `language_learning`.
-4. `professional_domain` field on `language.user.profile`; pass to LLM enrichment payload.
-5. PDF export route in `language_words`.
+1. `language_portal/static/src/css/print_style.css` — print-optimised CSS (A4, 2-col grid, table headers).
+2. `language_portal/views/pdf_vocabulary.xml` — QWeb report template for personal vocabulary.
+3. `language_portal/views/pdf_gold_vocab.xml` — QWeb report template for CEFR-level Gold Vocabulary.
+4. `language_portal/views/pdf_grammar.xml` — QWeb report template for grammar sections.
+5. `language_portal/controllers/portal_print.py` — three print routes that render via `request.env['ir.actions.report']._render_qweb_pdf(...)` and return the PDF bytes as a werkzeug Response.
+6. Update `__manifest__.py` — add new CSS, views, controller.
+7. Add print buttons to `portal_library.xml` (useful-words + grammar) and inherit `language_words.portal_vocabulary_list` for the vocabulary print button.
 
 **Verification:**
 ```bash
-# Spotlight
-curl -b session -g 'http://localhost:5433/search?q=apple' # returns grouped results
+docker exec odoo odoo --config /etc/odoo/odoo.conf \
+  -d lexora --update language_portal --stop-after-init
 
-# Drill
-curl -b session http://localhost:5433/my/drill/flashcard  # 200
+# Personal vocabulary PDF
+curl -b cookies.txt -o /tmp/vocab.pdf \
+  'http://localhost:5433/my/vocabulary/print'
+file /tmp/vocab.pdf   # → PDF document
 
-# PDF export
-curl -b session -o /tmp/vocab.pdf http://localhost:5433/my/vocabulary/export.pdf
-file /tmp/vocab.pdf  # PDF document
+# Gold Vocabulary A1 PDF
+curl -b cookies.txt -o /tmp/a1.pdf \
+  'http://localhost:5433/useful-words/print?level=A1'
+file /tmp/a1.pdf      # → PDF document
+
+# Grammar tenses PDF
+curl -b cookies.txt -o /tmp/tenses.pdf \
+  'http://localhost:5433/grammar/tenses/print'
+file /tmp/tenses.pdf  # → PDF document
 ```
 
 ---

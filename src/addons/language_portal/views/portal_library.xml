@@ -12,7 +12,14 @@
 
                 <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
                     <h1 class="h2 fw-bold mb-0">📖 Useful Words</h1>
-                    <span class="text-muted small">3000 most common English words · CEFR levels</span>
+                    <div class="d-flex align-items-center gap-2">
+                        <span class="text-muted small">3000 most common English words · CEFR levels</span>
+                        <a t-attf-href="/useful-words/print?level=#{active_level}"
+                           class="btn btn-sm btn-outline-secondary btn-print"
+                           title="Download PDF cheat sheet for this level">
+                            🖨️ Print Level
+                        </a>
+                    </div>
                 </div>
 
                 <!-- Result flash -->
@@ -194,6 +201,13 @@
                                     </t>
                                 </t>
                             </div>
+                            <!-- Print button at bottom of sidebar -->
+                            <div class="card-footer bg-white border-top p-2">
+                                <a t-attf-href="/grammar/#{section.slug}/print"
+                                   class="btn btn-sm btn-outline-secondary w-100 btn-print">
+                                    🖨️ Print This Section
+                                </a>
+                            </div>
                         </div>
                     </div>
 
@@ -211,10 +225,14 @@
                             </div>
                         </div>
 
-                        <!-- Prev / Next navigation -->
+                        <!-- Navigation + Print -->
                         <div class="d-flex justify-content-between mt-3">
                             <a href="/grammar" class="btn btn-outline-secondary btn-sm">
                                 ← All Topics
+                            </a>
+                            <a t-attf-href="/grammar/#{section.slug}/print"
+                               class="btn btn-outline-secondary btn-sm btn-print">
+                                🖨️ Print Cheat Sheet
                             </a>
                         </div>
                     </div>
