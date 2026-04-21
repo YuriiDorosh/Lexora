@@ -70,9 +70,7 @@ def _build_stats(env):
 
 
 def _is_moderator():
-    mod_group = request.env.ref('language_security.group_language_moderator',
-                                raise_if_not_found=False)
-    return bool(mod_group and request.env.user in mod_group.users)
+    return request.env.user.has_group('language_security.group_language_moderator')
 
 
 class PortalHome(http.Controller):
@@ -96,6 +94,7 @@ class PortalHome(http.Controller):
             'word_of_day': word_of_day,
             'articles': articles,
             'stats': stats,
+            'lang_names': LANG_NAMES,
         })
 
     # ------------------------------------------------------------------
@@ -252,7 +251,7 @@ class PortalHome(http.Controller):
             vals['status'] = 'draft'
             post = request.env['language.post'].sudo().create(vals)
 
-        return request.redirect(f'/my/posts/{post.id}/edit?saved=1')
+        return request.redirect(f'/my/posts?saved={post.id}')
 
     # ------------------------------------------------------------------
     # Authenticated: submit for review

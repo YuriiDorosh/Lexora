@@ -7,3 +7,7 @@ access_language_post_tag_admin,language.post.tag admin,model_language_post_tag,l
 access_language_post_comment_user,language.post.comment user,model_language_post_comment,language_security.group_language_user,1,0,1,0
 access_language_post_comment_mod,language.post.comment moderator,model_language_post_comment,language_security.group_language_moderator,1,1,1,1
 access_language_post_comment_admin,language.post.comment admin,model_language_post_comment,language_security.group_language_admin,1,1,1,1
+access_language_seeded_word_user,language.seeded.word user,model_language_seeded_word,language_security.group_language_user,1,0,0,0
+access_language_seeded_word_admin,language.seeded.word admin,model_language_seeded_word,language_security.group_language_admin,1,1,1,1
+access_language_grammar_section_user,language.grammar.section user,model_language_grammar_section,language_security.group_language_user,1,0,0,0
+access_language_grammar_section_admin,language.grammar.section admin,model_language_grammar_section,language_security.group_language_admin,1,1,1,1
