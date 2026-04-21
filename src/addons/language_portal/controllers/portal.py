@@ -409,3 +409,81 @@ class PortalHome(http.Controller):
         except Exception as exc:
             _logger.warning('copy_text_from_post failed: %s', exc)
             return {'status': 'error', 'message': str(exc)}
+
+    # ------------------------------------------------------------------
+    # Spotlight Search — GET /search
+    # ------------------------------------------------------------------
+
+    @http.route('/search', type='http', auth='user', website=True, methods=['GET'])
+    def spotlight_search(self, q='', format=None, **kw):
+        q = (q or '').strip()
+        env = request.env
+        groups = []
+
+        if q:
+            limit = 5
+
+            # User's own vocabulary entries
+            entries = env['language.entry'].sudo().search([
+                ('owner_id', '=', env.user.id),
+                ('source_text', 'ilike', q),
+                ('status', '=', 'active'),
+            ], limit=limit)
+            if entries:
+                groups.append({
+                    'label': 'My Vocabulary',
+                    'type': 'vocabulary',
+                    'items': [{'title': e.source_text,
+                               'sub': e.source_language.upper() if e.source_language else '',
+                               'url': '/my/vocabulary/%d' % e.id} for e in entries],
+                })
+
+            # Grammar sections
+            grammar = env['language.grammar.section'].sudo().search([
+                ('is_published', '=', True),
+                ('title', 'ilike', q),
+            ], limit=limit)
+            if grammar:
+                groups.append({
+                    'label': 'Grammar Guide',
+                    'type': 'grammar',
+                    'items': [{'title': s.title,
+                               'sub': s.category,
+                               'url': '/grammar/%s' % s.slug} for s in grammar],
+                })
+
+            # Gold vocabulary (seeded words)
+            seeded = env['language.seeded.word'].sudo().search([
+                ('word', 'ilike', q),
+            ], limit=limit)
+            if seeded:
+                groups.append({
+                    'label': 'Useful Words',
+                    'type': 'words',
+                    'items': [{'title': w.word,
+                               'sub': w.level + (' · ' + w.pos if w.pos else ''),
+                               'url': '/useful-words?level=%s&q=%s' % (w.level, q)} for w in seeded],
+                })
+
+            # Published posts
+            if 'language.post' in env.registry:
+                posts = env['language.post'].sudo().search([
+                    ('status', '=', 'published'),
+                    '|', ('title', 'ilike', q), ('body', 'ilike', q),
+                ], limit=limit)
+                if posts:
+                    groups.append({
+                        'label': 'Articles',
+                        'type': 'posts',
+                        'items': [{'title': p.title,
+                                   'sub': '',
+                                   'url': '/posts/%s' % p.slug} for p in posts],
+                    })
+
+        if format == 'json' or request.httprequest.headers.get('X-Requested-With') == 'XMLHttpRequest':
+            return request.make_json_response({'groups': groups, 'q': q})
+
+        return request.render('language_portal.portal_search_results', {
+            'groups': groups,
+            'q': q,
+        })
