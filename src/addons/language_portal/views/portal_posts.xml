@@ -7,6 +7,7 @@
 
     <template id="portal_posts_list" name="Articles List">
         <t t-call="portal.portal_layout">
+            <div id="wrap" class="oe_structure">
             <div class="container py-4">
 
                 <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
@@ -93,6 +94,7 @@
                 </t>
 
             </div>
+            </div>
         </t>
     </template>
 
@@ -102,6 +104,7 @@
 
     <template id="portal_post_detail" name="Article Detail">
         <t t-call="portal.portal_layout">
+            <div id="wrap" class="oe_structure">
             <div class="container py-4">
                 <div class="row justify-content-center">
                     <div class="col-lg-8">
@@ -286,6 +289,7 @@
                     </div>
                 </div>
             </div>
+            </div>
         </t>
     </template>
 
@@ -295,12 +299,20 @@
 
     <template id="portal_my_posts" name="My Posts">
         <t t-call="portal.portal_layout">
+            <div id="wrap" class="oe_structure">
             <div class="container py-4">
 
                 <div class="d-flex justify-content-between align-items-center mb-4">
                     <h1 class="h2 fw-bold mb-0">📝 My Posts</h1>
                     <a href="/my/posts/new" class="btn btn-primary">+ New Post</a>
                 </div>
+
+                <t t-if="request.params.get('saved')">
+                    <div class="alert alert-success alert-dismissible fade show" role="alert">
+                        Draft saved successfully.
+                        <button type="button" class="btn-close" data-bs-dismiss="alert"/>
+                    </div>
+                </t>
 
                 <t t-if="posts">
                     <div class="table-responsive">
@@ -373,6 +385,7 @@
                 </t>
 
             </div>
+            </div>
         </t>
     </template>
 
@@ -382,6 +395,7 @@
 
     <template id="portal_post_form" name="Post Form">
         <t t-call="portal.portal_layout">
+            <div id="wrap" class="oe_structure">
             <div class="container py-4">
                 <div class="row justify-content-center">
                     <div class="col-lg-8">
@@ -393,10 +407,6 @@
                             </h1>
                             <a href="/my/posts" class="text-muted small text-decoration-none">← My Posts</a>
                         </div>
-
-                        <t t-if="request.params.get('saved')">
-                            <div class="alert alert-success">Draft saved.</div>
-                        </t>
 
                         <form t-attf-action="#{'/my/posts/' + str(post.id) + '/edit' if post else '/my/posts/new'}"
                               method="post">
@@ -468,6 +478,7 @@
                     </div>
                 </div>
             </div>
+            </div>
         </t>
     </template>
 
@@ -477,6 +488,7 @@
 
     <template id="portal_moderation" name="Moderation Queue">
         <t t-call="portal.portal_layout">
+            <div id="wrap" class="oe_structure">
             <div class="container py-4">
 
                 <h1 class="h2 fw-bold mb-4">🛡️ Moderation Queue</h1>
@@ -526,6 +538,7 @@
                     </div>
                 </t>
 
+            </div>
             </div>
         </t>
     </template>

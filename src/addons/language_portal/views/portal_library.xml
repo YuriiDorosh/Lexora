@@ -1,0 +1,228 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- ============================================================ -->
+    <!-- /useful-words — Gold Vocabulary (CEFR tabs + pagination)     -->
+    <!-- ============================================================ -->
+
+    <template id="portal_useful_words" name="Useful Words">
+        <t t-call="portal.portal_layout">
+            <div id="wrap" class="oe_structure">
+            <div class="container py-4">
+
+                <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+                    <h1 class="h2 fw-bold mb-0">📖 Useful Words</h1>
+                    <span class="text-muted small">3000 most common English words · CEFR levels</span>
+                </div>
+
+                <!-- Result flash -->
+                <t t-if="request.params.get('result') == 'added'">
+                    <div class="alert alert-success alert-dismissible fade show py-2" role="alert">
+                        ✅ Word added to your vocabulary!
+                        <button type="button" class="btn-close" data-bs-dismiss="alert"/>
+                    </div>
+                </t>
+                <t t-if="request.params.get('result') == 'duplicate'">
+                    <div class="alert alert-info alert-dismissible fade show py-2" role="alert">
+                        ℹ️ Already in your vocabulary.
+                        <button type="button" class="btn-close" data-bs-dismiss="alert"/>
+                    </div>
+                </t>
+
+                <!-- CEFR level tabs -->
+                <ul class="nav nav-tabs mb-4">
+                    <t t-foreach="levels" t-as="lvl">
+                        <li class="nav-item">
+                            <a t-attf-href="/useful-words?level=#{lvl}"
+                               t-att-class="'nav-link ' + ('active fw-semibold' if lvl == active_level else '')">
+                                <span t-att-class="'badge me-1 bg-' + level_colors.get(lvl, 'secondary')">
+                                    <t t-esc="lvl"/>
+                                </span>
+                                <span class="text-muted small">
+                                    <t t-esc="level_counts.get(lvl, 0)"/>
+                                </span>
+                            </a>
+                        </li>
+                    </t>
+                </ul>
+
+                <!-- Word grid -->
+                <div class="row row-cols-2 row-cols-md-3 row-cols-lg-4 row-cols-xl-5 g-2">
+                    <t t-foreach="words" t-as="word">
+                        <div class="col">
+                            <div class="card h-100 border-0 shadow-sm">
+                                <div class="card-body p-2 d-flex flex-column justify-content-between">
+                                    <div>
+                                        <span class="fw-semibold"><t t-esc="word.word"/></span>
+                                        <t t-if="word.pos">
+                                            <span class="text-muted small ms-1 fst-italic">
+                                                <t t-esc="word.pos"/>
+                                            </span>
+                                        </t>
+                                        <t t-if="word.translation_uk">
+                                            <div class="text-muted small mt-1">
+                                                🇺🇦 <t t-esc="word.translation_uk"/>
+                                            </div>
+                                        </t>
+                                        <t t-if="word.translation_el">
+                                            <div class="text-muted small">
+                                                🇬🇷 <t t-esc="word.translation_el"/>
+                                            </div>
+                                        </t>
+                                    </div>
+                                    <form action="/useful-words/add" method="post" class="mt-2">
+                                        <input type="hidden" name="csrf_token"
+                                               t-att-value="request.csrf_token()"/>
+                                        <input type="hidden" name="word_id"
+                                               t-att-value="word.id"/>
+                                        <button type="submit"
+                                                class="btn btn-sm btn-outline-primary w-100 py-0">
+                                            ➕ Add
+                                        </button>
+                                    </form>
+                                </div>
+                            </div>
+                        </div>
+                    </t>
+                </div>
+
+                <!-- Pagination -->
+                <t t-if="total_pages > 1">
+                    <nav class="mt-4">
+                        <ul class="pagination justify-content-center flex-wrap">
+                            <t t-if="page > 1">
+                                <li class="page-item">
+                                    <a class="page-link"
+                                       t-attf-href="/useful-words/page/#{page-1}?level=#{active_level}">‹</a>
+                                </li>
+                            </t>
+                            <t t-foreach="range(1, total_pages+1)" t-as="p">
+                                <li t-att-class="'page-item' + (' active' if p == page else '')">
+                                    <a class="page-link"
+                                       t-attf-href="/useful-words/page/#{p}?level=#{active_level}">
+                                        <t t-esc="p"/>
+                                    </a>
+                                </li>
+                            </t>
+                            <t t-if="page &lt; total_pages">
+                                <li class="page-item">
+                                    <a class="page-link"
+                                       t-attf-href="/useful-words/page/#{page+1}?level=#{active_level}">›</a>
+                                </li>
+                            </t>
+                        </ul>
+                    </nav>
+                </t>
+
+                <p class="text-center text-muted small mt-3">
+                    Showing <t t-esc="len(words)"/> of <t t-esc="total"/> words
+                    at level <strong><t t-esc="active_level"/></strong>
+                </p>
+
+            </div>
+            </div>
+        </t>
+    </template>
+
+    <!-- ============================================================ -->
+    <!-- /grammar — Grammar Encyclopedia index                        -->
+    <!-- ============================================================ -->
+
+    <template id="portal_grammar_index" name="Grammar Guide">
+        <t t-call="portal.portal_layout">
+            <div id="wrap" class="oe_structure">
+            <div class="container py-4">
+
+                <h1 class="h2 fw-bold mb-4">📚 Grammar Guide</h1>
+
+                <div class="row g-4">
+                    <t t-foreach="category_order" t-as="cat">
+                        <t t-if="grouped.get(cat)">
+                            <div class="col-md-6 col-lg-4">
+                                <div class="card h-100 border-0 shadow-sm">
+                                    <div class="card-header bg-white border-bottom fw-semibold">
+                                        <t t-esc="category_labels.get(cat, cat)"/>
+                                    </div>
+                                    <div class="list-group list-group-flush">
+                                        <t t-foreach="grouped[cat]" t-as="sec">
+                                            <a t-attf-href="/grammar/#{sec.slug}"
+                                               class="list-group-item list-group-item-action py-2 px-3 small">
+                                                <t t-esc="sec.title"/>
+                                            </a>
+                                        </t>
+                                    </div>
+                                </div>
+                            </div>
+                        </t>
+                    </t>
+                </div>
+
+            </div>
+            </div>
+        </t>
+    </template>
+
+    <!-- ============================================================ -->
+    <!-- /grammar/<slug> — Grammar section detail                     -->
+    <!-- ============================================================ -->
+
+    <template id="portal_grammar_section" name="Grammar Section">
+        <t t-call="portal.portal_layout">
+            <div id="wrap" class="oe_structure">
+            <div class="container py-4">
+                <div class="row">
+
+                    <!-- Sidebar -->
+                    <div class="col-lg-3 mb-4 mb-lg-0">
+                        <div class="card border-0 shadow-sm sticky-top" style="top:80px">
+                            <div class="card-header bg-white fw-semibold small border-bottom">
+                                Grammar Topics
+                            </div>
+                            <div class="list-group list-group-flush small">
+                                <t t-foreach="category_order" t-as="cat">
+                                    <t t-if="grouped.get(cat)">
+                                        <div class="list-group-item list-group-item-action py-1 px-3 fw-semibold text-muted"
+                                             style="background:#f8f9fa;font-size:.7rem;text-transform:uppercase;letter-spacing:.05em">
+                                            <t t-esc="category_labels.get(cat, cat)"/>
+                                        </div>
+                                        <t t-foreach="grouped[cat]" t-as="sec">
+                                            <a t-attf-href="/grammar/#{sec.slug}"
+                                               t-att-class="'list-group-item list-group-item-action py-1 px-3 ' + ('active' if sec.id == section.id else '')">
+                                                <t t-esc="sec.title"/>
+                                            </a>
+                                        </t>
+                                    </t>
+                                </t>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Main content -->
+                    <div class="col-lg-9">
+                        <nav class="mb-3 small text-muted">
+                            <a href="/grammar" class="text-muted text-decoration-none">Grammar Guide</a>
+                            <span class="mx-1">›</span>
+                            <span><t t-esc="section.title"/></span>
+                        </nav>
+
+                        <div class="card border-0 shadow-sm">
+                            <div class="card-body px-4 py-4 grammar-content">
+                                <t t-raw="section.content_html"/>
+                            </div>
+                        </div>
+
+                        <!-- Prev / Next navigation -->
+                        <div class="d-flex justify-content-between mt-3">
+                            <a href="/grammar" class="btn btn-outline-secondary btn-sm">
+                                ← All Topics
+                            </a>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+            </div>
+        </t>
+    </template>
+
+</odoo>

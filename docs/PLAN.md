@@ -1,8 +1,8 @@
 # Lexora — Implementation Plan (MVP)
 
-> Version: 0.3 (post-M10, M11 added)
-> Last updated: 2026-04-20
-> Status: M0–M10 complete (resequenced); M7/M8 Social + M11 XP Shop next
+> Version: 0.5 (post-M12 complete)
+> Last updated: 2026-04-21
+> Status: M0–M12 complete; M13 Productivity Suite planned
 
 ---
 
@@ -33,11 +33,13 @@
 | M4c | Translation / Enrichment split | ✅ Complete | `deep_translator` online API; LLM restricted to source-language enrichment (ADR-028) |
 | M5 | Anki Import Service | ✅ Complete | .apkg and .txt import with dedup and persistent import log |
 | M6 | Audio (Recording + TTS) | ✅ Complete | Record button works; TTS generation via async service |
-| M7 | Posts, Articles, Comments | 🔄 **In Progress** | Draft → review → publish flow; comments with @mentions; copy-to-list from posts |
-| M8 | Chat & DMs | 🔄 **In Progress** | Public language channels + private DMs; save-to-list from chat (killer feature) |
+| M7 | Posts, Articles, Comments | ✅ Complete | Draft → review → publish flow; comments with @mentions; copy-to-list from posts |
+| M8 | Chat & DMs | ✅ Complete | Public language channels + private DMs; save-to-list from chat (killer feature) |
 | M9 | SRS Core + Dashboards | ✅ Complete (resequenced) | SM-2 spaced repetition, `/my/practice`, leaderboard, vocabulary pro dashboard |
 | M10 | PvP Arena + XP System | ✅ Complete (resequenced) | Async word duels, XP/streak/levels, personal dashboard, Lexora Bot |
-| M11 | XP Shop | 🔄 **In Progress** | Spend XP on Streak Freeze, Profile Frames, Double XP Booster; `/my/shop` portal |
+| M11 | XP Shop | ✅ Complete | Spend XP on Streak Freeze, Profile Frames, Double XP Booster; `/my/shop` portal |
+| M12 | Knowledge Hub | ✅ Complete | Gold Vocabulary (3184 most common EN words with CEFR/POS); Grammar Encyclopedia (6 sections); `/useful-words` + `/grammar` portal |
+| M13 | Productivity Suite | 🔜 Planned | Spotlight Search, Interactive Drills, AI Professional Context, PDF Export |
 
 ---
 
@@ -474,6 +476,131 @@ docker exec odoo odoo --config /etc/odoo/odoo.conf -d lexora \
 
 ---
 
+## M12 — Knowledge Hub
+
+**Goal:** Users have a curated Gold Vocabulary of 3000 most common English words (with CEFR level, POS, and Ukrainian/Greek translations) and a Grammar Encyclopedia. Both are accessible from a new "Library" navbar dropdown.
+
+**Part A — Gold Vocabulary (`language.seeded.word`)**
+
+Items: word, CEFR level (A1–C2), part of speech, Ukrainian translation, Greek translation, sort order, translation status.
+
+| Item | Detail |
+|---|---|
+| Model | `language.seeded.word` in `language_portal` |
+| Portal route | `GET /useful-words` — tabbed by CEFR level, paginated (50/page), "➕ Add to My List" button per word |
+| Add-to-list | `POST /useful-words/add` → creates `language.entry` (dedup via existing logic), auto-queues translation, `created_from='seeded_content'` |
+| Seed data | Post-init hook reads `data/gold_vocabulary.json` (~3000 words); A1/A2 have full UK+EL translations; B1–C2 have English+metadata only (translations filled later by cron or user trigger) |
+
+**Part B — Grammar Encyclopedia (`language.grammar.section`)**
+
+Items: title, slug, category (selection), content_html (Html), sequence, is_published.
+
+Initial content (6 sections):
+1. **All 12 English Tenses** — form + usage + timeline example + Ukrainian/Greek equivalents
+2. **Irregular Verbs** — table of ~200 verbs (Base / Past / Past Participle) with Ukrainian translation
+3. **Articles (a/an/the/zero)** — rules with examples in EN/UK/EL
+4. **Conditionals 0–3** — form + usage + translation pairs
+5. **Modal Verbs** — can/could/may/might/must/should/would + equivalents
+6. **Passive Voice & Reported Speech** — transformation rules + examples
+
+| Item | Detail |
+|---|---|
+| Model | `language.grammar.section` in `language_portal` |
+| Portal route | `GET /grammar` — sidebar nav by category; `GET /grammar/<slug>` — section detail |
+| Seed | Post-init hook or XML fixture |
+
+**Work:**
+1. `language.seeded.word` model — `language_portal/models/language_seeded_word.py`
+2. `language.grammar.section` model — `language_portal/models/language_grammar_section.py`
+3. Update `language_portal/models/__init__.py`
+4. Update `language_portal/security/ir.model.access.csv` with new model access rows
+5. Generate `language_portal/data/gold_vocabulary.json` (3000 words from Volka English list)
+6. Post-init hook: seed words + grammar sections from JSON/Python if not already present
+7. `language_portal/controllers/portal_library.py` — `/useful-words`, `/useful-words/add`, `/grammar`, `/grammar/<slug>`
+8. Update `controllers/__init__.py` to import `portal_library`
+9. `language_portal/views/portal_library.xml` — useful words (CEFR tabs + pagination) + grammar (sidebar + section detail)
+10. Update `data/website_menus.xml` — "Library" dropdown: "Useful Words" + "Grammar Guide"
+11. Update `language_portal/__manifest__.py` — new files in `data`/`views`
+12. Tests: word seeding idempotency, add-to-list, grammar section queries
+
+**Verification:**
+```bash
+# 1. Install/update
+docker exec odoo odoo --config /etc/odoo/odoo.conf \
+  -d lexora --update language_portal --stop-after-init
+
+# 2. Word count
+docker exec odoo odoo-bin shell -d lexora -c /etc/odoo/odoo.conf << 'EOF'
+count = env['language.seeded.word'].sudo().search_count([])
+print(f"Seeded words: {count}")  # expect ~3000
+EOF
+
+# 3. Portal smoke test
+curl -b session_cookie http://localhost:5433/useful-words       # 200
+curl -b session_cookie http://localhost:5433/grammar            # 200
+curl -b session_cookie http://localhost:5433/grammar/tenses     # 200
+
+# 4. Add-to-list
+# POST /useful-words/add with {word_id: 1}
+# → language.entry created with created_from='seeded_content'
+
+# 5. Tests
+docker exec odoo odoo --config /etc/odoo/odoo.conf \
+  -d lexora --update language_portal \
+  --test-enable --no-http --stop-after-init
+# → all language_portal tests green
+```
+
+---
+
+---
+
+## M13 — Productivity Suite
+
+**Goal:** Power-user features that make Lexora faster to use and more integrated into daily learning workflows.
+
+**Part A — Spotlight Search**
+- Global `/search?q=` endpoint: simultaneous lookup across vocabulary entries, grammar sections, gold vocabulary, posts, users.
+- Results grouped by type with keyboard-navigable UI (⌘K / Ctrl+K shortcut).
+- Portal navbar search input triggers Spotlight.
+
+**Part B — Interactive Drills**
+- `/my/drill/<type>` routes for focused practice: flashcard mode, fill-in-the-blank, multiple choice (reuses PvP distractor logic).
+- Drill history logged alongside SRS reviews.
+- CEFR-level filter: drill only A1 words, only B2 entries, etc.
+
+**Part C — AI Professional Context**
+- "Explain in my professional context" feature on enrichment page.
+- User sets professional domain (e.g. "software engineering", "medicine", "law") in profile.
+- LLM enrichment prompt gains a domain hint for more relevant example sentences.
+
+**Part D — PDF Export**
+- `GET /my/vocabulary/export.pdf` — generates a formatted PDF of the user's vocabulary list.
+- Sections by CEFR level (if available), with translations and example sentences.
+- Uses `weasyprint` (already a common Odoo dep) or `reportlab`.
+
+**Work:**
+1. Global search controller + template in `language_portal`.
+2. `language_portal/static/src/js/spotlight.js` — keyboard shortcut + search API call.
+3. Drill routes and templates in `language_learning`.
+4. `professional_domain` field on `language.user.profile`; pass to LLM enrichment payload.
+5. PDF export route in `language_words`.
+
+**Verification:**
+```bash
+# Spotlight
+curl -b session -g 'http://localhost:5433/search?q=apple' # returns grouped results
+
+# Drill
+curl -b session http://localhost:5433/my/drill/flashcard  # 200
+
+# PDF export
+curl -b session -o /tmp/vocab.pdf http://localhost:5433/my/vocabulary/export.pdf
+file /tmp/vocab.pdf  # PDF document
+```
+
+---
+
 ## Dependency Graph
 
 ```
@@ -485,7 +612,7 @@ M0 → M1 → M2 → M3
           ↓    ↓
           M7 ←→ M8
           ↓
-          M9 → M10 → M11
+          M9 → M10 → M11 → M12 → M13
 ```
 
 M3, M4, M5, M6 can be worked in parallel after M2 is stable.
@@ -493,3 +620,4 @@ M7 and M8 can be worked in parallel after M3 (auto-translate after copy depends 
 M9 can begin in parallel with M7/M8 (dashboards only need entry data from M2+).
 M10 requires M2 (entries), M3 (translations for distractors), M9 (leaderboard UI).
 M11 requires M10 (XP system, xp.log model, profile fields).
+M12 requires M2 (language.entry + dedup), M3 (auto-translation), M11 (portal navigation patterns).

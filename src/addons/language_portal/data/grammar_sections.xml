@@ -1,0 +1,361 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data noupdate="0">
+
+        <record id="grammar_tenses" model="language.grammar.section">
+            <field name="title">All 12 English Tenses</field>
+            <field name="slug">tenses</field>
+            <field name="category">tenses</field>
+            <field name="sequence">10</field>
+            <field name="is_published">True</field>
+            <field name="content_html"><![CDATA[
+<h2>The 12 English Tenses</h2>
+<p>English has 12 main tenses formed by combining 3 time frames (past, present, future) with 4 aspects (simple, continuous, perfect, perfect continuous).</p>
+
+<h3>1. Present Simple</h3>
+<p><strong>Form:</strong> Subject + base verb (he/she/it adds <em>-s</em>)</p>
+<p><strong>Use:</strong> Habits, facts, schedules. &nbsp;<em>I work every day. She speaks English well.</em></p>
+<p><strong>Ukrainian:</strong> Теперішній простий час &nbsp;|&nbsp; <strong>Greek:</strong> Ενεστώτας απλός</p>
+
+<h3>2. Present Continuous</h3>
+<p><strong>Form:</strong> Subject + am/is/are + verb-ing</p>
+<p><strong>Use:</strong> Actions happening now; temporary situations. &nbsp;<em>I am working right now.</em></p>
+<p><strong>Ukrainian:</strong> Теперішній тривалий час</p>
+
+<h3>3. Present Perfect</h3>
+<p><strong>Form:</strong> Subject + have/has + past participle</p>
+<p><strong>Use:</strong> Past actions with present relevance; experience. &nbsp;<em>I have visited Paris.</em></p>
+<p><strong>Ukrainian:</strong> Теперішній перфектний час</p>
+
+<h3>4. Present Perfect Continuous</h3>
+<p><strong>Form:</strong> Subject + have/has been + verb-ing</p>
+<p><strong>Use:</strong> Ongoing actions that started in the past. &nbsp;<em>I have been working here for 5 years.</em></p>
+
+<h3>5. Past Simple</h3>
+<p><strong>Form:</strong> Subject + past tense (regular: -ed; irregular: see table)</p>
+<p><strong>Use:</strong> Completed actions at a specific past time. &nbsp;<em>She worked yesterday.</em></p>
+<p><strong>Ukrainian:</strong> Минулий простий час</p>
+
+<h3>6. Past Continuous</h3>
+<p><strong>Form:</strong> Subject + was/were + verb-ing</p>
+<p><strong>Use:</strong> Actions in progress at a specific past moment. &nbsp;<em>I was sleeping when you called.</em></p>
+
+<h3>7. Past Perfect</h3>
+<p><strong>Form:</strong> Subject + had + past participle</p>
+<p><strong>Use:</strong> Action completed before another past action. &nbsp;<em>She had already left when I arrived.</em></p>
+
+<h3>8. Past Perfect Continuous</h3>
+<p><strong>Form:</strong> Subject + had been + verb-ing</p>
+<p><strong>Use:</strong> Action ongoing up to a point in the past. &nbsp;<em>He had been waiting for two hours.</em></p>
+
+<h3>9. Future Simple (will)</h3>
+<p><strong>Form:</strong> Subject + will + base verb</p>
+<p><strong>Use:</strong> Predictions, spontaneous decisions, promises. &nbsp;<em>I will call you tomorrow.</em></p>
+<p><strong>Ukrainian:</strong> Майбутній простий час</p>
+
+<h3>10. Future Continuous</h3>
+<p><strong>Form:</strong> Subject + will be + verb-ing</p>
+<p><strong>Use:</strong> Actions in progress at a specific future moment. &nbsp;<em>This time tomorrow I will be flying to London.</em></p>
+
+<h3>11. Future Perfect</h3>
+<p><strong>Form:</strong> Subject + will have + past participle</p>
+<p><strong>Use:</strong> Action completed before a specific future point. &nbsp;<em>By Friday I will have finished the report.</em></p>
+
+<h3>12. Future Perfect Continuous</h3>
+<p><strong>Form:</strong> Subject + will have been + verb-ing</p>
+<p><strong>Use:</strong> Duration of an action up to a future point. &nbsp;<em>By June she will have been studying English for 10 years.</em></p>
+
+<hr/>
+<h3>Quick Reference Table</h3>
+<table class="table table-bordered table-sm">
+<thead><tr><th>Aspect</th><th>Past</th><th>Present</th><th>Future</th></tr></thead>
+<tbody>
+<tr><td>Simple</td><td>worked</td><td>work/works</td><td>will work</td></tr>
+<tr><td>Continuous</td><td>was working</td><td>am/is/are working</td><td>will be working</td></tr>
+<tr><td>Perfect</td><td>had worked</td><td>have/has worked</td><td>will have worked</td></tr>
+<tr><td>Perf. Cont.</td><td>had been working</td><td>have/has been working</td><td>will have been working</td></tr>
+</tbody>
+</table>
+]]></field>
+        </record>
+
+        <record id="grammar_irregular_verbs" model="language.grammar.section">
+            <field name="title">Irregular Verbs</field>
+            <field name="slug">irregular-verbs</field>
+            <field name="category">verbs</field>
+            <field name="sequence">20</field>
+            <field name="is_published">True</field>
+            <field name="content_html"><![CDATA[
+<h2>Common Irregular Verbs</h2>
+<p>Irregular verbs do not follow the standard <em>-ed</em> pattern. Memorise these common forms.</p>
+<table class="table table-bordered table-sm table-hover">
+<thead class="table-dark"><tr><th>Base</th><th>Past Simple</th><th>Past Participle</th><th>Ukrainian</th></tr></thead>
+<tbody>
+<tr><td>be</td><td>was/were</td><td>been</td><td>бути</td></tr>
+<tr><td>begin</td><td>began</td><td>begun</td><td>починати</td></tr>
+<tr><td>break</td><td>broke</td><td>broken</td><td>ламати</td></tr>
+<tr><td>bring</td><td>brought</td><td>brought</td><td>приносити</td></tr>
+<tr><td>build</td><td>built</td><td>built</td><td>будувати</td></tr>
+<tr><td>buy</td><td>bought</td><td>bought</td><td>купувати</td></tr>
+<tr><td>catch</td><td>caught</td><td>caught</td><td>ловити</td></tr>
+<tr><td>choose</td><td>chose</td><td>chosen</td><td>вибирати</td></tr>
+<tr><td>come</td><td>came</td><td>come</td><td>приходити</td></tr>
+<tr><td>do</td><td>did</td><td>done</td><td>робити</td></tr>
+<tr><td>drink</td><td>drank</td><td>drunk</td><td>пити</td></tr>
+<tr><td>drive</td><td>drove</td><td>driven</td><td>водити</td></tr>
+<tr><td>eat</td><td>ate</td><td>eaten</td><td>їсти</td></tr>
+<tr><td>fall</td><td>fell</td><td>fallen</td><td>падати</td></tr>
+<tr><td>feel</td><td>felt</td><td>felt</td><td>відчувати</td></tr>
+<tr><td>find</td><td>found</td><td>found</td><td>знаходити</td></tr>
+<tr><td>fly</td><td>flew</td><td>flown</td><td>літати</td></tr>
+<tr><td>forget</td><td>forgot</td><td>forgotten</td><td>забувати</td></tr>
+<tr><td>get</td><td>got</td><td>got/gotten</td><td>отримувати</td></tr>
+<tr><td>give</td><td>gave</td><td>given</td><td>давати</td></tr>
+<tr><td>go</td><td>went</td><td>gone</td><td>іти</td></tr>
+<tr><td>have</td><td>had</td><td>had</td><td>мати</td></tr>
+<tr><td>hear</td><td>heard</td><td>heard</td><td>чути</td></tr>
+<tr><td>keep</td><td>kept</td><td>kept</td><td>тримати</td></tr>
+<tr><td>know</td><td>knew</td><td>known</td><td>знати</td></tr>
+<tr><td>leave</td><td>left</td><td>left</td><td>залишати</td></tr>
+<tr><td>lose</td><td>lost</td><td>lost</td><td>програвати</td></tr>
+<tr><td>make</td><td>made</td><td>made</td><td>робити</td></tr>
+<tr><td>meet</td><td>met</td><td>met</td><td>зустрічати</td></tr>
+<tr><td>pay</td><td>paid</td><td>paid</td><td>платити</td></tr>
+<tr><td>read</td><td>read</td><td>read</td><td>читати</td></tr>
+<tr><td>run</td><td>ran</td><td>run</td><td>бігти</td></tr>
+<tr><td>say</td><td>said</td><td>said</td><td>говорити</td></tr>
+<tr><td>see</td><td>saw</td><td>seen</td><td>бачити</td></tr>
+<tr><td>sell</td><td>sold</td><td>sold</td><td>продавати</td></tr>
+<tr><td>send</td><td>sent</td><td>sent</td><td>відправляти</td></tr>
+<tr><td>sit</td><td>sat</td><td>sat</td><td>сидіти</td></tr>
+<tr><td>sleep</td><td>slept</td><td>slept</td><td>спати</td></tr>
+<tr><td>speak</td><td>spoke</td><td>spoken</td><td>говорити</td></tr>
+<tr><td>spend</td><td>spent</td><td>spent</td><td>витрачати</td></tr>
+<tr><td>stand</td><td>stood</td><td>stood</td><td>стояти</td></tr>
+<tr><td>take</td><td>took</td><td>taken</td><td>брати</td></tr>
+<tr><td>teach</td><td>taught</td><td>taught</td><td>вчити</td></tr>
+<tr><td>tell</td><td>told</td><td>told</td><td>розповідати</td></tr>
+<tr><td>think</td><td>thought</td><td>thought</td><td>думати</td></tr>
+<tr><td>understand</td><td>understood</td><td>understood</td><td>розуміти</td></tr>
+<tr><td>win</td><td>won</td><td>won</td><td>вигравати</td></tr>
+<tr><td>write</td><td>wrote</td><td>written</td><td>писати</td></tr>
+</tbody>
+</table>
+<p class="text-muted small mt-2">Tip: Group by pattern — buy/bought/bought, bring/brought/brought, catch/caught/caught all share <em>-ought</em>.</p>
+]]></field>
+        </record>
+
+        <record id="grammar_articles" model="language.grammar.section">
+            <field name="title">Articles: a, an, the, zero</field>
+            <field name="slug">articles</field>
+            <field name="category">articles</field>
+            <field name="sequence">30</field>
+            <field name="is_published">True</field>
+            <field name="content_html"><![CDATA[
+<h2>English Articles</h2>
+<p>English has three article types: <strong>indefinite</strong> (a/an), <strong>definite</strong> (the), and <strong>zero article</strong> (no article).</p>
+
+<h3>A / An — Indefinite Article</h3>
+<p>Use with singular countable nouns when referring to any one of a group or introducing something new.</p>
+<ul>
+<li><strong>a</strong> before consonant sounds: <em>a book, a university, a European</em></li>
+<li><strong>an</strong> before vowel sounds: <em>an apple, an hour, an MBA</em></li>
+</ul>
+<p><strong>Ukrainian:</strong> Немає прямого відповідника; передається контекстом.</p>
+
+<h3>The — Definite Article</h3>
+<table class="table table-sm table-bordered">
+<thead><tr><th>When to use <em>the</em></th><th>Example</th></tr></thead>
+<tbody>
+<tr><td>Already mentioned</td><td><em>I saw a dog. The dog was huge.</em></td></tr>
+<tr><td>Unique objects</td><td><em>the sun, the moon, the Earth</em></td></tr>
+<tr><td>Superlatives</td><td><em>the best, the tallest building</em></td></tr>
+<tr><td>Rivers, seas, mountain ranges</td><td><em>the Nile, the Alps, the Pacific</em></td></tr>
+<tr><td>Countries with plural/republic names</td><td><em>the UK, the USA, the Netherlands</em></td></tr>
+</tbody>
+</table>
+
+<h3>Zero Article (∅)</h3>
+<p>No article with: plural/uncountable nouns in general statements, proper names, languages, meals, sports, transport phrases.</p>
+<p><em>Dogs are friendly. She speaks English. We had dinner. He plays football. by car, by train.</em></p>
+
+<h3>Common Mistakes</h3>
+<table class="table table-sm table-bordered table-striped">
+<thead><tr><th>Wrong</th><th>Correct</th><th>Rule</th></tr></thead>
+<tbody>
+<tr><td>I go to the school.</td><td>I go to school.</td><td>Institutions in general purpose</td></tr>
+<tr><td>She plays the tennis.</td><td>She plays tennis.</td><td>Sports → zero article</td></tr>
+<tr><td>I like the music.</td><td>I like music.</td><td>Uncountable in general</td></tr>
+</tbody>
+</table>
+]]></field>
+        </record>
+
+        <record id="grammar_conditionals" model="language.grammar.section">
+            <field name="title">Conditionals 0–3</field>
+            <field name="slug">conditionals</field>
+            <field name="category">conditionals</field>
+            <field name="sequence">40</field>
+            <field name="is_published">True</field>
+            <field name="content_html"><![CDATA[
+<h2>English Conditionals</h2>
+<p>Conditionals express "if" situations. There are four main types.</p>
+
+<h3>Zero Conditional — General Truths</h3>
+<p><strong>Form:</strong> If + present simple, present simple</p>
+<p><em>If you heat water to 100°C, it boils. &nbsp;If I miss the bus, I walk.</em></p>
+<p><strong>Ukrainian:</strong> Якщо нагріти воду до 100°C, вона закипає.</p>
+
+<h3>First Conditional — Real Future Possibility</h3>
+<p><strong>Form:</strong> If + present simple, will + base verb</p>
+<p><em>If it rains, I will stay at home. &nbsp;If you study hard, you will pass.</em></p>
+<p><strong>Ukrainian:</strong> Якщо піде дощ, я залишуся вдома.</p>
+
+<h3>Second Conditional — Unreal Present/Future</h3>
+<p><strong>Form:</strong> If + past simple, would + base verb</p>
+<p><em>If I had a million dollars, I would travel the world.</em></p>
+<p class="text-info small">Use <em>were</em> (not <em>was</em>) with all persons in formal English: <em>If she were here…</em></p>
+<p><strong>Ukrainian:</strong> Якби в мене був мільйон доларів, я б подорожував світом.</p>
+
+<h3>Third Conditional — Unreal Past</h3>
+<p><strong>Form:</strong> If + past perfect, would have + past participle</p>
+<p><em>If I had studied harder, I would have passed. &nbsp;If she had left earlier, she wouldn't have missed the train.</em></p>
+<p><strong>Ukrainian:</strong> Якби я більше вчився, я б склав іспит.</p>
+
+<hr/>
+<h3>Quick Summary Table</h3>
+<table class="table table-bordered table-sm">
+<thead class="table-dark"><tr><th>Type</th><th>If-clause</th><th>Main clause</th><th>Use</th></tr></thead>
+<tbody>
+<tr><td>Zero</td><td>present simple</td><td>present simple</td><td>General truth</td></tr>
+<tr><td>First</td><td>present simple</td><td>will + base</td><td>Real possibility</td></tr>
+<tr><td>Second</td><td>past simple</td><td>would + base</td><td>Unreal/hypothetical</td></tr>
+<tr><td>Third</td><td>past perfect</td><td>would have + pp</td><td>Unreal past</td></tr>
+</tbody>
+</table>
+]]></field>
+        </record>
+
+        <record id="grammar_modals" model="language.grammar.section">
+            <field name="title">Modal Verbs</field>
+            <field name="slug">modal-verbs</field>
+            <field name="category">modals</field>
+            <field name="sequence">50</field>
+            <field name="is_published">True</field>
+            <field name="content_html"><![CDATA[
+<h2>Modal Verbs</h2>
+<p>Modal verbs express ability, permission, obligation, possibility, and advice. Followed by a <strong>bare infinitive</strong>.</p>
+
+<h3>Can / Could</h3>
+<table class="table table-sm table-bordered">
+<thead><tr><th>Modal</th><th>Meaning</th><th>Example</th><th>Ukrainian</th></tr></thead>
+<tbody>
+<tr><td>can</td><td>ability (present)</td><td>I can swim.</td><td>вміти / могти</td></tr>
+<tr><td>can</td><td>permission (informal)</td><td>Can I open the window?</td><td>можна?</td></tr>
+<tr><td>could</td><td>ability (past)</td><td>She could run fast as a child.</td><td>міг/могла</td></tr>
+<tr><td>could</td><td>polite request</td><td>Could you help me?</td><td>чи не могли б ви?</td></tr>
+<tr><td>could</td><td>possibility</td><td>It could be true.</td><td>може бути</td></tr>
+</tbody>
+</table>
+
+<h3>May / Might</h3>
+<table class="table table-sm table-bordered">
+<tbody>
+<tr><td>may</td><td>formal permission / ~50% possibility</td><td>You may leave. It may rain.</td><td>можете / можливо</td></tr>
+<tr><td>might</td><td>weaker possibility (~30%)</td><td>It might rain.</td><td>може бути</td></tr>
+</tbody>
+</table>
+
+<h3>Must / Have to</h3>
+<table class="table table-sm table-bordered">
+<tbody>
+<tr><td>must</td><td>strong obligation (internal)</td><td>I must finish this today.</td><td>мусити / повинен</td></tr>
+<tr><td>must</td><td>deduction (certainty)</td><td>She must be tired.</td><td>напевно</td></tr>
+<tr><td>have to</td><td>obligation (external)</td><td>I have to wear a uniform.</td><td>треба / необхідно</td></tr>
+<tr><td>must not</td><td>prohibition</td><td>You must not smoke here.</td><td>не можна / заборонено</td></tr>
+<tr><td>don't have to</td><td>no obligation</td><td>You don't have to come.</td><td>не обов'язково</td></tr>
+</tbody>
+</table>
+
+<h3>Should / Would</h3>
+<table class="table table-sm table-bordered">
+<tbody>
+<tr><td>should</td><td>advice / recommendation</td><td>You should see a doctor.</td><td>слід / варто</td></tr>
+<tr><td>would</td><td>conditional / polite request / past habit</td><td>I would help if I could. Would you like tea? We would visit her every summer.</td><td>б / чи не хотіли б / бувало</td></tr>
+</tbody>
+</table>
+
+<h3>Greek equivalents</h3>
+<ul>
+<li><em>can</em> → μπορώ (boró)</li>
+<li><em>must</em> → πρέπει (prépi)</li>
+<li><em>should</em> → θα έπρεπε</li>
+<li><em>may/might</em> → μπορεί (borei) / ίσως (ísōs)</li>
+</ul>
+]]></field>
+        </record>
+
+        <record id="grammar_passive_reported" model="language.grammar.section">
+            <field name="title">Passive Voice &amp; Reported Speech</field>
+            <field name="slug">passive-reported</field>
+            <field name="category">voice</field>
+            <field name="sequence">60</field>
+            <field name="is_published">True</field>
+            <field name="content_html"><![CDATA[
+<h2>Passive Voice</h2>
+<p>The passive voice focuses on the <strong>action</strong> or <strong>object</strong> rather than the agent (doer).</p>
+
+<h3>Formation: Subject + be (conjugated) + past participle [+ by + agent]</h3>
+<table class="table table-bordered table-sm">
+<thead class="table-dark"><tr><th>Tense</th><th>Active</th><th>Passive</th></tr></thead>
+<tbody>
+<tr><td>Present Simple</td><td>They make cars here.</td><td>Cars are made here.</td></tr>
+<tr><td>Past Simple</td><td>Someone stole my bike.</td><td>My bike was stolen.</td></tr>
+<tr><td>Future Simple</td><td>They will announce results.</td><td>Results will be announced.</td></tr>
+<tr><td>Present Perfect</td><td>They have built a road.</td><td>A road has been built.</td></tr>
+<tr><td>Present Continuous</td><td>They are fixing the roof.</td><td>The roof is being fixed.</td></tr>
+</tbody>
+</table>
+<p><strong>Ukrainian:</strong> Пасивний стан — Будинок був збудований. &nbsp; <strong>Greek:</strong> Παθητική φωνή — Το βιβλίο γράφτηκε.</p>
+
+<hr/>
+<h2>Reported Speech</h2>
+<p>Reported speech conveys what someone said without direct quotation. Tenses usually shift back one level.</p>
+
+<h3>Tense Shifts</h3>
+<table class="table table-bordered table-sm">
+<thead class="table-dark"><tr><th>Direct</th><th>Reported</th></tr></thead>
+<tbody>
+<tr><td>"I work" (present simple)</td><td>he said he <strong>worked</strong></td></tr>
+<tr><td>"I am working" (present cont.)</td><td>he said he <strong>was working</strong></td></tr>
+<tr><td>"I worked" (past simple)</td><td>he said he <strong>had worked</strong></td></tr>
+<tr><td>"I will come" (future)</td><td>he said he <strong>would come</strong></td></tr>
+<tr><td>"I can help" (can)</td><td>he said he <strong>could help</strong></td></tr>
+</tbody>
+</table>
+
+<h3>Time and Place Shifts</h3>
+<table class="table table-bordered table-sm">
+<thead><tr><th>Direct</th><th>Reported</th></tr></thead>
+<tbody>
+<tr><td>today</td><td>that day</td></tr>
+<tr><td>yesterday</td><td>the day before</td></tr>
+<tr><td>tomorrow</td><td>the next day</td></tr>
+<tr><td>here / this / now</td><td>there / that / then</td></tr>
+</tbody>
+</table>
+
+<h3>Key Reporting Verbs</h3>
+<ul>
+<li><strong>admit</strong> — He admitted that he was wrong.</li>
+<li><strong>deny</strong> — She denied taking the money.</li>
+<li><strong>suggest</strong> — He suggested going to the cinema.</li>
+<li><strong>promise</strong> — She promised to call.</li>
+<li><strong>warn</strong> — He warned me not to touch it.</li>
+</ul>
+<p><strong>Ukrainian:</strong> Він сказав, що він працює. / Вона запитала, чи можу я допомогти.</p>
+]]></field>
+        </record>
+
+    </data>
+</odoo>

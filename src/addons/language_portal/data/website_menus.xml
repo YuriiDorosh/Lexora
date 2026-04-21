@@ -9,6 +9,28 @@
             <field name="sequence">20</field>
         </record>
 
+        <!-- Library dropdown parent -->
+        <record id="menu_library_parent" model="website.menu">
+            <field name="name">Library</field>
+            <field name="url">/useful-words</field>
+            <field name="parent_id" ref="website.main_menu"/>
+            <field name="sequence">25</field>
+        </record>
+
+        <record id="menu_useful_words" model="website.menu">
+            <field name="name">Useful Words</field>
+            <field name="url">/useful-words</field>
+            <field name="parent_id" ref="menu_library_parent"/>
+            <field name="sequence">30</field>
+        </record>
+
+        <record id="menu_grammar_guide" model="website.menu">
+            <field name="name">Grammar Guide</field>
+            <field name="url">/grammar</field>
+            <field name="parent_id" ref="menu_library_parent"/>
+            <field name="sequence">31</field>
+        </record>
+
         <!-- My Posts — portal navbar, authenticated users only -->
         <record id="menu_my_posts" model="website.menu">
             <field name="name">My Posts</field>

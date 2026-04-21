@@ -15,62 +15,63 @@
 
 ## Current Milestone
 
-### M7 — Posts, Articles, Comments (Full Implementation)
+### M13 — Productivity Suite
 
-**Status:** In progress — foundation complete, tests green.
-**Started:** 2026-04-20
-**Branch:** `m7_articles` (split from `m10_social_shop` after M11+M8 commit)
+**Status:** Planned
+**Branch:** TBD (will cut from `m12_knowledge_hub` after merge)
 
-**Scope:** Full M7 post/article workflow on `language_portal`:
-- `language.post` model: draft → pending → published/rejected state machine
-- `language.post.comment` model with @mention parsing
-- `language.entry.post_id` provenance field (via `_inherit` in `language_portal`)
-- Portal routes: `/posts`, `/posts/<slug>`, `/my/posts`, `/my/posts/new`,
-  `/my/posts/<id>/edit`, submit/retract/approve/reject, comment CRUD
-- Moderation queue at `/my/moderation`
-- Copy-to-list from post body (floating button JS on article detail)
-- 18 tests: state machine, comments, @mentions, provenance — all green
-
-**Branch split notes:**
-- `m10_social_shop` contains: M11 XP Shop (complete), M8 Chat (complete + 12 tests).
-  Committed + pushed 2026-04-20.
-- `m7_articles` branches from `m10_social_shop` and adds M7 Posts layer.
+**Scope:**
+- Spotlight Search (`/search?q=`) — global cross-model search with ⌘K shortcut
+- Interactive Drills (`/my/drill/<type>`) — flashcard, fill-in-blank, multiple choice
+- AI Professional Context — domain hint in LLM enrichment prompt
+- PDF Export — `/my/vocabulary/export.pdf` via weasyprint
 
 ---
 
-### Phase B — M7: Posts & Articles
+### Sub-steps
 
-#### Sub-steps
+**A — Spotlight Search**
 
-- [x] M7-01 · `language.post` model: full SPEC fields, 4-state machine
-  (draft/pending/published/rejected), `action_submit/approve/reject/retract`. ✅
-- [x] M7-02 · `language.post.comment` model: author, body, @mention → `mention_ids`. ✅
-- [x] M7-03 · `language.post.tag` model (was already present, kept). ✅
-- [x] M7-04 · Security: users create + write own posts; moderators write any post
-  (via `sudo()` in action methods); `record_rules.xml` for author-own + published read. ✅
-- [x] M7-05 · `language_portal/models/language_entry_post.py`: `copied_from_post_id`
-  Many2one → language.post added via `_inherit` (avoids circular dep in language_words). ✅
-- [x] M7-06 · Portal controller: all routes wired (`/posts`, `/my/posts`, new/edit,
-  submit/retract/approve/reject, comment, delete_comment, copy_text JSON). ✅
-- [x] M7-07 · `views/portal_posts.xml`: posts list (paginated + language filter),
-  article detail (copy-to-list JS + comment form + delete), my posts table,
-  post form (create/edit), moderation queue. ✅
-- [x] M7-08 · `data/website_menus.xml`: "My Posts" navbar entry (seq=62). ✅
-- [x] M7-09 · 18 tests green: state machine (tests 01–12), comments (13–16),
-  copy provenance (17–18). `--update language_portal` → 0 errors. ✅
+- [ ] M13-01 · Global search controller `GET /search` in `language_portal/controllers/portal.py`.
+  Queries: `language.entry`, `language.seeded.word`, `language.grammar.section`, `language.post`.
+  Returns grouped results JSON for JS; also renders full-page template.
+- [ ] M13-02 · `language_portal/static/src/js/spotlight.js` — ⌘K/Ctrl+K opens overlay input,
+  debounced fetch to `/search?q=`, renders grouped results, keyboard navigation (↑↓ Enter Esc).
+- [ ] M13-03 · Portal navbar search input (inherits `portal.portal_layout`).
 
-#### Next steps
+**B — Interactive Drills**
 
-- [ ] M7-10 · Manual smoke test: create draft → submit → approve as moderator →
-  view at `/posts/<slug>` → add comment → copy text to vocabulary.
-- [ ] M7-11 · Verify `copied_from_post_id` set on entries created via copy-text route.
-- [ ] M7-12 · Commit M7 on `m7_articles` and push.
-- [ ] M7-13 · (Optional) Backend admin views for `language.post` with status bar
-  and moderator actions (Lexora → Posts menuitem).
+- [ ] M13-04 · `GET /my/drill` — drill home; choose type (flashcard/fill-blank/multiple-choice),
+  CEFR filter, language filter.
+- [ ] M13-05 · `GET /my/drill/flashcard` — sequential flashcard mode using SRS due cards.
+- [ ] M13-06 · `GET /my/drill/choice` — multiple choice using PvP distractor logic.
+- [ ] M13-07 · Drill result logged as `language.xp.log` reason `'drill'`.
+
+**C — AI Professional Context**
+
+- [ ] M13-08 · `professional_domain` Char field on `language.user.profile`.
+- [ ] M13-09 · Profile portal page updated with domain input.
+- [ ] M13-10 · `language_enrichment` enrichment request includes `professional_domain` in payload.
+- [ ] M13-11 · LLM service prompt updated to include domain context when present.
+
+**D — PDF Export**
+
+- [ ] M13-12 · `GET /my/vocabulary/export.pdf` route in `language_words/controllers/portal.py`.
+  Groups entries by level/language, includes translations and example sentences.
+  Uses `weasyprint` or falls back to simple HTML download.
+- [ ] M13-13 · QWeb template `portal_vocabulary_pdf.xml`.
+
+**E — Verification**
+
+- [ ] M13-14 · Spotlight returns results across all model types.
+- [ ] M13-15 · Drill flashcard plays through 10 cards, awards XP.
+- [ ] M13-16 · PDF download produces a valid PDF.
+- [ ] M13-17 · All existing tests still green.
+- [ ] M13-18 · Commit and push.
 
 #### Blockers
 
-(none)
+(none yet)
 
 ---
 
@@ -474,6 +475,55 @@ draft → open → ongoing → finished
 #### Blockers
 
 (none)
+
+---
+
+## Completed Milestones
+
+### M12 — Knowledge Hub
+
+**Status:** Complete and verified.
+**Started:** 2026-04-20
+**Completed:** 2026-04-21
+**Branch:** `m12_knowledge_hub`
+
+**Scope:** Gold Vocabulary (3184 most common English words seeded into `language.seeded.word`)
+and Grammar Encyclopedia (6 sections in `language.grammar.section` with full HTML content).
+Portal at `/useful-words` (CEFR tabs, 50/page, Add to My List) and `/grammar` (sidebar nav +
+section detail). "Library" navbar dropdown.
+
+**Key implementation decisions:**
+- Word list seeded via Python hook (`language_portal/__init__.py` → `data/seed_vocab.py`)
+  using `importlib.util.spec_from_file_location` for absolute import in hook context.
+- Grammar sections seeded via `data/grammar_sections.xml` (XML data file, `noupdate="0"`)
+  — reliable on every `--update`, preferred over Python hook which was unreliable.
+- `type="html"` attribute on `<field>` elements fails Odoo's RelaxNG schema validation;
+  CDATA in a plain `<field name="content_html">` is the correct pattern.
+- `_seed_from_json` bug fixed: `recordset.mapped(lambda r: r.word.lower())` passes whole
+  recordset to lambda; fixed with explicit generator `(r.word.lower() for r in records)`.
+
+**Verification passed:**
+- `language.seeded.word` count: 3184 ✅
+- `language.grammar.section` count: 6, all `is_published=True`, full HTML content ✅
+- `/useful-words` → 200, CEFR tabs render, word cards with Add-to-My-List buttons ✅
+- `/grammar` → 200, 6 section cards grouped by category ✅
+- `/grammar/tenses` → 200, full tense content renders ✅
+
+**Files created/changed:**
+- `language_portal/models/language_seeded_word.py` (new)
+- `language_portal/models/language_grammar_section.py` (new)
+- `language_portal/models/__init__.py` (updated)
+- `language_portal/security/ir.model.access.csv` (updated)
+- `language_portal/data/seed_vocab.py` (new — 3184 words)
+- `language_portal/data/grammar_sections.xml` (new — 6 sections with full HTML)
+- `language_portal/controllers/portal_library.py` (new)
+- `language_portal/controllers/__init__.py` (updated)
+- `language_portal/views/portal_library.xml` (new)
+- `language_portal/data/website_menus.xml` (updated — Library dropdown)
+- `language_portal/__manifest__.py` (updated — hooks + new files)
+- `language_portal/__init__.py` (rewritten — seeding hooks)
+- `docs/PLAN.md` (v0.5 — M12 complete, M13 added)
+- `docs/TASKS.md` (this file)
 
 ---
 
