@@ -87,20 +87,28 @@ class PortalHome(http.Controller):
         env = request.env
 
         # WOTD: pick deterministically from language.seeded.word using today's date.
-        # Only words with a Ukrainian translation are considered so we always have
-        # something to show alongside the English word.
+        # Show Ukrainian translation when available, fall back to CEFR level label.
         wotd_word = None
         wotd_translation = None
         wotd_url = None
         if 'language.seeded.word' in env.registry:
             SeededWord = env['language.seeded.word'].sudo()
+            # Prefer words with a Ukrainian translation; fall back to all words.
             pool = SeededWord.search([('translation_uk', '!=', False),
                                       ('translation_uk', '!=', '')])
+            if not pool:
+                pool = SeededWord.search([], order='sort_order asc, id asc')
             if pool:
                 idx = int(date.today().strftime('%j')) % len(pool)
                 w = pool[idx]
                 wotd_word = w.word
-                wotd_translation = w.translation_uk
+                _uk = (w.translation_uk or '').strip()
+                if _uk:
+                    wotd_translation = _uk
+                elif w.pos:
+                    wotd_translation = '%s · CEFR %s' % (w.pos.capitalize(), w.level)
+                else:
+                    wotd_translation = 'CEFR Level %s' % w.level
                 wotd_url = '/useful-words?q=%s' % urllib.parse.quote_plus(w.word)
 
         articles = []

@@ -106,6 +106,7 @@ class TranslatorController(http.Controller):
                 {
                     "source_text": text,
                     "source_language": source_lang,
+                    "type": "word",
                     "owner_id": user.id,
                     "created_from": "manual",
                 }
