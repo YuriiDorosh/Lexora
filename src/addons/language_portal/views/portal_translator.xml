@@ -135,7 +135,7 @@
                             <t t-if="not is_public">
                                 <div class="d-flex align-items-center gap-3 flex-wrap justify-content-center">
                                     <span class="text-muted small">Save this translation to your vocabulary?</span>
-                                    <button type="button" id="lx_add_vocab_btn" class="lx-btn-outline-sm">
+                                    <button type="button" id="lx_add_vocab_btn" class="lx-btn-primary">
                                         ⭐ Add to Vocabulary
                                     </button>
                                     <a id="lx_vocab_link" href="/my/vocabulary"

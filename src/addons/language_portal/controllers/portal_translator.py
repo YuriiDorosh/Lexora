@@ -87,6 +87,7 @@ class TranslatorController(http.Controller):
         auth="user",
         methods=["POST"],
         website=True,
+        csrf=False,
     )
     def add_to_vocabulary(
         self, text="", translation="", source_lang="en", target_lang="uk", **kw

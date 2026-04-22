@@ -79,7 +79,7 @@
             <!-- ══════════════════════════════════════════════
                  WORD OF THE DAY
             ══════════════════════════════════════════════ -->
-            <t t-if="word_of_day">
+            <t t-if="wotd_word">
                 <section class="lx-section lx-section-dark">
                     <div class="container">
                         <div class="row justify-content-center">
@@ -94,19 +94,18 @@
                                         </span>
                                     </div>
                                     <h2 class="lx-wotd-word mb-2">
-                                        <t t-esc="word_of_day.word_text"/>
+                                        <t t-esc="wotd_word"/>
                                     </h2>
-                                    <t t-if="word_of_day.translation_text">
+                                    <t t-if="wotd_translation">
                                         <p class="lx-wotd-translation mb-3">
-                                            <t t-esc="word_of_day.translation_text"/>
+                                            <t t-esc="wotd_translation"/>
                                         </p>
                                     </t>
                                     <t t-if="wotd_url">
                                         <a t-att-href="wotd_url"
                                            class="lx-btn-ghost d-inline-block py-2 px-4"
                                            style="font-size:.9rem">
-                                            <t t-if="wotd_is_in_vocab">View in Vocabulary →</t>
-                                            <t t-else="">Explore in Library →</t>
+                                            Explore in Library →
                                         </a>
                                     </t>
                                 </div>

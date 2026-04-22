@@ -81,31 +81,27 @@ class PortalHome(http.Controller):
 
     @http.route('/', type='http', auth='public', website=True, methods=['GET'])
     def homepage(self, **kw):
-        env = request.env
-        word_of_day = None
-        if 'language.word.of.day' in env.registry:
-            word_of_day = env['language.word.of.day'].sudo().get_today('en')
+        import urllib.parse
+        from datetime import date
 
-        # Compute a safe WOTD link that never exposes a private entry ID to
-        # other users.  Priority:
-        #   1. If the current user already has this exact word → their entry.
-        #   2. Otherwise (or if guest) → /useful-words filtered by the word text.
+        env = request.env
+
+        # WOTD: pick deterministically from language.seeded.word using today's date.
+        # Only words with a Ukrainian translation are considered so we always have
+        # something to show alongside the English word.
+        wotd_word = None
+        wotd_translation = None
         wotd_url = None
-        wotd_is_in_vocab = False
-        if word_of_day and word_of_day.word_text:
-            word_q = word_of_day.word_text
-            if not request.env.user._is_public():
-                user_entry = env['language.entry'].search([
-                    ('owner_id', '=', request.env.user.id),
-                    ('source_text', 'ilike', word_q),
-                    ('status', '=', 'active'),
-                ], limit=1)
-                if user_entry:
-                    wotd_url = '/my/vocabulary/%d' % user_entry.id
-                    wotd_is_in_vocab = True
-            if not wotd_url:
-                import urllib.parse
-                wotd_url = '/useful-words?q=%s' % urllib.parse.quote_plus(word_q)
+        if 'language.seeded.word' in env.registry:
+            SeededWord = env['language.seeded.word'].sudo()
+            pool = SeededWord.search([('translation_uk', '!=', False),
+                                      ('translation_uk', '!=', '')])
+            if pool:
+                idx = int(date.today().strftime('%j')) % len(pool)
+                w = pool[idx]
+                wotd_word = w.word
+                wotd_translation = w.translation_uk
+                wotd_url = '/useful-words?q=%s' % urllib.parse.quote_plus(w.word)
 
         articles = []
         if 'language.post' in env.registry:
@@ -113,9 +109,9 @@ class PortalHome(http.Controller):
                 [('status', '=', 'published')], limit=3, order='published_date desc')
         stats = _build_stats(env)
         return request.render('language_portal.homepage', {
-            'word_of_day': word_of_day,
+            'wotd_word': wotd_word,
+            'wotd_translation': wotd_translation,
             'wotd_url': wotd_url,
-            'wotd_is_in_vocab': wotd_is_in_vocab,
             'articles': articles,
             'stats': stats,
             'lang_names': LANG_NAMES,
