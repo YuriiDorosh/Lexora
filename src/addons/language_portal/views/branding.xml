@@ -200,4 +200,45 @@
         </xpath>
     </template>
 
+
+    <!-- ============================================================ -->
+    <!-- Contact page — strip demo company info, show Avantgarde     -->
+    <!-- Inherits website.contactus; replaces the right sidebar col  -->
+    <!-- that contains "My Company / Fake Buena Vista / 555-555"     -->
+    <!-- ============================================================ -->
+
+    <template id="lexora_contactus_cleanup"
+              inherit_id="website.contactus"
+              name="Lexora · Contact Page Cleanup">
+        <xpath expr="//div[hasclass('col-lg-4','offset-lg-1')]" position="replace">
+            <div class="col-lg-4 offset-lg-1 mt-4 mt-lg-0">
+                <h5 class="fw-bold mb-3">Avantgarde Systems</h5>
+                <p class="text-muted small mb-3">
+                    Premier software engineering &amp; development firm
+                    building advanced, tailored platforms for global enterprises.
+                </p>
+                <ul class="list-unstyled mb-3 ps-2">
+                    <li class="mb-2">
+                        <i class="fa fa-globe fa-fw me-2 text-muted"/>
+                        <a href="https://avantgarde.systems" target="_blank" rel="noopener"
+                           class="text-decoration-none">avantgarde.systems</a>
+                    </li>
+                    <li class="mb-2">
+                        <i class="fa fa-linkedin fa-fw me-2 text-muted"/>
+                        <a href="https://www.linkedin.com/company/112026057/" target="_blank" rel="noopener"
+                           class="text-decoration-none">LinkedIn</a>
+                    </li>
+                    <li class="mb-2">
+                        <i class="fa fa-github fa-fw me-2 text-muted"/>
+                        <a href="https://github.com/Avantgarde-Systems" target="_blank" rel="noopener"
+                           class="text-decoration-none">GitHub</a>
+                    </li>
+                </ul>
+                <p class="text-muted small mb-0">
+                    <em>Lexora is built with ❤ by Avantgarde Systems.</em>
+                </p>
+            </div>
+        </xpath>
+    </template>
+
 </odoo>

@@ -492,11 +492,28 @@ def _fix_library_menu_parents(env):
         children.write({'parent_id': lib.id})
 
 
+def _rename_menus(env):
+    """Apply name changes to website.menu records that were originally
+    created with noupdate=1 and therefore won't be updated from XML data."""
+    Menu = env['website.menu'].sudo()
+    # Rename "Articles" → "Community Posts" for all copies
+    articles = Menu.search([('url', '=', '/posts')])
+    articles.write({'name': 'Community Posts'})
+    # Clear noupdate flag so future XML changes apply normally
+    env['ir.model.data'].sudo().search([
+        ('module', '=', 'language_portal'),
+        ('name', 'in', ['menu_navbar_articles', 'menu_my_posts', 'menu_library_parent',
+                        'menu_useful_words', 'menu_grammar_guide']),
+    ]).write({'noupdate': False})
+
+
 def post_init_hook(env):
     _seed_knowledge_hub(env)
     _fix_library_menu_parents(env)
+    _rename_menus(env)
 
 
 def post_update_hook(env):
     _seed_knowledge_hub(env)
     _fix_library_menu_parents(env)
+    _rename_menus(env)
