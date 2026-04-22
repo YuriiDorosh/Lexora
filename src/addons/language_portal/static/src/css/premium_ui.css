@@ -446,12 +446,59 @@ h1, h2, h3, .lx-display {
   transition: transform 0.25s, box-shadow 0.25s;
   height: 100%;
   overflow: hidden;
+  position: relative; /* required for Bootstrap stretched-link isolation */
 }
 
 .lx-article-card:hover {
   transform: translateY(-4px);
   box-shadow: 0 16px 48px rgba(79, 70, 229, 0.1);
   border-color: rgba(79, 70, 229, 0.2);
+}
+
+/* ================================================================
+   PORTAL SIDEBAR — Lexora branding
+   ================================================================ */
+
+.lx-portal-sidebar {
+  font-family: var(--lx-font-body);
+}
+
+.lx-member-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: linear-gradient(135deg, rgba(79,70,229,0.12), rgba(139,92,246,0.12));
+  border: 1px solid rgba(139,92,246,0.25);
+  border-radius: 20px;
+  padding: 6px 14px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--lx-indigo);
+  font-family: var(--lx-font-body);
+}
+
+.lx-sidebar-brand {
+  font-family: var(--lx-font-body);
+}
+
+.lx-sidebar-brand .lx-sb-title {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: #1e1b4b;
+  font-family: var(--lx-font-body);
+}
+
+.lx-sidebar-brand .lx-sb-sub {
+  font-size: 0.75rem;
+  color: #6b7280;
+  font-family: var(--lx-font-body);
+}
+
+.lx-sidebar-brand .lx-sb-credit {
+  font-size: 0.72rem;
+  color: rgba(139,92,246,0.8);
+  text-decoration: none;
+  font-weight: 500;
 }
 
 /* ================================================================
