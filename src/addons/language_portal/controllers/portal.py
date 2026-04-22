@@ -81,17 +81,45 @@ class PortalHome(http.Controller):
 
     @http.route('/', type='http', auth='public', website=True, methods=['GET'])
     def homepage(self, **kw):
+        import urllib.parse
+        from datetime import date
+
         env = request.env
-        word_of_day = None
-        if 'language.word.of.day' in env.registry:
-            word_of_day = env['language.word.of.day'].sudo().get_today('en')
+
+        # WOTD: pick deterministically from language.seeded.word using today's date.
+        # Show Ukrainian translation when available, fall back to CEFR level label.
+        wotd_word = None
+        wotd_translation = None
+        wotd_url = None
+        if 'language.seeded.word' in env.registry:
+            SeededWord = env['language.seeded.word'].sudo()
+            # Prefer words with a Ukrainian translation; fall back to all words.
+            pool = SeededWord.search([('translation_uk', '!=', False),
+                                      ('translation_uk', '!=', '')])
+            if not pool:
+                pool = SeededWord.search([], order='sort_order asc, id asc')
+            if pool:
+                idx = int(date.today().strftime('%j')) % len(pool)
+                w = pool[idx]
+                wotd_word = w.word
+                _uk = (w.translation_uk or '').strip()
+                if _uk:
+                    wotd_translation = _uk
+                elif w.pos:
+                    wotd_translation = '%s · CEFR %s' % (w.pos.capitalize(), w.level)
+                else:
+                    wotd_translation = 'CEFR Level %s' % w.level
+                wotd_url = '/useful-words?q=%s' % urllib.parse.quote_plus(w.word)
+
         articles = []
         if 'language.post' in env.registry:
             articles = env['language.post'].sudo().search(
                 [('status', '=', 'published')], limit=3, order='published_date desc')
         stats = _build_stats(env)
         return request.render('language_portal.homepage', {
-            'word_of_day': word_of_day,
+            'wotd_word': wotd_word,
+            'wotd_translation': wotd_translation,
+            'wotd_url': wotd_url,
             'articles': articles,
             'stats': stats,
             'lang_names': LANG_NAMES,

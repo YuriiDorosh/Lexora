@@ -22,6 +22,7 @@
         'data/grammar_sections.xml',
         'data/website_menus.xml',
         'views/branding.xml',
+        'views/portal_translator.xml',
         'views/portal_homepage.xml',
         'views/portal_posts.xml',
         'views/portal_library.xml',

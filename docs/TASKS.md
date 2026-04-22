@@ -15,6 +15,51 @@
 
 ## Current Milestone
 
+### M15 — AI Translator Tool
+
+**Status:** In progress — core implementation complete; awaiting browser verification.
+**Started:** 2026-04-22
+**Branch:** `m15_ai_translator`
+
+**Scope:** Google-Translate-style `/translator` page backed by the existing
+`deep_translator` engine (Google/MyMemory). Sync HTTP API call from Odoo controller
+to translation service. Full "Add to Vocabulary" integration. Navbar entry.
+
+#### Sub-steps
+
+- [x] M15-01 · `services/translation/main.py`: added `POST /translate` sync FastAPI endpoint.
+  `pydantic.BaseModel` `TranslateRequest` with `text`, `source`, `target`.
+  Returns `{"status":"ok","result":"..."}` immediately (no RabbitMQ). ✅
+- [x] M15-02 · `make up-translation-no-cache` — rebuilt with new endpoint.
+  `curl POST /translate {"text":"apple","source":"en","target":"uk"}` → `{"status":"ok","result":"яблуко"}`. ✅
+- [x] M15-03 · `language_portal/controllers/portal_translator.py` — 3 routes:
+  `GET /translator` (public page), `POST /translator/translate` (AJAX, public, csrf=False),
+  `POST /translator/add` (auth=user, creates language.entry + language.translation). ✅
+- [x] M15-04 · `language_portal/controllers/__init__.py` — added `portal_translator` import. ✅
+- [x] M15-05 · `language_portal/views/portal_translator.xml` — full premium UI:
+  dark hero strip, glassmorphism card, language selectors with flags, swap button,
+  dual textareas, char counter, copy button, Ctrl+Enter shortcut,
+  "Add to Vocabulary" CTA (hidden for public guests), tips row. ✅
+- [x] M15-06 · `premium_ui.css` — translator CSS tokens appended:
+  `.lx-translator-hero`, `.lx-translator-card`, `.lx-lang-select`, `.lx-swap-btn`,
+  `.lx-translator-textarea`, `.lx-result-textarea`, `.lx-copy-btn`, `.lx-btn-outline-sm`,
+  `.lx-tip-card`, `kbd`. ✅
+- [x] M15-07 · `data/website_menus.xml` — "Translator" navbar entry (sequence=22, public). ✅
+- [x] M15-08 · `__manifest__.py` — `portal_translator.xml` added to `data` list. ✅
+- [x] M15-09 · `--update language_portal --stop-after-init` → 0 errors, 533 queries. ✅
+- [x] M15-10 · `docker restart odoo` → routes loaded; `curl /translator` → HTTP 200. ✅
+- [ ] M15-11 · Manual browser test: open /translator, translate "hello" (en→uk),
+  confirm result "привіт", click "Add to Vocabulary", verify entry at /my/vocabulary.
+- [ ] M15-12 · Test swap button, copy button, Ctrl+Enter shortcut.
+- [ ] M15-13 · Test as public (guest): translator works, "Add to Vocabulary" shows sign-in link.
+- [ ] M15-14 · Commit + push to `m15_ai_translator`.
+
+#### Blockers
+
+(none)
+
+---
+
 ### M14 — Premium Visual Identity
 
 **Status:** Complete and verified.

@@ -772,3 +772,177 @@ h1, h2, h3, .lx-display {
 .lx-heart {
   color: #f43f5e;
 }
+
+/* ================================================================
+   LEXORA TRANSLATOR TOOL  /translator   (M15)
+   ================================================================ */
+
+.lx-translator-hero {
+  background: linear-gradient(135deg, #0f0a2e 0%, #1a1060 60%, #160d40 100%);
+}
+
+.lx-translator-card {
+  border-radius: 24px !important;
+  background: rgba(255,255,255,0.97) !important;
+  box-shadow: 0 24px 80px rgba(79,70,229,0.15);
+}
+
+/* Language selector */
+.lx-lang-label {
+  display: block;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #6b7280;
+  margin-bottom: 6px;
+  font-family: var(--lx-font-body);
+}
+
+.lx-lang-select {
+  font-family: var(--lx-font-body);
+  font-weight: 600;
+  font-size: 0.95rem;
+  border: 1.5px solid rgba(79,70,229,0.2);
+  border-radius: 10px;
+  background: #fafafe;
+  color: #1e1b4b;
+  padding: 10px 14px;
+  transition: border-color 0.2s;
+  cursor: pointer;
+}
+
+.lx-lang-select:focus {
+  outline: none;
+  border-color: var(--lx-indigo);
+  box-shadow: 0 0 0 3px rgba(79,70,229,0.12);
+}
+
+/* Swap button */
+.lx-swap-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: 1.5px solid rgba(79,70,229,0.25);
+  background: #f5f3ff;
+  color: var(--lx-indigo);
+  cursor: pointer;
+  transition: all 0.2s;
+  flex-shrink: 0;
+}
+
+.lx-swap-btn:hover {
+  background: var(--lx-indigo);
+  color: #fff;
+  border-color: var(--lx-indigo);
+  transform: rotate(180deg);
+}
+
+/* Textarea wrap */
+.lx-textarea-wrap {
+  position: relative;
+}
+
+.lx-translator-textarea {
+  width: 100%;
+  border: 1.5px solid rgba(79,70,229,0.15);
+  border-radius: 14px;
+  padding: 14px 16px;
+  font-family: var(--lx-font-body);
+  font-size: 1rem;
+  line-height: 1.6;
+  color: #1e1b4b;
+  background: #fafafe;
+  resize: vertical;
+  min-height: 160px;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.lx-translator-textarea:focus {
+  outline: none;
+  border-color: var(--lx-indigo);
+  box-shadow: 0 0 0 3px rgba(79,70,229,0.1);
+}
+
+.lx-result-textarea {
+  background: #f5f3ff;
+  color: #3730a3;
+  font-weight: 500;
+  cursor: default;
+}
+
+.lx-char-count {
+  position: absolute;
+  bottom: 10px;
+  right: 14px;
+  font-size: 0.7rem;
+  color: #9ca3af;
+  font-family: var(--lx-font-body);
+  pointer-events: none;
+}
+
+.lx-copy-btn {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  background: rgba(79,70,229,0.08);
+  border: none;
+  border-radius: 8px;
+  padding: 6px 8px;
+  color: var(--lx-indigo);
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.lx-copy-btn:hover {
+  background: rgba(79,70,229,0.18);
+}
+
+/* Add-to-vocab row */
+.lx-add-vocab-row {
+  border-top: 1px solid rgba(79,70,229,0.1);
+  padding-top: 1rem;
+}
+
+.lx-btn-outline-sm {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 20px;
+  border-radius: 24px;
+  border: 1.5px solid var(--lx-indigo);
+  color: var(--lx-indigo);
+  background: transparent;
+  font-family: var(--lx-font-body);
+  font-weight: 600;
+  font-size: 0.88rem;
+  cursor: pointer;
+  text-decoration: none;
+  transition: all 0.2s;
+}
+
+.lx-btn-outline-sm:hover {
+  background: var(--lx-indigo);
+  color: #fff;
+}
+
+/* Tip cards */
+.lx-tip-card {
+  background: rgba(255,255,255,0.7);
+  border: 1px solid rgba(139,92,246,0.12);
+  border-radius: 16px;
+  font-family: var(--lx-font-body);
+  backdrop-filter: blur(8px);
+}
+
+kbd {
+  font-size: 0.75rem;
+  background: #e5e7eb;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  padding: 1px 5px;
+  color: #374151;
+}

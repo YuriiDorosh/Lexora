@@ -1,8 +1,8 @@
 # Lexora — Implementation Plan (MVP)
 
-> Version: 0.7 (M14 complete)
-> Last updated: 2026-04-21
-> Status: M0–M14 complete
+> Version: 0.8 (M15 in progress)
+> Last updated: 2026-04-22
+> Status: M0–M14 complete · M15 in progress
 
 ---
 
@@ -41,6 +41,7 @@
 | M12 | Knowledge Hub | ✅ Complete | Gold Vocabulary (3184 most common EN words with CEFR/POS); Grammar Encyclopedia (6 sections); `/useful-words` + `/grammar` portal |
 | M13 | PDF Export Suite | ✅ Complete | Printable PDF cheat sheets from personal vocabulary, Gold Vocabulary (by CEFR level), and Grammar sections |
 | M14 | Premium Visual Identity | ✅ Complete | Dark animated hero, glassmorphism, Inter/Montserrat fonts, Avantgarde Systems branding, premium login page |
+| M15 | AI Translator Tool | 🔄 In Progress | Google-Translate-style `/translator` page; en/uk/el; sync deep_translator API; Add to Vocabulary integration |
 
 ---
 
@@ -624,3 +625,53 @@ M9 can begin in parallel with M7/M8 (dashboards only need entry data from M2+).
 M10 requires M2 (entries), M3 (translations for distractors), M9 (leaderboard UI).
 M11 requires M10 (XP system, xp.log model, profile fields).
 M12 requires M2 (language.entry + dedup), M3 (auto-translation), M11 (portal navigation patterns).
+
+---
+
+## M15 — AI Translator Tool
+
+**Goal:** A dedicated `/translator` page giving users a Google-Translate-style interface
+for instant en↔uk↔el translations backed by the same `deep_translator` engine (Google/MyMemory)
+that powers automatic vocabulary translation. Results can be saved directly to the user's
+vocabulary in one click.
+
+**Work:**
+
+1. `services/translation/main.py`: add `POST /translate` synchronous FastAPI endpoint —
+   calls `_translate()` directly, returns `{"status":"ok","result":"..."}` without RabbitMQ.
+2. `language_portal/controllers/portal_translator.py`:
+   - `GET /translator` — public page, passes `lang_names`, `lang_flags`, defaults.
+   - `POST /translator/translate` — AJAX endpoint; calls translation service HTTP API; returns JSON.
+   - `POST /translator/add` — auth-required; creates `language.entry` + `language.translation` (status=completed).
+3. `language_portal/views/portal_translator.xml` — premium glassmorphism UI:
+   language selectors, swap button, two textareas, Ctrl+Enter shortcut, copy button,
+   char counter, "Add to Vocabulary" CTA (hidden for public), tips row.
+4. `premium_ui.css` — translator-specific CSS tokens appended.
+5. `data/website_menus.xml` — "Translator" navbar entry (sequence=22, always visible).
+6. `__manifest__.py` — `portal_translator.xml` added to data list.
+7. `controllers/__init__.py` — `portal_translator` import added.
+
+**Verification:**
+```bash
+# 1. Rebuild translation service (new /translate endpoint)
+make up-translation-no-cache
+curl -X POST http://localhost:8001/translate \
+  -H "Content-Type: application/json" \
+  -d '{"text":"apple","source":"en","target":"uk"}'
+# → {"status":"ok","result":"яблуко"}
+
+# 2. Update Odoo module
+docker exec odoo odoo --config /etc/odoo/odoo.conf \
+  -d lexora --update language_portal --stop-after-init --no-http
+
+# 3. Route check
+curl -o /dev/null -w "%{http_code}" http://localhost:5433/translator
+# → 200
+
+# 4. Manual: open /translator in browser, translate "hello" en→uk
+#    → "привіт"; click Add to Vocabulary; entry appears in /my/vocabulary
+
+# 5. Regression
+docker exec odoo odoo --config /etc/odoo/odoo.conf \
+  -d lexora --update language_portal --test-enable --no-http --stop-after-init
+```

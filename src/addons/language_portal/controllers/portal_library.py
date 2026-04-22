@@ -42,11 +42,18 @@ class LibraryController(http.Controller):
 
     @http.route(['/useful-words', '/useful-words/page/<int:page>'],
                 type='http', auth='user', website=True, methods=['GET'])
-    def useful_words(self, page=1, level=None, **kw):
+    def useful_words(self, page=1, level=None, q=None, **kw):
         SW = request.env['language.seeded.word'].sudo()
+        q = (q or '').strip()
 
-        active_level = level if level in _LEVELS else _LEVELS[0]
-        domain = [('level', '=', active_level)]
+        if q:
+            # Search mode: find word across all levels; highlight its level tab.
+            domain = [('word', 'ilike', q)]
+            match = SW.search(domain, limit=1, order='sort_order asc, word asc')
+            active_level = match.level if match else (level if level in _LEVELS else _LEVELS[0])
+        else:
+            active_level = level if level in _LEVELS else _LEVELS[0]
+            domain = [('level', '=', active_level)]
 
         total = SW.search_count(domain)
         offset = (int(page) - 1) * _PER_PAGE
@@ -54,7 +61,6 @@ class LibraryController(http.Controller):
                           order='sort_order asc, word asc')
         total_pages = max(1, (total + _PER_PAGE - 1) // _PER_PAGE)
 
-        # Counts per level for tab badges
         level_counts = {lvl: SW.search_count([('level', '=', lvl)]) for lvl in _LEVELS}
 
         return request.render('language_portal.portal_useful_words', {
@@ -66,6 +72,7 @@ class LibraryController(http.Controller):
             'page': int(page),
             'total_pages': total_pages,
             'total': total,
+            'search_q': q,
         })
 
     @http.route('/useful-words/add', type='http', auth='user', website=True,

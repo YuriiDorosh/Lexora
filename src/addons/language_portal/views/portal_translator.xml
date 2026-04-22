@@ -1,0 +1,342 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- ============================================================ -->
+    <!-- Lexora Translator Tool  /translator                          -->
+    <!-- Google Translate-style UI · premium glassmorphism theme      -->
+    <!-- ============================================================ -->
+
+    <template id="portal_translator" name="Lexora Translator">
+        <t t-call="portal.frontend_layout">
+        <div id="wrap" class="oe_structure lx-premium-theme">
+
+            <!-- ── Hero strip ── -->
+            <section class="lx-translator-hero">
+                <div class="container text-center lx-hero-content" style="padding-top:3rem;padding-bottom:2rem">
+                    <div class="mb-3">
+                        <span class="lx-badge-gradient">✦ AI-Powered · en · uk · el</span>
+                    </div>
+                    <h1 class="lx-hero-title mb-2" style="font-size:clamp(2rem,5vw,3.5rem)">
+                        Lexora <span class="lx-gradient-text">Translator</span>
+                    </h1>
+                    <p class="lx-hero-subtitle mx-auto" style="max-width:520px;font-size:1rem">
+                        Instant translations between English, Ukrainian, and Greek —
+                        powered by neural machine translation. Save any result directly to
+                        your personal vocabulary.
+                    </p>
+                </div>
+            </section>
+
+            <!-- ── Main translator card ── -->
+            <section style="background:linear-gradient(180deg,#0f0a2e 0%,#f0eeff 15%);padding-bottom:3rem">
+                <div class="container" style="max-width:900px">
+
+                    <div class="lx-glass lx-translator-card p-4 p-md-5">
+
+                        <!-- Language selector row -->
+                        <div class="lx-lang-bar d-flex align-items-center gap-3 mb-4 flex-wrap">
+
+                            <!-- Source language -->
+                            <div class="flex-grow-1">
+                                <label class="lx-lang-label" for="lx_src_lang">Translate from</label>
+                                <select id="lx_src_lang" class="lx-lang-select form-select">
+                                    <t t-foreach="lang_names" t-as="code">
+                                        <option t-att-value="code"
+                                                t-att-selected="'selected' if code == default_src else None">
+                                            <t t-esc="lang_flags.get(code, '')"/>
+                                            <t t-esc="lang_names[code]"/>
+                                        </option>
+                                    </t>
+                                </select>
+                            </div>
+
+                            <!-- Swap button -->
+                            <button type="button" id="lx_swap_langs"
+                                    class="lx-swap-btn flex-shrink-0" title="Swap languages"
+                                    style="margin-top:1.4rem">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22"
+                                     viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                     stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M8 3L4 7l4 4"/>
+                                    <path d="M4 7h16"/>
+                                    <path d="M16 21l4-4-4-4"/>
+                                    <path d="M20 17H4"/>
+                                </svg>
+                            </button>
+
+                            <!-- Target language -->
+                            <div class="flex-grow-1">
+                                <label class="lx-lang-label" for="lx_tgt_lang">Translate to</label>
+                                <select id="lx_tgt_lang" class="lx-lang-select form-select">
+                                    <t t-foreach="lang_names" t-as="code">
+                                        <option t-att-value="code"
+                                                t-att-selected="'selected' if code == default_tgt else None">
+                                            <t t-esc="lang_flags.get(code, '')"/>
+                                            <t t-esc="lang_names[code]"/>
+                                        </option>
+                                    </t>
+                                </select>
+                            </div>
+                        </div>
+
+                        <!-- Text areas row -->
+                        <div class="row g-3 mb-4">
+                            <!-- Source -->
+                            <div class="col-md-6">
+                                <div class="lx-textarea-wrap">
+                                    <textarea id="lx_src_text"
+                                              class="lx-translator-textarea"
+                                              placeholder="Type or paste text here…"
+                                              rows="6"
+                                              maxlength="2000"
+                                              autocomplete="off"
+                                              spellcheck="true"></textarea>
+                                    <div class="lx-char-count" id="lx_char_count">0 / 2000</div>
+                                </div>
+                            </div>
+                            <!-- Result -->
+                            <div class="col-md-6">
+                                <div class="lx-textarea-wrap lx-result-wrap">
+                                    <textarea id="lx_result_text"
+                                              class="lx-translator-textarea lx-result-textarea"
+                                              placeholder="Translation will appear here…"
+                                              rows="6"
+                                              readonly="readonly"></textarea>
+                                    <!-- copy button -->
+                                    <button type="button" id="lx_copy_btn"
+                                            class="lx-copy-btn" title="Copy translation" style="display:none">
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16"
+                                             viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                             stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                            <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+                                            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+                                        </svg>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Translate button + spinner -->
+                        <div class="text-center mb-4">
+                            <button type="button" id="lx_translate_btn" class="lx-btn-primary px-5">
+                                <span id="lx_btn_text">⚡ Translate</span>
+                                <span id="lx_btn_spinner" style="display:none">
+                                    <span class="spinner-border spinner-border-sm me-2" role="status"/>
+                                    Translating…
+                                </span>
+                            </button>
+                        </div>
+
+                        <!-- Error banner -->
+                        <div id="lx_error_banner" class="alert alert-danger py-2 small" style="display:none"></div>
+
+                        <!-- Add to Vocabulary CTA (shown after translation) -->
+                        <div id="lx_add_vocab_row" class="lx-add-vocab-row" style="display:none">
+                            <t t-if="not is_public">
+                                <div class="d-flex align-items-center gap-3 flex-wrap justify-content-center">
+                                    <span class="text-muted small">Save this translation to your vocabulary?</span>
+                                    <button type="button" id="lx_add_vocab_btn" class="lx-btn-primary">
+                                        ⭐ Add to Vocabulary
+                                    </button>
+                                    <a id="lx_vocab_link" href="/my/vocabulary"
+                                       class="lx-btn-ghost py-2 px-4" style="font-size:.85rem;display:none">
+                                        View in Vocabulary →
+                                    </a>
+                                </div>
+                            </t>
+                            <t t-else="">
+                                <div class="text-center">
+                                    <a href="/web/login" class="lx-btn-outline-sm">
+                                        🔐 Sign in to save to vocabulary
+                                    </a>
+                                </div>
+                            </t>
+                        </div>
+
+                    </div>
+
+                    <!-- Tips card -->
+                    <div class="row g-3 mt-3">
+                        <div class="col-md-4">
+                            <div class="lx-tip-card p-3 text-center">
+                                <div style="font-size:1.5rem;margin-bottom:.5rem">💡</div>
+                                <div class="fw-semibold small mb-1">Save any translation</div>
+                                <div class="text-muted" style="font-size:.78rem">Hit "Add to Vocabulary" to keep the word in your personal list with the translation already filled in.</div>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="lx-tip-card p-3 text-center">
+                                <div style="font-size:1.5rem;margin-bottom:.5rem">⚡</div>
+                                <div class="fw-semibold small mb-1">Keyboard shortcut</div>
+                                <div class="text-muted" style="font-size:.78rem">Press <kbd>Ctrl + Enter</kbd> to translate instantly without reaching for the button.</div>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="lx-tip-card p-3 text-center">
+                                <div style="font-size:1.5rem;margin-bottom:.5rem">🔄</div>
+                                <div class="fw-semibold small mb-1">Swap direction</div>
+                                <div class="text-muted" style="font-size:.78rem">Click the swap arrows to instantly reverse the translation direction and re-translate.</div>
+                            </div>
+                        </div>
+                    </div>
+
+                </div>
+            </section>
+
+            <!-- ── Translator JS ── -->
+            <script type="text/javascript">
+            (function () {
+                'use strict';
+
+                var srcEl   = document.getElementById('lx_src_text');
+                var resEl   = document.getElementById('lx_result_text');
+                var srcSel  = document.getElementById('lx_src_lang');
+                var tgtSel  = document.getElementById('lx_tgt_lang');
+                var btn     = document.getElementById('lx_translate_btn');
+                var btnTxt  = document.getElementById('lx_btn_text');
+                var spinner = document.getElementById('lx_btn_spinner');
+                var errBnr  = document.getElementById('lx_error_banner');
+                var vocabRow = document.getElementById('lx_add_vocab_row');
+                var addBtn  = document.getElementById('lx_add_vocab_btn');
+                var vocabLink = document.getElementById('lx_vocab_link');
+                var copyBtn = document.getElementById('lx_copy_btn');
+                var charCnt = document.getElementById('lx_char_count');
+                var swapBtn = document.getElementById('lx_swap_langs');
+
+                /* char counter */
+                srcEl.addEventListener('input', function () {
+                    charCnt.textContent = srcEl.value.length + ' / 2000';
+                });
+
+                /* swap languages */
+                swapBtn.addEventListener('click', function () {
+                    var s = srcSel.value, t = tgtSel.value;
+                    srcSel.value = t;
+                    tgtSel.value = s;
+                    /* also swap text content if result is filled */
+                    if (resEl.value.trim()) {
+                        var tmp = srcEl.value;
+                        srcEl.value = resEl.value;
+                        resEl.value = tmp;
+                        charCnt.textContent = srcEl.value.length + ' / 2000';
+                    }
+                });
+
+                /* copy button */
+                if (copyBtn) {
+                    copyBtn.addEventListener('click', function () {
+                        navigator.clipboard.writeText(resEl.value).then(function () {
+                            copyBtn.title = 'Copied!';
+                            setTimeout(function () { copyBtn.title = 'Copy translation'; }, 1500);
+                        });
+                    });
+                }
+
+                /* Ctrl+Enter shortcut */
+                srcEl.addEventListener('keydown', function (e) {
+                    if ((e.ctrlKey || e.metaKey) &amp;&amp; e.key === 'Enter') {
+                        e.preventDefault();
+                        doTranslate();
+                    }
+                });
+
+                btn.addEventListener('click', doTranslate);
+
+                function setLoading(on) {
+                    btn.disabled = on;
+                    btnTxt.style.display  = on ? 'none' : '';
+                    spinner.style.display = on ? '' : 'none';
+                }
+
+                function showError(msg) {
+                    errBnr.textContent = '⚠ ' + msg;
+                    errBnr.style.display = '';
+                }
+                function clearError() { errBnr.style.display = 'none'; errBnr.textContent = ''; }
+
+                function doTranslate() {
+                    var text = srcEl.value.trim();
+                    if (!text) return;
+                    clearError();
+                    vocabRow.style.display = 'none';
+                    resEl.value = '';
+                    copyBtn.style.display = 'none';
+                    setLoading(true);
+
+                    var fd = new FormData();
+                    fd.append('text', text);
+                    fd.append('source_lang', srcSel.value);
+                    fd.append('target_lang', tgtSel.value);
+
+                    fetch('/translator/translate', {
+                        method: 'POST',
+                        body: fd,
+                    })
+                    .then(function (r) { return r.json(); })
+                    .then(function (data) {
+                        setLoading(false);
+                        if (data.status === 'ok' &amp;&amp; data.result) {
+                            resEl.value = data.result;
+                            copyBtn.style.display = '';
+                            vocabRow.style.display = '';
+                            if (vocabLink) vocabLink.style.display = 'none';
+                        } else {
+                            showError(data.message || 'Translation failed. Try again.');
+                        }
+                    })
+                    .catch(function (err) {
+                        setLoading(false);
+                        showError('Network error: ' + err.message);
+                    });
+                }
+
+                /* Add to Vocabulary */
+                if (addBtn) {
+                    addBtn.addEventListener('click', function () {
+                        var text = srcEl.value.trim();
+                        var trans = resEl.value.trim();
+                        if (!text || !trans) return;
+
+                        addBtn.disabled = true;
+                        addBtn.textContent = 'Saving…';
+
+                        var fd = new FormData();
+                        fd.append('text', text);
+                        fd.append('translation', trans);
+                        fd.append('source_lang', srcSel.value);
+                        fd.append('target_lang', tgtSel.value);
+                        /* CSRF token */
+                        var csrfMeta = document.querySelector('meta[name=csrf-token]');
+                        if (csrfMeta) fd.append('csrf_token', csrfMeta.getAttribute('content'));
+
+                        fetch('/translator/add', { method: 'POST', body: fd })
+                        .then(function (r) { return r.json(); })
+                        .then(function (data) {
+                            if (data.status === 'ok' || data.status === 'already_exists') {
+                                addBtn.textContent = data.status === 'already_exists'
+                                    ? '✅ Already in Vocabulary' : '✅ Saved!';
+                                if (vocabLink) {
+                                    vocabLink.href = data.vocab_url || '/my/vocabulary';
+                                    vocabLink.style.display = '';
+                                }
+                            } else {
+                                addBtn.disabled = false;
+                                addBtn.textContent = '⭐ Add to Vocabulary';
+                                showError(data.message || 'Could not save entry.');
+                            }
+                        })
+                        .catch(function (err) {
+                            addBtn.disabled = false;
+                            addBtn.textContent = '⭐ Add to Vocabulary';
+                            showError('Network error: ' + err.message);
+                        });
+                    });
+                }
+            }());
+            </script>
+
+        </div><!-- /#wrap -->
+        </t>
+    </template>
+
+</odoo>
