@@ -101,11 +101,12 @@
                                             <t t-esc="word_of_day.translation_text"/>
                                         </p>
                                     </t>
-                                    <t t-if="word_of_day.entry_id">
-                                        <a t-attf-href="/my/vocabulary/#{word_of_day.entry_id.id}"
+                                    <t t-if="wotd_url">
+                                        <a t-att-href="wotd_url"
                                            class="lx-btn-ghost d-inline-block py-2 px-4"
                                            style="font-size:.9rem">
-                                            View Entry →
+                                            <t t-if="wotd_is_in_vocab">View in Vocabulary →</t>
+                                            <t t-else="">Explore in Library →</t>
                                         </a>
                                     </t>
                                 </div>

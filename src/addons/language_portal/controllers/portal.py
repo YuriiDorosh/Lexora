@@ -85,6 +85,28 @@ class PortalHome(http.Controller):
         word_of_day = None
         if 'language.word.of.day' in env.registry:
             word_of_day = env['language.word.of.day'].sudo().get_today('en')
+
+        # Compute a safe WOTD link that never exposes a private entry ID to
+        # other users.  Priority:
+        #   1. If the current user already has this exact word → their entry.
+        #   2. Otherwise (or if guest) → /useful-words filtered by the word text.
+        wotd_url = None
+        wotd_is_in_vocab = False
+        if word_of_day and word_of_day.word_text:
+            word_q = word_of_day.word_text
+            if not request.env.user._is_public():
+                user_entry = env['language.entry'].search([
+                    ('owner_id', '=', request.env.user.id),
+                    ('source_text', 'ilike', word_q),
+                    ('status', '=', 'active'),
+                ], limit=1)
+                if user_entry:
+                    wotd_url = '/my/vocabulary/%d' % user_entry.id
+                    wotd_is_in_vocab = True
+            if not wotd_url:
+                import urllib.parse
+                wotd_url = '/useful-words?q=%s' % urllib.parse.quote_plus(word_q)
+
         articles = []
         if 'language.post' in env.registry:
             articles = env['language.post'].sudo().search(
@@ -92,6 +114,8 @@ class PortalHome(http.Controller):
         stats = _build_stats(env)
         return request.render('language_portal.homepage', {
             'word_of_day': word_of_day,
+            'wotd_url': wotd_url,
+            'wotd_is_in_vocab': wotd_is_in_vocab,
             'articles': articles,
             'stats': stats,
             'lang_names': LANG_NAMES,

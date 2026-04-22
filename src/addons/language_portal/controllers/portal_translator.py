@@ -15,7 +15,7 @@ from odoo.http import request
 
 _logger = logging.getLogger(__name__)
 
-TRANSLATION_SVC = os.environ.get("TRANSLATION_SERVICE_URL", "http://translation:8001")
+TRANSLATION_SVC = os.environ.get("TRANSLATION_SERVICE_URL", "http://translation-service:8000")
 
 LANG_NAMES = {"en": "English", "uk": "Ukrainian", "el": "Greek"}
 LANG_FLAGS = {"en": "🇬🇧", "uk": "🇺🇦", "el": "🇬🇷"}
