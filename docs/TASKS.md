@@ -15,10 +15,45 @@
 
 ## Current Milestone
 
+### M16 — Legal Protection + Documentation Overhaul
+
+**Status:** Complete and verified.
+**Started:** 2026-04-22
+**Completed:** 2026-04-22
+**Branch:** `m16_legal_protection`
+
+**Scope:** Proprietary license file, professional README rewrite (Avantgarde Systems
+branding, full feature catalogue, tech stack table, implementation status table),
+PLAN.md updated to v0.9 with M16 row.
+
+#### Sub-steps
+
+- [x] M16-01 · Branch `m16_legal_protection` created from `main`. ✅
+- [x] M16-02 · `LICENSE` — Proprietary / All Rights Reserved; copyright Yurii Dorosh +
+  Avantgarde Systems 2026; explicit restriction clauses; no-warranty disclaimer;
+  licensing contact email. ✅
+- [x] M16-03 · `README.md` — full rewrite: Lexora Academy header, Avantgarde Systems
+  subtitle, elevator pitch, 8-section feature catalogue (AI Translator, SRS, PvP,
+  Knowledge Hub, PDF Suite, Vocabulary, Community, Premium UI), tech stack table,
+  module install order, quick-start commands, documentation index, implementation
+  status table, license section. ✅
+- [x] M16-04 · `docs/PLAN.md` — bumped to v0.9; M15 marked Complete; M16 row added. ✅
+- [x] M16-05 · `docs/TASKS.md` — M16 block added; M15 moved to Completed Milestones. ✅
+- [x] M16-06 · Committed and pushed `m16_legal_protection`. ✅
+
+#### Blockers
+
+(none)
+
+---
+
+## Completed Milestones (M15)
+
 ### M15 — AI Translator Tool
 
-**Status:** In progress — core implementation complete; awaiting browser verification.
+**Status:** Complete and verified.
 **Started:** 2026-04-22
+**Completed:** 2026-04-22
 **Branch:** `m15_ai_translator`
 
 **Scope:** Google-Translate-style `/translator` page backed by the existing
