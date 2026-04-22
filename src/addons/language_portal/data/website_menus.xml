@@ -12,6 +12,16 @@
             <field name="user_not_logged">True</field>
         </record>
 
+        <!-- Translator — public, always visible -->
+        <record id="menu_translator" model="website.menu">
+            <field name="name">Translator</field>
+            <field name="url">/translator</field>
+            <field name="parent_id" ref="website.main_menu"/>
+            <field name="sequence">22</field>
+            <field name="user_logged">True</field>
+            <field name="user_not_logged">True</field>
+        </record>
+
         <!-- Library dropdown parent -->
         <record id="menu_library_parent" model="website.menu">
             <field name="name">Library</field>

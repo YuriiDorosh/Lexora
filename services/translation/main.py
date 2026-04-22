@@ -34,6 +34,7 @@ from contextlib import asynccontextmanager
 
 import pika
 from fastapi import FastAPI
+from pydantic import BaseModel
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s %(message)s")
 _logger = logging.getLogger("translation-service")
@@ -258,3 +259,30 @@ def health():
         "ready": True,
         "consumer_alive": _consumer_thread.is_alive() if _consumer_thread else False,
     }
+
+
+# ---------------------------------------------------------------------------
+# Synchronous HTTP endpoint — used by the Lexora Translator Tool (M15)
+# ---------------------------------------------------------------------------
+
+class TranslateRequest(BaseModel):
+    text: str
+    source: str   # en / uk / el
+    target: str   # en / uk / el
+
+
+@app.post("/translate")
+def translate_sync(req: TranslateRequest):
+    """Synchronous translation endpoint for the interactive Translator UI.
+    Returns JSON immediately — no RabbitMQ involved."""
+    text = req.text.strip()
+    if not text:
+        return {"status": "error", "message": "Empty text"}
+    if req.source == req.target:
+        return {"status": "ok", "result": text}
+    try:
+        result = _translate(text, req.source, req.target)
+        return {"status": "ok", "result": result}
+    except Exception as exc:  # noqa: BLE001
+        _logger.warning("sync /translate failed: %s", exc)
+        return {"status": "error", "message": str(exc)}
