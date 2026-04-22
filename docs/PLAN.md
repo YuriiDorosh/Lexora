@@ -1,8 +1,8 @@
 # Lexora — Implementation Plan (MVP)
 
-> Version: 0.8 (M15 in progress)
+> Version: 0.9 (M16 complete)
 > Last updated: 2026-04-22
-> Status: M0–M14 complete · M15 in progress
+> Status: M0–M16 complete
 
 ---
 
@@ -41,7 +41,8 @@
 | M12 | Knowledge Hub | ✅ Complete | Gold Vocabulary (3184 most common EN words with CEFR/POS); Grammar Encyclopedia (6 sections); `/useful-words` + `/grammar` portal |
 | M13 | PDF Export Suite | ✅ Complete | Printable PDF cheat sheets from personal vocabulary, Gold Vocabulary (by CEFR level), and Grammar sections |
 | M14 | Premium Visual Identity | ✅ Complete | Dark animated hero, glassmorphism, Inter/Montserrat fonts, Avantgarde Systems branding, premium login page |
-| M15 | AI Translator Tool | 🔄 In Progress | Google-Translate-style `/translator` page; en/uk/el; sync deep_translator API; Add to Vocabulary integration |
+| M15 | AI Translator Tool | ✅ Complete | Google-Translate-style `/translator` page; en/uk/el; sync deep_translator API; Add to Vocabulary integration |
+| M16 | Legal Protection + Documentation | ✅ Complete | Proprietary LICENSE; professional README overhaul (Avantgarde Systems branding, full feature catalogue, tech stack) |
 
 ---
 
