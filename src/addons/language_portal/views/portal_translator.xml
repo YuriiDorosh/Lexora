@@ -312,8 +312,9 @@
                         fetch('/translator/add', { method: 'POST', body: fd })
                         .then(function (r) { return r.json(); })
                         .then(function (data) {
-                            if (data.status === 'ok') {
-                                addBtn.textContent = '✅ Saved!';
+                            if (data.status === 'ok' || data.status === 'already_exists') {
+                                addBtn.textContent = data.status === 'already_exists'
+                                    ? '✅ Already in Vocabulary' : '✅ Saved!';
                                 if (vocabLink) {
                                     vocabLink.href = data.vocab_url || '/my/vocabulary';
                                     vocabLink.style.display = '';

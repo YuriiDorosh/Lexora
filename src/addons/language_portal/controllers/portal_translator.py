@@ -98,31 +98,51 @@ class TranslatorController(http.Controller):
             return request.make_json_response({"status": "error", "message": "No text"})
 
         user = request.env.user
-        Entry = request.env["language.entry"]
-        Trans = request.env["language.translation"]
+        Entry = request.env["language.entry"].sudo()
+        Trans = request.env["language.translation"].sudo()
 
         try:
-            entry = Entry.sudo().create(
-                {
+            # Check if an identical entry already exists for this user.
+            from odoo.addons.language_words.models.normalize import normalize
+            normalized = normalize(text)
+            existing = Entry.search([
+                ("owner_id", "=", user.id),
+                ("normalized_text", "=", normalized),
+                ("source_language", "=", source_lang),
+            ], limit=1)
+
+            if existing:
+                entry = existing
+                already_existed = True
+            else:
+                entry = Entry.create({
                     "source_text": text,
                     "source_language": source_lang,
                     "type": "word",
                     "owner_id": user.id,
                     "created_from": "manual",
-                }
-            )
+                })
+                already_existed = False
+
+            # Add the translation only if not already present for this target language.
             if translation:
-                Trans.sudo().create(
-                    {
+                existing_trans = Trans.search([
+                    ("entry_id", "=", entry.id),
+                    ("target_language", "=", target_lang),
+                ], limit=1)
+                if not existing_trans:
+                    Trans.create({
                         "entry_id": entry.id,
                         "target_language": target_lang,
                         "translated_text": translation,
                         "status": "completed",
-                    }
-                )
-            return request.make_json_response(
-                {"status": "ok", "entry_id": entry.id, "vocab_url": f"/my/vocabulary/{entry.id}"}
-            )
+                    })
+
+            return request.make_json_response({
+                "status": "already_exists" if already_existed else "ok",
+                "entry_id": entry.id,
+                "vocab_url": f"/my/vocabulary/{entry.id}",
+            })
         except Exception as exc:
             _logger.warning("Add to vocab failed: %s", exc)
             return request.make_json_response({"status": "error", "message": str(exc)})
