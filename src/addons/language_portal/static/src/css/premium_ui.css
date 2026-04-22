@@ -583,3 +583,145 @@ h1, h2, h3, .lx-display {
 .lx-animate-up:nth-child(4) { animation-delay: 0.3s; }
 .lx-animate-up:nth-child(5) { animation-delay: 0.4s; }
 .lx-animate-up:nth-child(6) { animation-delay: 0.5s; }
+
+/* ================================================================
+   NAVBAR LOGO — Lexora gradient text
+   ================================================================ */
+
+.lx-nav-logo {
+  font-family: var(--lx-font-display);
+  font-weight: 900;
+  font-size: 1.45rem;
+  background: linear-gradient(135deg, var(--lx-indigo), var(--lx-purple));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  letter-spacing: -0.03em;
+  line-height: 1;
+  display: inline-block;
+}
+
+.lx-navbar-brand {
+  text-decoration: none !important;
+}
+
+.lx-navbar-brand:hover .lx-nav-logo {
+  background: linear-gradient(135deg, var(--lx-purple), var(--lx-pink));
+  -webkit-background-clip: text;
+  background-clip: text;
+}
+
+/* ================================================================
+   AVANTGARDE FOOTER
+   ================================================================ */
+
+.lx-footer {
+  background: linear-gradient(180deg, #0f0c29 0%, #1a1035 100%);
+  border-top: 1px solid rgba(124, 58, 237, 0.2);
+}
+
+.lx-footer-brand .lx-nav-logo {
+  font-size: 1.75rem;
+}
+
+.lx-footer-tagline {
+  color: rgba(156, 163, 175, 0.85);
+  font-size: 0.875rem;
+  line-height: 1.65;
+  margin-bottom: 0;
+}
+
+.lx-footer-built-by {
+  font-size: 0.82rem;
+  color: rgba(156, 163, 175, 0.7);
+}
+
+.lx-footer-built-desc {
+  font-size: 0.78rem;
+  color: rgba(107, 114, 128, 0.8);
+  line-height: 1.55;
+}
+
+.lx-footer-heading {
+  font-family: var(--lx-font-display);
+  font-weight: 700;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: rgba(167, 139, 250, 0.7);
+  margin-bottom: 1rem;
+}
+
+.lx-footer-links {
+  margin: 0;
+  padding: 0;
+}
+
+.lx-footer-links li {
+  margin-bottom: 0.5rem;
+}
+
+.lx-footer-links a {
+  color: rgba(156, 163, 175, 0.8);
+  text-decoration: none;
+  font-size: 0.875rem;
+  transition: color 0.2s;
+}
+
+.lx-footer-links a:hover {
+  color: #c4b5fd;
+}
+
+.lx-footer-social {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  margin-top: 0.5rem;
+}
+
+.lx-social-link {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  color: rgba(156, 163, 175, 0.8);
+  text-decoration: none;
+  font-size: 0.875rem;
+  transition: color 0.2s, transform 0.2s;
+}
+
+.lx-social-link:hover {
+  color: #c4b5fd;
+  transform: translateX(3px);
+}
+
+.lx-social-link svg {
+  flex-shrink: 0;
+  opacity: 0.7;
+  transition: opacity 0.2s;
+}
+
+.lx-social-link:hover svg {
+  opacity: 1;
+}
+
+/* Footer copyright bar */
+.lx-footer-copyright-text {
+  font-size: 0.8rem;
+  color: rgba(156, 163, 175, 0.6);
+}
+
+.lx-footer-credit-link {
+  color: rgba(167, 139, 250, 0.7) !important;
+  text-decoration: none;
+  margin-left: 4px;
+  font-weight: 600;
+  transition: color 0.2s;
+}
+
+.lx-footer-credit-link:hover {
+  color: #c4b5fd !important;
+}
+
+.lx-heart {
+  color: #f43f5e;
+}
