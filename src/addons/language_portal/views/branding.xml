@@ -2,45 +2,76 @@
 <odoo>
 
     <!-- ============================================================ -->
-    <!-- Avantgarde Systems branding — portal footer credit           -->
-    <!-- Appended to every portal page via portal.frontend_layout     -->
+    <!-- Google Fonts — <link> injected into <head> on every page     -->
+    <!-- Must use a <link> tag; @import in bundled CSS is ignored.     -->
     <!-- ============================================================ -->
 
-    <template id="portal_footer_avantgarde"
-              inherit_id="portal.frontend_layout"
-              name="Lexora · Avantgarde Footer Credit">
-        <xpath expr="//footer" position="inside">
-            <div class="text-center pb-2">
-                <div class="lx-avantgarde-credit">
-                    Developed with <span class="lx-heart">❤</span> by
-                    <a href="https://avantgarde.systems" target="_blank" rel="noopener">Avantgarde Systems</a>
-                </div>
+    <template id="lexora_google_fonts"
+              inherit_id="web.frontend_layout"
+              name="Lexora Google Fonts">
+        <xpath expr="//head/meta[last()]" position="after">
+            <link rel="preconnect" href="https://fonts.googleapis.com"/>
+            <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin=""/>
+            <link rel="stylesheet"
+                  href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&amp;family=Montserrat:wght@700;800;900&amp;display=swap"/>
+        </xpath>
+    </template>
+
+    <!-- ============================================================ -->
+    <!-- Remove "Powered by Odoo" — replace with Avantgarde credit    -->
+    <!-- web.brand_promotion_message is called from every footer      -->
+    <!-- ============================================================ -->
+
+    <template id="lexora_brand_promotion"
+              inherit_id="web.brand_promotion_message"
+              name="Lexora · Remove Odoo Branding">
+        <xpath expr="." position="replace">
+            <t name="Brand Promotion Message" t-name="web.brand_promotion_message">
+                <span class="lx-avantgarde-credit" style="font-size:.78rem;color:#9ca3af">
+                    Developed with <span style="color:#f43f5e">❤</span> by
+                    <a href="https://avantgarde.systems" target="_blank" rel="noopener"
+                       style="color:#9ca3af;text-decoration:none;font-weight:500">Avantgarde Systems</a>
+                </span>
+            </t>
+        </xpath>
+    </template>
+
+    <!-- ============================================================ -->
+    <!-- Footer copyright — add "Lexora · powered by Avantgarde"     -->
+    <!-- web.frontend_layout owns the o_footer_copyright div          -->
+    <!-- ============================================================ -->
+
+    <template id="lexora_footer_copyright"
+              inherit_id="web.frontend_layout"
+              name="Lexora · Footer Avantgarde Credit">
+        <xpath expr="//div[hasclass('o_footer_copyright')]//div[hasclass('col-sm','text-center','text-sm-start')]" position="after">
+            <div class="col-sm-12 text-center mt-1" style="border-top:1px solid rgba(0,0,0,.06);padding-top:6px;margin-top:6px">
+                <span style="font-size:.75rem;color:#9ca3af">
+                    Lexora · Designed &amp; developed with <span style="color:#f43f5e">❤</span> by
+                    <a href="https://avantgarde.systems" target="_blank" rel="noopener"
+                       style="color:#9ca3af;font-weight:600;text-decoration:none">Avantgarde Systems</a>
+                    for the Lexora Ecosystem
+                </span>
             </div>
         </xpath>
     </template>
 
     <!-- ============================================================ -->
-    <!-- Login page — replace "Powered by Odoo" with Lexora branding  -->
+    <!-- Login page — Lexora gradient title + Avantgarde credit       -->
+    <!-- Targets website.login_layout because the website module      -->
+    <!-- replaces web.login_layout entirely with website.layout       -->
     <!-- ============================================================ -->
 
     <template id="login_avantgarde_brand"
-              inherit_id="web.login_layout"
+              inherit_id="website.login_layout"
               name="Lexora · Login Branding">
 
-        <!-- Replace the company logo img area with Lexora premium brand block -->
-        <xpath expr="//div[hasclass('text-center','pb-3','border-bottom','mb-4')]" position="replace">
-            <div class="text-center pb-3 border-bottom mb-4">
+        <!-- Inject brand header before the login container content -->
+        <xpath expr="//div[hasclass('oe_website_login_container')]" position="before">
+            <div class="text-center py-4">
                 <div class="lx-login-brand-title">Lexora</div>
                 <div class="lx-login-brand-sub">powered by Avantgarde Systems</div>
             </div>
-        </xpath>
-
-        <!-- Replace the "Powered by Odoo" link at the bottom -->
-        <xpath expr="//a[contains(@href,'odoo.com')]" position="replace">
-            <span class="lx-login-footer-credit">
-                Developed with ❤ by
-                <a href="https://avantgarde.systems" target="_blank" rel="noopener">Avantgarde Systems</a>
-            </span>
         </xpath>
 
     </template>

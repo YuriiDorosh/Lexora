@@ -7,7 +7,8 @@
     <!-- ============================================================ -->
 
     <template id="homepage" name="Lexora Homepage">
-        <t t-call="portal.portal_layout">
+        <t t-call="portal.frontend_layout">
+        <div id="wrap" class="oe_structure lx-premium-theme">
 
             <!-- ══════════════════════════════════════════════
                  DARK ANIMATED HERO
@@ -317,6 +318,7 @@
                 </a>
             </div>
 
+        </div><!-- /#wrap -->
         </t>
     </template>
 

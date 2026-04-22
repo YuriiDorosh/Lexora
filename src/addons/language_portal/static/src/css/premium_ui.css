@@ -3,9 +3,6 @@
    Fonts, glassmorphism, animated hero, feature cards, branding.
    ================================================================ */
 
-/* ── Google Fonts ── */
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Montserrat:wght@700;800;900&display=swap');
-
 /* ── Brand tokens ── */
 :root {
   --lx-indigo:        #4f46e5;
