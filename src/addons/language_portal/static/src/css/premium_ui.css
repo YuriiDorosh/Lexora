@@ -1,0 +1,727 @@
+/* ================================================================
+   Lexora — Premium UI  ·  Avantgarde Systems
+   Fonts, glassmorphism, animated hero, feature cards, branding.
+   ================================================================ */
+
+/* ── Brand tokens ── */
+:root {
+  --lx-indigo:        #4f46e5;
+  --lx-indigo-dark:   #3730a3;
+  --lx-purple:        #7c3aed;
+  --lx-violet:        #8b5cf6;
+  --lx-pink:          #ec4899;
+  --lx-cyan:          #06b6d4;
+
+  --lx-glass-bg:      rgba(255, 255, 255, 0.07);
+  --lx-glass-border:  rgba(255, 255, 255, 0.16);
+  --lx-glass-shadow:  0 8px 32px rgba(0, 0, 0, 0.28);
+  --lx-glass-blur:    blur(16px);
+
+  --lx-hero-from:     #0f0c29;
+  --lx-hero-via:      #302b63;
+  --lx-hero-to:       #24243e;
+
+  --lx-font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+  --lx-font-display: 'Montserrat', 'Inter', sans-serif;
+}
+
+/* ── Base typography override ── */
+body, .o_portal_wrap {
+  font-family: var(--lx-font-sans);
+}
+
+h1, h2, h3, .lx-display {
+  font-family: var(--lx-font-display);
+}
+
+/* ================================================================
+   ANIMATED GRADIENT HERO
+   ================================================================ */
+
+@keyframes lx-gradient-shift {
+  0%   { background-position: 0%   50%; }
+  50%  { background-position: 100% 50%; }
+  100% { background-position: 0%   50%; }
+}
+
+@keyframes lx-float {
+  0%, 100% { transform: translateY(0px);  }
+  50%       { transform: translateY(-8px); }
+}
+
+@keyframes lx-pulse-glow {
+  0%, 100% { box-shadow: 0 0 20px rgba(79, 70, 229, 0.35); }
+  50%       { box-shadow: 0 0 40px rgba(124, 58, 237, 0.6); }
+}
+
+@keyframes lx-fade-up {
+  from { opacity: 0; transform: translateY(24px); }
+  to   { opacity: 1; transform: translateY(0);    }
+}
+
+@keyframes lx-spin-slow {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+.lx-hero {
+  background: linear-gradient(135deg,
+    var(--lx-hero-from),
+    var(--lx-hero-via),
+    var(--lx-hero-to),
+    #1a1a3e,
+    var(--lx-hero-via));
+  background-size: 400% 400%;
+  animation: lx-gradient-shift 14s ease infinite;
+  min-height: 88vh;
+  display: flex;
+  align-items: center;
+  position: relative;
+  overflow: hidden;
+  padding: 4rem 0;
+}
+
+/* Decorative orbs */
+.lx-hero::before,
+.lx-hero::after {
+  content: '';
+  position: absolute;
+  border-radius: 50%;
+  pointer-events: none;
+  animation: lx-float 6s ease-in-out infinite;
+}
+
+.lx-hero::before {
+  width: 480px;
+  height: 480px;
+  background: radial-gradient(circle, rgba(124, 58, 237, 0.18) 0%, transparent 70%);
+  top: -120px;
+  right: -120px;
+}
+
+.lx-hero::after {
+  width: 320px;
+  height: 320px;
+  background: radial-gradient(circle, rgba(6, 182, 212, 0.14) 0%, transparent 70%);
+  bottom: -80px;
+  left: -80px;
+  animation-delay: 3s;
+}
+
+.lx-hero-content {
+  position: relative;
+  z-index: 2;
+  animation: lx-fade-up 0.8s ease-out both;
+}
+
+.lx-hero-title {
+  font-family: var(--lx-font-display);
+  font-size: clamp(2.5rem, 6vw, 4.5rem);
+  font-weight: 900;
+  line-height: 1.08;
+  color: #ffffff;
+  letter-spacing: -0.03em;
+  text-shadow: 0 2px 40px rgba(79, 70, 229, 0.4);
+}
+
+.lx-hero-title .lx-gradient-text {
+  background: linear-gradient(90deg, #a78bfa, #60a5fa, #34d399);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.lx-hero-subtitle {
+  font-size: clamp(1rem, 2vw, 1.25rem);
+  color: rgba(255, 255, 255, 0.72);
+  max-width: 560px;
+  margin: 1.25rem auto 2rem;
+  line-height: 1.6;
+}
+
+/* ── CTA Buttons ── */
+.lx-btn-primary {
+  background: linear-gradient(135deg, var(--lx-indigo), var(--lx-purple));
+  border: none;
+  color: #fff;
+  font-weight: 600;
+  font-size: 1rem;
+  padding: 0.75rem 2rem;
+  border-radius: 50px;
+  text-decoration: none;
+  display: inline-block;
+  transition: transform 0.2s, box-shadow 0.2s;
+  animation: lx-pulse-glow 3s ease-in-out infinite;
+}
+
+.lx-btn-primary:hover {
+  transform: translateY(-2px) scale(1.03);
+  box-shadow: 0 12px 40px rgba(79, 70, 229, 0.55);
+  color: #fff;
+  text-decoration: none;
+}
+
+.lx-btn-ghost {
+  border: 1.5px solid rgba(255, 255, 255, 0.35);
+  color: rgba(255, 255, 255, 0.9);
+  background: rgba(255, 255, 255, 0.06);
+  backdrop-filter: var(--lx-glass-blur);
+  font-weight: 600;
+  font-size: 1rem;
+  padding: 0.75rem 2rem;
+  border-radius: 50px;
+  text-decoration: none;
+  display: inline-block;
+  transition: all 0.2s;
+}
+
+.lx-btn-ghost:hover {
+  background: rgba(255, 255, 255, 0.14);
+  color: #fff;
+  text-decoration: none;
+  border-color: rgba(255, 255, 255, 0.6);
+  transform: translateY(-2px);
+}
+
+/* ================================================================
+   GLASSMORPHISM COMPONENTS
+   ================================================================ */
+
+.lx-glass {
+  background: var(--lx-glass-bg);
+  backdrop-filter: var(--lx-glass-blur);
+  -webkit-backdrop-filter: var(--lx-glass-blur);
+  border: 1px solid var(--lx-glass-border);
+  border-radius: 20px;
+  box-shadow: var(--lx-glass-shadow);
+}
+
+.lx-glass-card {
+  background: var(--lx-glass-bg);
+  backdrop-filter: var(--lx-glass-blur);
+  -webkit-backdrop-filter: var(--lx-glass-blur);
+  border: 1px solid var(--lx-glass-border);
+  border-radius: 16px;
+  transition: transform 0.25s, box-shadow 0.25s;
+}
+
+.lx-glass-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.35);
+}
+
+/* Stat number inside glass card (dark hero context) */
+.lx-stat-number {
+  font-family: var(--lx-font-display);
+  font-size: 2.4rem;
+  font-weight: 900;
+  color: #fff;
+  text-shadow: 0 0 20px rgba(167, 139, 250, 0.6);
+}
+
+.lx-stat-label {
+  color: rgba(255, 255, 255, 0.65);
+  font-size: 0.82rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-top: 2px;
+}
+
+/* ================================================================
+   WORD OF THE DAY — PREMIUM CARD
+   ================================================================ */
+
+.lx-wotd-card {
+  position: relative;
+  border-radius: 20px;
+  overflow: hidden;
+  background: linear-gradient(135deg, #1e1b4b 0%, #312e81 60%, #1e1b4b 100%);
+  border: 1px solid rgba(167, 139, 250, 0.3);
+  box-shadow: 0 8px 40px rgba(79, 70, 229, 0.35);
+}
+
+.lx-wotd-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse at top right, rgba(124, 58, 237, 0.25) 0%, transparent 60%);
+  pointer-events: none;
+}
+
+.lx-wotd-badge {
+  display: inline-block;
+  background: linear-gradient(90deg, var(--lx-indigo), var(--lx-purple));
+  color: #fff;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  padding: 4px 14px;
+  border-radius: 20px;
+}
+
+.lx-wotd-word {
+  font-family: var(--lx-font-display);
+  font-size: clamp(2rem, 5vw, 3.2rem);
+  font-weight: 900;
+  color: #fff;
+  letter-spacing: -0.02em;
+}
+
+.lx-wotd-translation {
+  color: rgba(167, 139, 250, 0.9);
+  font-size: 1.1rem;
+  font-style: italic;
+}
+
+/* ================================================================
+   FEATURE CARDS
+   ================================================================ */
+
+.lx-section {
+  padding: 5rem 0;
+}
+
+.lx-section-dark {
+  background: linear-gradient(180deg, #0f172a 0%, #1e1b4b 100%);
+}
+
+.lx-section-light {
+  background: #f8f7ff;
+}
+
+.lx-feature-card {
+  border-radius: 20px;
+  padding: 2rem 1.5rem;
+  transition: transform 0.3s, box-shadow 0.3s;
+  border: 1px solid #e8e6ff;
+  background: #fff;
+  height: 100%;
+}
+
+.lx-feature-card:hover {
+  transform: translateY(-6px);
+  box-shadow: 0 20px 60px rgba(79, 70, 229, 0.12);
+  border-color: rgba(79, 70, 229, 0.25);
+}
+
+.lx-feature-icon {
+  width: 64px;
+  height: 64px;
+  border-radius: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.75rem;
+  margin-bottom: 1.25rem;
+  animation: lx-float 4s ease-in-out infinite;
+}
+
+.lx-feature-icon-indigo  { background: linear-gradient(135deg, #eef2ff, #c7d2fe); }
+.lx-feature-icon-purple  { background: linear-gradient(135deg, #faf5ff, #ddd6fe); animation-delay: 0.8s; }
+.lx-feature-icon-cyan    { background: linear-gradient(135deg, #ecfeff, #a5f3fc); animation-delay: 1.6s; }
+.lx-feature-icon-pink    { background: linear-gradient(135deg, #fdf2f8, #fbcfe8); animation-delay: 2.4s; }
+.lx-feature-icon-amber   { background: linear-gradient(135deg, #fffbeb, #fde68a); animation-delay: 3.2s; }
+.lx-feature-icon-emerald { background: linear-gradient(135deg, #ecfdf5, #a7f3d0); animation-delay: 1.2s; }
+
+/* ================================================================
+   HOW IT WORKS — STEP TIMELINE
+   ================================================================ */
+
+.lx-steps {
+  position: relative;
+}
+
+.lx-step {
+  display: flex;
+  gap: 1.5rem;
+  align-items: flex-start;
+  padding: 1.5rem;
+  border-radius: 16px;
+  transition: background 0.2s;
+}
+
+.lx-step:hover {
+  background: rgba(79, 70, 229, 0.04);
+}
+
+.lx-step-num {
+  width: 48px;
+  height: 48px;
+  min-width: 48px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--lx-indigo), var(--lx-purple));
+  color: #fff;
+  font-family: var(--lx-font-display);
+  font-weight: 800;
+  font-size: 1.1rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 16px rgba(79, 70, 229, 0.35);
+}
+
+.lx-step-title {
+  font-family: var(--lx-font-display);
+  font-weight: 700;
+  font-size: 1.05rem;
+  color: #1a1a2e;
+  margin-bottom: 4px;
+}
+
+.lx-step-desc {
+  color: #6b7280;
+  font-size: 0.9rem;
+  line-height: 1.55;
+}
+
+/* Video placeholder */
+.lx-video-placeholder {
+  border-radius: 20px;
+  background: linear-gradient(135deg, #1e1b4b, #312e81);
+  aspect-ratio: 16/9;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: transform 0.3s, box-shadow 0.3s;
+  border: 1px solid rgba(124, 58, 237, 0.3);
+  overflow: hidden;
+  position: relative;
+}
+
+.lx-video-placeholder::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse at center, rgba(124, 58, 237, 0.2) 0%, transparent 70%);
+}
+
+.lx-video-placeholder:hover {
+  transform: scale(1.02);
+  box-shadow: 0 24px 80px rgba(79, 70, 229, 0.4);
+}
+
+.lx-play-btn {
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.15);
+  backdrop-filter: blur(8px);
+  border: 2px solid rgba(255, 255, 255, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.75rem;
+  color: #fff;
+  position: relative;
+  z-index: 1;
+  transition: background 0.2s, transform 0.2s;
+}
+
+.lx-video-placeholder:hover .lx-play-btn {
+  background: rgba(255, 255, 255, 0.25);
+  transform: scale(1.1);
+}
+
+.lx-video-label {
+  position: relative;
+  z-index: 1;
+  color: rgba(255, 255, 255, 0.65);
+  font-size: 0.85rem;
+  margin-top: 12px;
+  font-weight: 500;
+}
+
+/* ================================================================
+   ARTICLE CARDS (Light section)
+   ================================================================ */
+
+.lx-article-card {
+  border-radius: 16px;
+  border: 1px solid #f0effe;
+  background: #fff;
+  transition: transform 0.25s, box-shadow 0.25s;
+  height: 100%;
+  overflow: hidden;
+}
+
+.lx-article-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 16px 48px rgba(79, 70, 229, 0.1);
+  border-color: rgba(79, 70, 229, 0.2);
+}
+
+/* ================================================================
+   SECTION HEADINGS
+   ================================================================ */
+
+.lx-section-eyebrow {
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  background: linear-gradient(90deg, var(--lx-indigo), var(--lx-purple));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  display: inline-block;
+  margin-bottom: 0.5rem;
+}
+
+.lx-section-title-dark {
+  font-family: var(--lx-font-display);
+  font-size: clamp(1.8rem, 4vw, 2.8rem);
+  font-weight: 900;
+  color: #fff;
+  letter-spacing: -0.025em;
+}
+
+.lx-section-title-light {
+  font-family: var(--lx-font-display);
+  font-size: clamp(1.8rem, 4vw, 2.8rem);
+  font-weight: 900;
+  color: #0f172a;
+  letter-spacing: -0.025em;
+}
+
+/* ================================================================
+   AVANTGARDE BRANDING FOOTER
+   ================================================================ */
+
+.lx-avantgarde-credit {
+  font-size: 0.78rem;
+  color: #9ca3af;
+  margin-top: 4px;
+}
+
+.lx-avantgarde-credit a {
+  color: #9ca3af;
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.lx-avantgarde-credit a:hover {
+  color: var(--lx-indigo);
+}
+
+.lx-avantgarde-credit .lx-heart {
+  color: #f43f5e;
+}
+
+/* ================================================================
+   LOGIN PAGE BRANDING
+   ================================================================ */
+
+.lx-login-brand {
+  text-align: center;
+  margin-bottom: 2rem;
+}
+
+.lx-login-brand-title {
+  font-family: var(--lx-font-display);
+  font-size: 2.2rem;
+  font-weight: 900;
+  background: linear-gradient(135deg, var(--lx-indigo), var(--lx-purple));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  letter-spacing: -0.03em;
+}
+
+.lx-login-brand-sub {
+  font-size: 0.82rem;
+  color: #9ca3af;
+  margin-top: 4px;
+}
+
+.lx-login-footer-credit {
+  font-size: 0.78rem;
+  color: #9ca3af;
+  text-align: center;
+  margin-top: 12px;
+}
+
+.lx-login-footer-credit a {
+  color: #9ca3af;
+  text-decoration: none;
+}
+
+.lx-login-footer-credit a:hover {
+  color: var(--lx-indigo);
+}
+
+/* ================================================================
+   MISC UTILITIES
+   ================================================================ */
+
+.lx-divider {
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(79, 70, 229, 0.2), transparent);
+  margin: 0;
+  border: none;
+}
+
+.lx-badge-gradient {
+  background: linear-gradient(135deg, var(--lx-indigo), var(--lx-purple));
+  color: #fff;
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 3px 10px;
+  border-radius: 20px;
+}
+
+/* Fade-up on scroll (triggered by JS or CSS :has for no-JS) */
+.lx-animate-up {
+  animation: lx-fade-up 0.7s ease-out both;
+}
+
+.lx-animate-up:nth-child(2) { animation-delay: 0.1s; }
+.lx-animate-up:nth-child(3) { animation-delay: 0.2s; }
+.lx-animate-up:nth-child(4) { animation-delay: 0.3s; }
+.lx-animate-up:nth-child(5) { animation-delay: 0.4s; }
+.lx-animate-up:nth-child(6) { animation-delay: 0.5s; }
+
+/* ================================================================
+   NAVBAR LOGO — Lexora gradient text
+   ================================================================ */
+
+.lx-nav-logo {
+  font-family: var(--lx-font-display);
+  font-weight: 900;
+  font-size: 1.45rem;
+  background: linear-gradient(135deg, var(--lx-indigo), var(--lx-purple));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  letter-spacing: -0.03em;
+  line-height: 1;
+  display: inline-block;
+}
+
+.lx-navbar-brand {
+  text-decoration: none !important;
+}
+
+.lx-navbar-brand:hover .lx-nav-logo {
+  background: linear-gradient(135deg, var(--lx-purple), var(--lx-pink));
+  -webkit-background-clip: text;
+  background-clip: text;
+}
+
+/* ================================================================
+   AVANTGARDE FOOTER
+   ================================================================ */
+
+.lx-footer {
+  background: linear-gradient(180deg, #0f0c29 0%, #1a1035 100%);
+  border-top: 1px solid rgba(124, 58, 237, 0.2);
+}
+
+.lx-footer-brand .lx-nav-logo {
+  font-size: 1.75rem;
+}
+
+.lx-footer-tagline {
+  color: rgba(156, 163, 175, 0.85);
+  font-size: 0.875rem;
+  line-height: 1.65;
+  margin-bottom: 0;
+}
+
+.lx-footer-built-by {
+  font-size: 0.82rem;
+  color: rgba(156, 163, 175, 0.7);
+}
+
+.lx-footer-built-desc {
+  font-size: 0.78rem;
+  color: rgba(107, 114, 128, 0.8);
+  line-height: 1.55;
+}
+
+.lx-footer-heading {
+  font-family: var(--lx-font-display);
+  font-weight: 700;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: rgba(167, 139, 250, 0.7);
+  margin-bottom: 1rem;
+}
+
+.lx-footer-links {
+  margin: 0;
+  padding: 0;
+}
+
+.lx-footer-links li {
+  margin-bottom: 0.5rem;
+}
+
+.lx-footer-links a {
+  color: rgba(156, 163, 175, 0.8);
+  text-decoration: none;
+  font-size: 0.875rem;
+  transition: color 0.2s;
+}
+
+.lx-footer-links a:hover {
+  color: #c4b5fd;
+}
+
+.lx-footer-social {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  margin-top: 0.5rem;
+}
+
+.lx-social-link {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  color: rgba(156, 163, 175, 0.8);
+  text-decoration: none;
+  font-size: 0.875rem;
+  transition: color 0.2s, transform 0.2s;
+}
+
+.lx-social-link:hover {
+  color: #c4b5fd;
+  transform: translateX(3px);
+}
+
+.lx-social-link svg {
+  flex-shrink: 0;
+  opacity: 0.7;
+  transition: opacity 0.2s;
+}
+
+.lx-social-link:hover svg {
+  opacity: 1;
+}
+
+/* Footer copyright bar */
+.lx-footer-copyright-text {
+  font-size: 0.8rem;
+  color: rgba(156, 163, 175, 0.6);
+}
+
+.lx-footer-credit-link {
+  color: rgba(167, 139, 250, 0.7) !important;
+  text-decoration: none;
+  margin-left: 4px;
+  font-weight: 600;
+  transition: color 0.2s;
+}
+
+.lx-footer-credit-link:hover {
+  color: #c4b5fd !important;
+}
+
+.lx-heart {
+  color: #f43f5e;
+}

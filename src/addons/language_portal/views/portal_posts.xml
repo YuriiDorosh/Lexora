@@ -51,9 +51,17 @@
                                             <t t-esc="(post.summary or '')[:180]"/>
                                             <t t-if="post.summary and len(post.summary) > 180">…</t>
                                         </p>
-                                        <div class="mt-2 small text-muted d-flex justify-content-between">
+                                        <div class="mt-2 small text-muted d-flex justify-content-between align-items-center">
                                             <span>by <t t-esc="post.author_id.name or 'Lexora'"/></span>
-                                            <span>💬 <t t-esc="post.comment_count"/></span>
+                                            <div class="d-flex gap-2">
+                                                <t t-if="post.published_date">
+                                                    <span>
+                                                        <t t-esc="post.published_date"
+                                                           t-options='{"widget":"date"}'/>
+                                                    </span>
+                                                </t>
+                                                <span>💬 <t t-esc="post.comment_count"/></span>
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
@@ -304,7 +312,14 @@
 
                 <div class="d-flex justify-content-between align-items-center mb-4">
                     <h1 class="h2 fw-bold mb-0">📝 My Posts</h1>
-                    <a href="/my/posts/new" class="btn btn-primary">+ New Post</a>
+                    <div class="d-flex gap-2">
+                        <t t-if="request.env.user.has_group('language_security.group_language_moderator')">
+                            <a href="/my/moderation" class="btn btn-outline-warning btn-sm">
+                                🛡️ Moderation Queue
+                            </a>
+                        </t>
+                        <a href="/my/posts/new" class="btn btn-primary">+ New Post</a>
+                    </div>
                 </div>
 
                 <t t-if="request.params.get('saved')">
@@ -491,7 +506,10 @@
             <div id="wrap" class="oe_structure">
             <div class="container py-4">
 
-                <h1 class="h2 fw-bold mb-4">🛡️ Moderation Queue</h1>
+                <div class="d-flex justify-content-between align-items-center mb-4">
+                    <h1 class="h2 fw-bold mb-0">🛡️ Moderation Queue</h1>
+                    <a href="/posts" class="btn btn-outline-secondary btn-sm">← Community Posts</a>
+                </div>
 
                 <t t-if="pending_posts">
                     <t t-foreach="pending_posts" t-as="post">

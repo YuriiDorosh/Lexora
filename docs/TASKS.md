@@ -15,10 +15,49 @@
 
 ## Current Milestone
 
+### M14 — Premium Visual Identity
+
+**Status:** Complete and verified.
+**Started:** 2026-04-21
+**Completed:** 2026-04-22
+**Branch:** `m14_branding_ui`
+
+**Scope:** Dark animated hero, glassmorphism cards, Inter/Montserrat fonts, Avantgarde Systems
+branding throughout (footer, login page, navbar logo), header cleanup (no phone/CTA).
+
+#### Sub-steps
+
+- [x] M14-01 · `premium_ui.css` — CSS variables, dark hero gradient, glassmorphism card styles,
+  Inter/Montserrat font stack, lx-btn primary/outline, lx-badge, hero animations. ✅
+- [x] M14-02 · `portal_homepage.xml` — switched to `portal.frontend_layout`, dark hero section
+  with animated stats, feature cards, CTA row; `<div id="wrap" class="oe_structure lx-premium-theme">`. ✅
+- [x] M14-03 · `branding.xml` — 6 templates:
+  - Google Fonts injection via `web.frontend_layout` head (`<link>` rel=stylesheet). ✅
+  - Remove Odoo "Powered by" badge (`web.brand_promotion_message` replace). ✅
+  - Footer copyright bar: "© 2026 Lexora · Built by Avantgarde Systems". ✅
+  - Login page brand title: "Lexora / powered by Avantgarde Systems" via `website.login_layout`. ✅
+  - Navbar logo: replace `<img>` with gradient `.lx-nav-logo` text via `website.option_header_brand_logo`. ✅
+  - Disable header phone (`website.header_text_element active=False`) + CTA button
+    (`website.header_call_to_action active=False`) via `<data>` records (noupdate=0). ✅
+- [x] M14-04 · Footer overhaul: 4-column layout, Avantgarde real copy, 3 social links
+  (avantgarde.systems, LinkedIn, GitHub), priority=20 beats `website.footer_custom`. ✅
+- [x] M14-05 · CSS additions: `.lx-nav-logo` gradient text clip, `.lx-footer` dark theme,
+  `.lx-footer-social` + `.lx-social-link` with hover translateX, `.lx-footer-credit-link`. ✅
+- [x] M14-06 · Verification: `--update language_portal` → 0 errors; `docker restart odoo`;
+  logo in navbar, no phone, no CTA, footer Avantgarde content, login brand title confirmed. ✅
+- [x] M14-07 · Committed on `m14_branding_ui` (commit 8de8305). ✅
+
+#### Blockers
+
+(none)
+
+---
+
 ### M13 — PDF Export Suite
 
-**Status:** In progress
+**Status:** Complete and verified.
 **Started:** 2026-04-21
+**Completed:** 2026-04-21
 **Branch:** `m13_pdf_export`
 
 **Scope:**
