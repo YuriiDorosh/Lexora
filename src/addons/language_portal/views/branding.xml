@@ -202,6 +202,48 @@
 
 
     <!-- ============================================================ -->
+    <!-- Portal sidebar — replace Mitchell Admin "Your contact" block -->
+    <!-- portal.portal_contact is called from portal.side_content     -->
+    <!-- and renders sales_user name/email/phone/city (demo data)     -->
+    <!-- Replace with a clean "Verified Lexora Member" badge          -->
+    <!-- ============================================================ -->
+
+    <template id="lexora_portal_contact"
+              inherit_id="portal.portal_contact"
+              name="Lexora · Portal Contact Cleanup">
+        <xpath expr="." position="replace">
+            <t t-name="portal.portal_contact">
+                <div class="lx-member-badge mb-4">
+                    <span>✦</span>
+                    <span>Verified Lexora Member</span>
+                </div>
+            </t>
+        </xpath>
+    </template>
+
+    <!-- ============================================================ -->
+    <!-- Portal sidebar — remove address/phone/email block            -->
+    <!-- portal.side_content renders partner contact widget with      -->
+    <!-- Scranton address, demo email, demo phone                     -->
+    <!-- Replace with Lexora Academy branding block                   -->
+    <!-- ============================================================ -->
+
+    <template id="lexora_portal_side_content"
+              inherit_id="portal.side_content"
+              name="Lexora · Portal Sidebar Branding">
+        <xpath expr="//div[hasclass('o_portal_my_details')]" position="replace">
+            <div class="lx-sidebar-brand mb-3">
+                <div class="lx-sb-title">Lexora Academy</div>
+                <div class="lx-sb-sub">Powered by
+                    <a href="https://avantgarde.systems" target="_blank" rel="noopener"
+                       class="lx-sb-credit">Avantgarde Systems</a>
+                </div>
+            </div>
+        </xpath>
+        <xpath expr="//a[contains(@href,'/my/account')]" position="replace"/>
+    </template>
+
+    <!-- ============================================================ -->
     <!-- Contact page — strip demo company info, show Avantgarde     -->
     <!-- Inherits website.contactus; replaces the right sidebar col  -->
     <!-- that contains "My Company / Fake Buena Vista / 555-555"     -->
