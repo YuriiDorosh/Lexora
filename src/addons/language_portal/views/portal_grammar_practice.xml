@@ -185,14 +185,25 @@
                                 document.getElementById('lx-score-summary').classList.remove('d-none');
                                 document.getElementById('lx-score-summary').scrollIntoView({behavior:'smooth', block:'center'});
                                 if (rightCount > 0) {
+                                    console.log('Sending XP:', rightCount, 'correct answers');
+                                    var csrfToken = document.cookie.match(/csrf_token=([^;]+)/);
                                     fetch('/my/grammar-practice/score', {
                                         method: 'POST',
-                                        credentials: 'include',
-                                        headers: {'Content-Type': 'application/json'},
-                                        body: JSON.stringify({jsonrpc:'2.0',method:'call',params:{correct_count: rightCount}})
+                                        credentials: 'same-origin',
+                                        headers: {
+                                            'Content-Type': 'application/json',
+                                            'X-Requested-With': 'XMLHttpRequest'
+                                        },
+                                        body: JSON.stringify({
+                                            jsonrpc: '2.0',
+                                            method: 'call',
+                                            id: 1,
+                                            params: {correct_count: rightCount}
+                                        })
                                     })
                                     .then(function(r) { return r.json(); })
                                     .then(function(data) {
+                                        console.log('XP response:', data);
                                         var xp = (data.result || {}).xp_gained || 0;
                                         if (xp > 0) {
                                             document.getElementById('lx-xp-amount').textContent = xp;

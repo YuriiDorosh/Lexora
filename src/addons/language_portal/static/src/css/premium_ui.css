@@ -1012,19 +1012,36 @@ kbd {
   font-weight: 700 !important;
 }
 
-/* ── Body text and descriptions — bright slate, never grey ── */
-.lx-premium-theme p {
+/* ── Body text inside genuinely dark containers — bright slate ── */
+/* Scope tightly: hero sections, exercise cards, chat, filter bars.
+   Do NOT apply to .lx-article-card (white background) or portal sidebars. */
+.lx-premium-theme section p,
+.lx-exercise-card p,
+.lx-roleplay-card p,
+#lx-chat-box p,
+.lx-score-summary p,
+#lx-workbook p {
   color: #cbd5e1 !important;
 }
 
-/* Bootstrap text-white-50 is 50% opacity = muddy on dark — override */
-.lx-premium-theme .text-white-50 {
+/* Bootstrap text-white-50 is 50% opacity = muddy on dark hero sections — override */
+.lx-premium-theme section .text-white-50,
+.lx-premium-theme .lx-hero-subtitle,
+.lx-exercise-card .text-white-50 {
   color: #cbd5e1 !important;
   opacity: 1 !important;
 }
 
+/* Homepage article cards have white background — keep text dark */
+.lx-article-card p,
+.lx-article-card .card-text,
+.lx-article-card .text-muted {
+  color: #374151 !important;
+}
+
+/* Portal sidebar text-muted stays readable on light backgrounds */
 .lx-premium-theme .text-muted {
-  color: #94a3b8 !important;
+  color: #6b7280 !important;
 }
 
 /* ── Grammar practice choice buttons ── */
