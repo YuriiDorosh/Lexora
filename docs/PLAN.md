@@ -1,8 +1,8 @@
 # Lexora — Implementation Plan (MVP)
 
-> Version: 0.9 (M16 complete)
-> Last updated: 2026-04-22
-> Status: M0–M16 complete
+> Version: 1.0 (M18 complete)
+> Last updated: 2026-04-23
+> Status: M0–M18 complete
 
 ---
 
@@ -43,6 +43,8 @@
 | M14 | Premium Visual Identity | ✅ Complete | Dark animated hero, glassmorphism, Inter/Montserrat fonts, Avantgarde Systems branding, premium login page |
 | M15 | AI Translator Tool | ✅ Complete | Google-Translate-style `/translator` page; en/uk/el; sync deep_translator API; Add to Vocabulary integration |
 | M16 | Legal Protection + Documentation | ✅ Complete | Proprietary LICENSE; professional README overhaul (Avantgarde Systems branding, full feature catalogue, tech stack) |
+| M17 | AI Situational Roleplay | ✅ Complete | 6 AI-powered conversation scenarios; `/my/roleplay` glassmorphism chat UI; LLM `/roleplay` sync endpoint; grammar corrections in-context |
+| M18 | Grammar Pro — Cloze Tests | ✅ Complete | 110 EN+Greek fill-in-the-blank exercises; `/my/grammar-practice`; multiple-choice with instant green/red feedback; CEFR A1–B2 filters |
 
 ---
 

@@ -68,6 +68,21 @@ with moderator review workflow, comments with @mentions, and "Save from Chat /
 Save from Post" inline vocabulary capture.
 Routes: `/posts` · `/my/posts`
 
+### AI Situational Roleplay
+Six curated conversation scenarios (café ordering, job interview, airport check-in,
+doctor's visit, hotel check-in, supermarket) powered by the local Qwen2.5 LLM.
+In-context grammar corrections displayed in brackets. Glassmorphism chat UI with
+typing indicator and session reset. Language learners practice real-world English
+at difficulty levels A1–B1.
+Route: `/my/roleplay`
+
+### Grammar Pro — Cloze Tests
+110 fill-in-the-blank exercises across English and Greek covering: all 12 tenses,
+conditionals, modal verbs, articles, passive voice, reported speech, irregular verbs,
+prepositions, and collocations. CEFR A1–B2 filter, multiple-choice format with instant
+green/red feedback, grammar tips on wrong answers, and score summary after each set.
+Route: `/my/grammar-practice`
+
 ### Premium Visual Identity
 Dark animated hero section, glassmorphism cards, Inter + Montserrat typography,
 Avantgarde Systems branding throughout, premium login page, and a fully custom CSS
@@ -176,6 +191,8 @@ curl http://localhost:15672               # RabbitMQ management UI
 | M14 | Premium Visual Identity | ✅ Complete |
 | M15 | AI Translator Tool | ✅ Complete |
 | M16 | Legal Protection + Documentation | ✅ Complete |
+| M17 | AI Situational Roleplay | ✅ Complete |
+| M18 | Grammar Pro — Cloze Tests | ✅ Complete |
 
 ---
 
