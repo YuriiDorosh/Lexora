@@ -420,3 +420,70 @@ def health():
         "model_repo": LLM_MODEL_REPO,
         "model_filename": LLM_MODEL_FILENAME,
     }
+
+
+# ---------------------------------------------------------------------------
+# Sync roleplay endpoint (no RabbitMQ — direct HTTP call from Odoo controller)
+# ---------------------------------------------------------------------------
+
+from pydantic import BaseModel  # noqa: E402
+from typing import List, Optional  # noqa: E402
+
+
+class RoleplayMessage(BaseModel):
+    role: str  # "user" or "assistant"
+    content: str
+
+
+class RoleplayRequest(BaseModel):
+    system_prompt: str
+    history: List[RoleplayMessage] = []
+    user_message: str
+    target_language: str = "en"
+
+
+_ROLEPLAY_WRAPPER = (
+    "You are a language-learning roleplay assistant. "
+    "Always respond ONLY in {lang}. "
+    "If the user writes in {lang} with errors, add a correction note in brackets "
+    "like [Correction: wrong phrase → correct phrase], then continue in character. "
+    "Keep responses concise (2-4 sentences). "
+    "Never break character or switch languages."
+)
+
+
+def _roleplay(req: RoleplayRequest) -> str:
+    lang_name = LANG_NAMES.get(req.target_language, req.target_language)
+    wrapper = _ROLEPLAY_WRAPPER.format(lang=lang_name)
+    system_content = wrapper + "\n\n" + req.system_prompt
+
+    messages = [{"role": "system", "content": system_content}]
+    for msg in req.history[-10:]:  # keep last 10 messages to stay within context
+        messages.append({"role": msg.role, "content": msg.content})
+    messages.append({"role": "user", "content": req.user_message})
+
+    if not _llm_ready or _llm is None:
+        return (
+            f"[stub: LLM not loaded] I understand you said: '{req.user_message}'. "
+            f"Let's continue our conversation in {lang_name}!"
+        )
+
+    try:
+        completion = _llm.create_chat_completion(
+            messages=messages,
+            max_tokens=256,
+            temperature=0.7,
+        )
+        return completion["choices"][0]["message"]["content"].strip()
+    except Exception as exc:  # noqa: BLE001
+        _logger.warning("Roleplay generation error: %s", exc)
+        return (
+            f"[stub: generation error] I understand you said: '{req.user_message}'. "
+            f"Please continue in {lang_name}!"
+        )
+
+
+@app.post("/roleplay")
+def roleplay_endpoint(req: RoleplayRequest):
+    reply = _roleplay(req)
+    return {"status": "ok", "reply": reply}
