@@ -1,8 +1,7 @@
-import json
 import logging
 import os
 
-import urllib.request
+import requests as _requests
 from odoo import http
 from odoo.http import request
 
@@ -57,25 +56,32 @@ class RoleplayPortal(http.Controller):
 
         history_payload = [{"role": m["role"], "content": m["content"]} for m in history]
 
+        reply = ""
         try:
-            import json as _json
-            payload = _json.dumps({
-                "system_prompt": scenario.initial_prompt,
-                "history": history_payload,
-                "user_message": message,
-                "target_language": scenario.target_language,
-            }).encode("utf-8")
-            req = urllib.request.Request(
+            _logger.info("Roleplay[%s]: POST %s/roleplay", scenario_id, LLM_SVC)
+            resp = _requests.post(
                 f"{LLM_SVC}/roleplay",
-                data=payload,
-                headers={"Content-Type": "application/json"},
-                method="POST",
+                json={
+                    "system_prompt": scenario.initial_prompt or "",
+                    "history": history_payload,
+                    "user_message": message,
+                    "target_language": scenario.target_language or "en",
+                },
+                timeout=90,
             )
-            with urllib.request.urlopen(req, timeout=60) as resp:
-                data = _json.loads(resp.read().decode("utf-8"))
-            reply = data.get("reply", "")
+            _logger.info("Roleplay[%s]: status=%s", scenario_id, resp.status_code)
+            resp.raise_for_status()
+            # Decode bytes explicitly — avoids any content-type detection issue
+            import json as _json
+            raw = resp.content.decode("utf-8", errors="replace")
+            _logger.info("Roleplay[%s]: body=%s", scenario_id, raw[:300])
+            data = _json.loads(raw)
+            reply = str(data.get("reply") or "").strip()
         except Exception as exc:
-            _logger.warning("LLM roleplay call failed: %s", exc)
+            _logger.exception("Roleplay[%s]: call failed: %s", scenario_id, exc)
+            reply = ""
+
+        if not reply:
             reply = "I'm sorry, I couldn't respond right now. Please try again!"
 
         session.append_message("user", message)

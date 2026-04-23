@@ -1,9 +1,12 @@
 import importlib.util
+import logging
 import os
 import random
 
 from odoo import http
 from odoo.http import request
+
+_logger = logging.getLogger(__name__)
 
 _EXERCISES_PATH = os.path.join(os.path.dirname(__file__), "../data/cloze_exercises.py")
 
@@ -32,10 +35,14 @@ class GrammarPracticePortal(http.Controller):
         batch = random.sample(pool, min(10, len(pool))) if pool else []
 
         # Shuffle choices for each exercise so the answer isn't always first
+        shuffled = []
         for ex in batch:
-            choices = list(ex["choices"])
+            ex_copy = dict(ex)
+            choices = list(ex_copy["choices"])
             random.shuffle(choices)
-            ex = dict(ex)  # don't mutate the original
+            ex_copy["choices"] = choices
+            shuffled.append(ex_copy)
+        batch = shuffled
 
         available_categories = sorted({e["category"] for e in exercises if e["language"] == lang})
 
@@ -51,3 +58,28 @@ class GrammarPracticePortal(http.Controller):
             "total_pool": len(pool),
             "page_name": "grammar_practice",
         })
+
+    @http.route("/my/grammar-practice/score", type="json", auth="user", methods=["POST"])
+    def grammar_practice_score(self, correct_count=0, **kw):
+        try:
+            correct_count = max(0, int(correct_count))
+        except (TypeError, ValueError):
+            correct_count = 0
+
+        xp_gained = 0
+        if correct_count > 0 and "language.xp.log" in request.env.registry:
+            xp_gained = correct_count * 5
+            uid = request.env.user.id
+            request.env["language.xp.log"].sudo().create({
+                "user_id": uid,
+                "amount": xp_gained,
+                "reason": "grammar_practice",
+                "note": f"{correct_count} correct in grammar practice",
+            })
+            profile = request.env["language.user.profile"].sudo().search(
+                [("user_id", "=", uid)], limit=1
+            )
+            if profile:
+                profile.write({"xp_total": profile.xp_total + xp_gained})
+
+        return {"xp_gained": xp_gained}

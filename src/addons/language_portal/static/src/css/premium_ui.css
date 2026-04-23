@@ -946,3 +946,139 @@ kbd {
   padding: 1px 5px;
   color: #374151;
 }
+
+/* ================================================================
+   PREMIUM THEME — Dark page wrapper  (M17 / M18)
+   Use #wrap selector for Odoo portal override specificity
+   ================================================================ */
+
+#wrap.lx-premium-theme,
+.lx-premium-theme {
+  background-color: #0f172a !important;
+  color: #e0e0e0 !important;
+  min-height: 100vh;
+}
+
+/* Odoo injects o_portal_wrap which can re-whiten backgrounds */
+.lx-premium-theme .o_portal_wrap,
+.lx-premium-theme > * {
+  background-color: transparent;
+}
+
+/* Form controls inherit dark theme */
+.lx-premium-theme .form-control,
+.lx-premium-theme .form-select {
+  background-color: #1e2a3a !important;
+  border: 1px solid rgba(255,255,255,0.2) !important;
+  color: #e0e0e0 !important;
+}
+
+.lx-premium-theme .form-control:focus,
+.lx-premium-theme .form-select:focus {
+  background-color: #243040 !important;
+  border-color: rgba(138,43,226,0.5) !important;
+  color: #fff !important;
+  box-shadow: 0 0 0 3px rgba(138,43,226,0.18) !important;
+  outline: none !important;
+}
+
+.lx-premium-theme .form-control::placeholder {
+  color: rgba(255,255,255,0.38) !important;
+}
+
+/* Grammar practice filter select options */
+.lx-premium-theme select option {
+  background: #1a2535;
+  color: #e0e0e0;
+}
+
+/* Grammar practice choice buttons — ensure text visible */
+.lx-premium-theme .lx-choice-btn {
+  color: #ddd !important;
+  background: rgba(255,255,255,0.06) !important;
+}
+
+/* Grammar Pro — filter bar labels */
+.lx-premium-theme .form-label {
+  color: rgba(255,255,255,0.55) !important;
+}
+
+/* ── Grammar Pro active filter highlight ── */
+.lx-premium-theme .lx-filter-active {
+  background: linear-gradient(90deg, #4f46e5, #7c3aed) !important;
+  color: #fff !important;
+  border-color: transparent !important;
+}
+
+/* ── Bootstrap nav-pills inside dark theme ── */
+.lx-premium-theme .nav-pills .nav-link {
+  color: #ddd !important;
+  background: rgba(255,255,255,0.1) !important;
+  border: 1px solid rgba(255,255,255,0.15) !important;
+}
+
+.lx-premium-theme .nav-pills .nav-link:hover {
+  color: #fff !important;
+  background: rgba(255,255,255,0.18) !important;
+}
+
+.lx-premium-theme .nav-pills .nav-link.active,
+.lx-premium-theme .nav-pills .show > .nav-link {
+  background: linear-gradient(90deg, #4f46e5, #7c3aed) !important;
+  color: #fff !important;
+  border-color: transparent !important;
+}
+
+/* ── Bootstrap nav-tabs inside dark theme ── */
+.lx-premium-theme .nav-tabs .nav-link {
+  color: rgba(255,255,255,0.6) !important;
+  border-color: rgba(255,255,255,0.1) !important;
+}
+
+.lx-premium-theme .nav-tabs .nav-link.active {
+  background: #1e2a3a !important;
+  color: #fff !important;
+  border-bottom-color: #4f46e5 !important;
+}
+
+/* ── Card / alert colours inside dark theme ── */
+.lx-premium-theme .card {
+  background: rgba(255,255,255,0.04);
+  border-color: rgba(255,255,255,0.08);
+  color: #e0e0e0;
+}
+
+.lx-premium-theme .text-muted {
+  color: rgba(255,255,255,0.45) !important;
+}
+
+/* Roleplay chat container */
+#lx-chat-box {
+  background: rgba(10,16,30,0.9) !important;
+  color: #e0e0e0 !important;
+}
+
+/* Chat input */
+#lx-msg-input {
+  background: rgba(255,255,255,0.07) !important;
+  border: 1px solid rgba(255,255,255,0.2) !important;
+  color: #ffffff !important;
+}
+
+#lx-msg-input::placeholder {
+  color: rgba(255,255,255,0.4) !important;
+}
+
+/* XP gain badge in score summary */
+.lx-xp-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: linear-gradient(135deg, #f59e0b, #d97706);
+  color: #fff;
+  font-weight: 700;
+  font-size: 1rem;
+  padding: 8px 20px;
+  border-radius: 24px;
+  margin-bottom: 1rem;
+}

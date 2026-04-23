@@ -120,7 +120,10 @@
                     <div id="lx-score-summary" class="d-none text-center py-4">
                         <div style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.1);border-radius:16px;padding:32px">
                             <p class="display-6 fw-bold text-white mb-1" id="lx-score-text">—</p>
-                            <p class="text-white-50 mb-4">exercises completed</p>
+                            <p class="text-white-50 mb-3">exercises completed</p>
+                            <div id="lx-xp-gained" class="d-none mb-4">
+                                <span class="lx-xp-badge">⚡ <span id="lx-xp-amount">0</span> XP earned!</span>
+                            </div>
                             <a href="/my/grammar-practice" class="btn px-5 py-2" style="background:linear-gradient(90deg,#1a7a3a,#0d5e2e);color:#fff;border:none;border-radius:10px;font-weight:600;font-size:1rem">
                                 🔀 Practice Another Set
                             </a>
@@ -176,16 +179,12 @@
 
                             // Check if all done
                             if (answered === total) {
-                                var correct = document.querySelectorAll('[data-done]').length;
-                                var score = document.querySelectorAll('.lx-exercise-card').length;
-                                var right = document.querySelectorAll('[style*="rgba(34,197,94,0.2)"]').length / 2; // rough count
                                 // Count properly
                                 var rightCount = 0;
                                 document.querySelectorAll('.lx-exercise-card').forEach(function(c) {
                                     var ans = c.dataset.answer;
                                     var greenBtn = c.querySelector('[style*="4ade80"]');
                                     if (greenBtn &amp;&amp; greenBtn.dataset.value === ans) {
-                                        // Check if user clicked the green one
                                         var clickedWrong = c.querySelector('[style*="line-through"]');
                                         if (!clickedWrong) rightCount++;
                                     }
@@ -193,6 +192,23 @@
                                 document.getElementById('lx-score-text').textContent = rightCount + ' / ' + total + ' correct';
                                 document.getElementById('lx-score-summary').classList.remove('d-none');
                                 document.getElementById('lx-score-summary').scrollIntoView({behavior:'smooth', block:'center'});
+                                // Award XP via server
+                                if (rightCount > 0) {
+                                    fetch('/my/grammar-practice/score', {
+                                        method: 'POST',
+                                        headers: {'Content-Type': 'application/json'},
+                                        body: JSON.stringify({jsonrpc:'2.0',method:'call',params:{correct_count: rightCount}})
+                                    })
+                                    .then(function(r) { return r.json(); })
+                                    .then(function(data) {
+                                        var xp = data.result &amp;&amp; data.result.xp_gained;
+                                        if (xp &amp;&amp; xp > 0) {
+                                            document.getElementById('lx-xp-amount').textContent = xp;
+                                            document.getElementById('lx-xp-gained').classList.remove('d-none');
+                                        }
+                                    })
+                                    .catch(function() {});
+                                }
                             }
                         });
                     });

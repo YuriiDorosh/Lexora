@@ -443,12 +443,14 @@ class RoleplayRequest(BaseModel):
 
 
 _ROLEPLAY_WRAPPER = (
-    "You are a language-learning roleplay assistant. "
-    "Always respond ONLY in {lang}. "
-    "If the user writes in {lang} with errors, add a correction note in brackets "
-    "like [Correction: wrong phrase → correct phrase], then continue in character. "
-    "Keep responses concise (2-4 sentences). "
-    "Never break character or switch languages."
+    "STRICT OUTPUT RULES — obey these before anything else:\n"
+    "1. Maximum 2-3 sentences per reply. Stop after 3 sentences.\n"
+    "2. NEVER repeat a sentence or phrase you already wrote in this conversation.\n"
+    "3. Only correct SIGNIFICANT mistakes (wrong tense, wrong word). "
+    "Ignore minor errors like missing articles.\n"
+    "4. When you correct, add ONE note at the very end only: [Correction: X → Y]\n"
+    "5. Never list multiple corrections. Never correct the same thing twice.\n"
+    "6. Stay in character. Respond naturally as your character would.\n\n"
 )
 
 
@@ -471,16 +473,14 @@ def _roleplay(req: RoleplayRequest) -> str:
     try:
         completion = _llm.create_chat_completion(
             messages=messages,
-            max_tokens=256,
+            max_tokens=200,
             temperature=0.7,
+            repeat_penalty=1.15,
         )
         return completion["choices"][0]["message"]["content"].strip()
     except Exception as exc:  # noqa: BLE001
         _logger.warning("Roleplay generation error: %s", exc)
-        return (
-            f"[stub: generation error] I understand you said: '{req.user_message}'. "
-            f"Please continue in {lang_name}!"
-        )
+        return "I'm sorry, I couldn't respond right now. Please try again!"
 
 
 @app.post("/roleplay")
