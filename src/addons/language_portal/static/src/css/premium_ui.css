@@ -1027,7 +1027,17 @@ kbd {
   opacity: 1 !important;
 }
 
-/* Homepage white-background cards — explicit dark text resets */
+/* White-background sections and cards — explicit dark text resets.
+   These rules are intentionally placed AFTER any dark-theme overrides
+   so specificity ties resolve in favour of readability on light bg. */
+.lx-section-light p,
+.lx-section-light h1, .lx-section-light h2, .lx-section-light h3,
+.lx-section-light h4, .lx-section-light h5, .lx-section-light h6 {
+  color: #374151 !important;
+}
+.lx-section-light .text-muted {
+  color: #6b7280 !important;
+}
 .lx-feature-card p,
 .lx-feature-card h3,
 .lx-feature-card h5 {
@@ -1091,8 +1101,11 @@ kbd {
   color: #e0e0e0;
 }
 
-.lx-premium-theme .text-muted {
-  color: rgba(255,255,255,0.45) !important;
+/* text-muted inside dark learning cards only — NOT on the homepage */
+.lx-exercise-card .text-muted,
+.lx-roleplay-card .text-muted,
+#lx-chat-box .text-muted {
+  color: rgba(255,255,255,0.65) !important;
 }
 
 /* Roleplay chat container */

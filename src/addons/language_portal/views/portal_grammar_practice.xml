@@ -185,14 +185,13 @@
                                 document.getElementById('lx-score-summary').classList.remove('d-none');
                                 document.getElementById('lx-score-summary').scrollIntoView({behavior:'smooth', block:'center'});
                                 if (rightCount > 0) {
-                                    console.log('Sending XP:', rightCount, 'correct answers');
-                                    var csrfTok = (typeof odoo !== 'undefined' &amp;&amp; odoo.csrf_token) ? odoo.csrf_token : '';
+                                    console.log('XP Sent:', rightCount);
+                                    var csrfTok = (document.querySelector('input[name="csrf_token"]') || {}).value || (typeof odoo !== 'undefined' ? odoo.csrf_token : '');
                                     fetch('/my/grammar-practice/score', {
                                         method: 'POST',
                                         credentials: 'same-origin',
                                         headers: {
                                             'Content-Type': 'application/json',
-                                            'X-Requested-With': 'XMLHttpRequest',
                                             'X-CSRF-Token': csrfTok
                                         },
                                         body: JSON.stringify({
