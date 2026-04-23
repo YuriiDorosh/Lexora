@@ -965,20 +965,20 @@ kbd {
   background-color: transparent;
 }
 
-/* Form controls inherit dark theme */
+/* ── Form controls ── */
 .lx-premium-theme .form-control,
 .lx-premium-theme .form-select {
   background-color: #1e2a3a !important;
-  border: 1px solid rgba(255,255,255,0.2) !important;
-  color: #e0e0e0 !important;
+  border: 1px solid rgba(255,255,255,0.4) !important;
+  color: #f1f5f9 !important;
 }
 
 .lx-premium-theme .form-control:focus,
 .lx-premium-theme .form-select:focus {
   background-color: #243040 !important;
-  border-color: rgba(138,43,226,0.5) !important;
+  border-color: rgba(138,43,226,0.6) !important;
   color: #fff !important;
-  box-shadow: 0 0 0 3px rgba(138,43,226,0.18) !important;
+  box-shadow: 0 0 0 3px rgba(138,43,226,0.22) !important;
   outline: none !important;
 }
 
@@ -986,34 +986,52 @@ kbd {
   color: rgba(255,255,255,0.38) !important;
 }
 
-/* Grammar practice filter select options */
 .lx-premium-theme select option {
   background: #1a2535;
-  color: #e0e0e0;
+  color: #f1f5f9;
 }
 
-/* Grammar practice choice buttons — ensure text visible */
-.lx-premium-theme .lx-choice-btn {
-  color: #ddd !important;
-  background: rgba(255,255,255,0.06) !important;
-}
-
-/* Labels — solid white, always readable */
+/* ── Labels — nuclear white, uppercase, always readable ── */
 .lx-premium-theme .form-label {
   color: #ffffff !important;
   opacity: 1 !important;
-  font-weight: 600;
+  font-weight: 700 !important;
+  font-size: 0.82rem !important;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
 }
 
-/* Scenario / card description text — was text-white-50 (50% = barely visible) */
+/* ── Headings inside dark theme ── */
+.lx-premium-theme h1,
+.lx-premium-theme h2,
+.lx-premium-theme h3,
+.lx-premium-theme h4,
+.lx-premium-theme h5,
+.lx-premium-theme h6 {
+  color: #ffffff !important;
+  font-weight: 700 !important;
+}
+
+/* ── Body text and descriptions — bright slate, never grey ── */
+.lx-premium-theme p {
+  color: #cbd5e1 !important;
+}
+
+/* Bootstrap text-white-50 is 50% opacity = muddy on dark — override */
 .lx-premium-theme .text-white-50 {
-  color: rgba(255,255,255,0.82) !important;
+  color: #cbd5e1 !important;
   opacity: 1 !important;
 }
 
-/* Filter select — stronger visible border */
-.lx-premium-theme .form-select {
-  border: 1px solid rgba(255,255,255,0.35) !important;
+.lx-premium-theme .text-muted {
+  color: #94a3b8 !important;
+}
+
+/* ── Grammar practice choice buttons ── */
+.lx-premium-theme .lx-choice-btn {
+  color: #f1f5f9 !important;
+  background: rgba(255,255,255,0.07) !important;
+  border: 1px solid rgba(255,255,255,0.18) !important;
 }
 
 /* ── Grammar Pro active filter highlight ── */
