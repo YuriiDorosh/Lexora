@@ -1001,47 +1001,42 @@ kbd {
   letter-spacing: 0.5px;
 }
 
-/* ── Headings inside dark theme ── */
-.lx-premium-theme h1,
-.lx-premium-theme h2,
-.lx-premium-theme h3,
-.lx-premium-theme h4,
-.lx-premium-theme h5,
-.lx-premium-theme h6 {
+/* ── Headings: white ONLY inside dark glass learning cards ── */
+/* NEVER override globally — .lx-section-title-light (#0f172a) on the
+   homepage features section would become white-on-white. */
+.lx-exercise-card h1, .lx-exercise-card h2, .lx-exercise-card h3,
+.lx-exercise-card h4, .lx-exercise-card h5, .lx-exercise-card h6,
+.lx-roleplay-card h1, .lx-roleplay-card h2, .lx-roleplay-card h3,
+.lx-roleplay-card h4, .lx-roleplay-card h5, .lx-roleplay-card h6 {
   color: #ffffff !important;
-  font-weight: 700 !important;
 }
 
-/* ── Body text inside genuinely dark containers — bright slate ── */
-/* Scope tightly: hero sections, exercise cards, chat, filter bars.
-   Do NOT apply to .lx-article-card (white background) or portal sidebars. */
-.lx-premium-theme section p,
+/* ── Body text — ONLY inside specific dark learning containers ── */
+/* Excluded: .lx-section-light, .lx-feature-card, .lx-article-card (all white bg) */
 .lx-exercise-card p,
 .lx-roleplay-card p,
 #lx-chat-box p,
-.lx-score-summary p,
 #lx-workbook p {
   color: #cbd5e1 !important;
 }
 
-/* Bootstrap text-white-50 is 50% opacity = muddy on dark hero sections — override */
-.lx-premium-theme section .text-white-50,
-.lx-premium-theme .lx-hero-subtitle,
-.lx-exercise-card .text-white-50 {
+/* text-white-50 override only inside dark glass cards (not homepage sections) */
+.lx-exercise-card .text-white-50,
+.lx-roleplay-card .text-white-50 {
   color: #cbd5e1 !important;
   opacity: 1 !important;
 }
 
-/* Homepage article cards have white background — keep text dark */
+/* Homepage white-background cards — explicit dark text resets */
+.lx-feature-card p,
+.lx-feature-card h3,
+.lx-feature-card h5 {
+  color: #374151 !important;
+}
 .lx-article-card p,
 .lx-article-card .card-text,
 .lx-article-card .text-muted {
   color: #374151 !important;
-}
-
-/* Portal sidebar text-muted stays readable on light backgrounds */
-.lx-premium-theme .text-muted {
-  color: #6b7280 !important;
 }
 
 /* ── Grammar practice choice buttons ── */

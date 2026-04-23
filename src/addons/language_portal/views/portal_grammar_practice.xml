@@ -150,8 +150,8 @@
                             if (card.dataset.done) return;
                             card.dataset.done = '1';
 
-                            var chosen = btn.dataset.value;
-                            var isCorrect = chosen === correctAnswer;
+                            var chosen = (btn.dataset.value || '').trim();
+                            var isCorrect = chosen === (correctAnswer || '').trim();
                             if (isCorrect) rightCount++;
                             answered++;
 
@@ -186,13 +186,14 @@
                                 document.getElementById('lx-score-summary').scrollIntoView({behavior:'smooth', block:'center'});
                                 if (rightCount > 0) {
                                     console.log('Sending XP:', rightCount, 'correct answers');
-                                    var csrfToken = document.cookie.match(/csrf_token=([^;]+)/);
+                                    var csrfTok = (typeof odoo !== 'undefined' &amp;&amp; odoo.csrf_token) ? odoo.csrf_token : '';
                                     fetch('/my/grammar-practice/score', {
                                         method: 'POST',
                                         credentials: 'same-origin',
                                         headers: {
                                             'Content-Type': 'application/json',
-                                            'X-Requested-With': 'XMLHttpRequest'
+                                            'X-Requested-With': 'XMLHttpRequest',
+                                            'X-CSRF-Token': csrfTok
                                         },
                                         body: JSON.stringify({
                                             jsonrpc: '2.0',
