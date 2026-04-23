@@ -946,3 +946,195 @@ kbd {
   padding: 1px 5px;
   color: #374151;
 }
+
+/* ================================================================
+   PREMIUM THEME — Dark page wrapper  (M17 / M18)
+   Use #wrap selector for Odoo portal override specificity
+   ================================================================ */
+
+#wrap.lx-premium-theme,
+.lx-premium-theme {
+  background-color: #0f172a !important;
+  color: #e0e0e0 !important;
+  min-height: 100vh;
+}
+
+/* Odoo injects o_portal_wrap which can re-whiten backgrounds */
+.lx-premium-theme .o_portal_wrap,
+.lx-premium-theme > * {
+  background-color: transparent;
+}
+
+/* ── Form controls ── */
+.lx-premium-theme .form-control,
+.lx-premium-theme .form-select {
+  background-color: #1e2a3a !important;
+  border: 1px solid rgba(255,255,255,0.4) !important;
+  color: #f1f5f9 !important;
+}
+
+.lx-premium-theme .form-control:focus,
+.lx-premium-theme .form-select:focus {
+  background-color: #243040 !important;
+  border-color: rgba(138,43,226,0.6) !important;
+  color: #fff !important;
+  box-shadow: 0 0 0 3px rgba(138,43,226,0.22) !important;
+  outline: none !important;
+}
+
+.lx-premium-theme .form-control::placeholder {
+  color: rgba(255,255,255,0.38) !important;
+}
+
+.lx-premium-theme select option {
+  background: #1a2535;
+  color: #f1f5f9;
+}
+
+/* ── Labels — nuclear white, uppercase, always readable ── */
+.lx-premium-theme .form-label {
+  color: #ffffff !important;
+  opacity: 1 !important;
+  font-weight: 700 !important;
+  font-size: 0.82rem !important;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+/* ── Headings: white ONLY inside dark glass learning cards ── */
+/* NEVER override globally — .lx-section-title-light (#0f172a) on the
+   homepage features section would become white-on-white. */
+.lx-exercise-card h1, .lx-exercise-card h2, .lx-exercise-card h3,
+.lx-exercise-card h4, .lx-exercise-card h5, .lx-exercise-card h6,
+.lx-roleplay-card h1, .lx-roleplay-card h2, .lx-roleplay-card h3,
+.lx-roleplay-card h4, .lx-roleplay-card h5, .lx-roleplay-card h6 {
+  color: #ffffff !important;
+}
+
+/* ── Body text — ONLY inside specific dark learning containers ── */
+/* Excluded: .lx-section-light, .lx-feature-card, .lx-article-card (all white bg) */
+.lx-exercise-card p,
+.lx-roleplay-card p,
+#lx-chat-box p,
+#lx-workbook p {
+  color: #cbd5e1 !important;
+}
+
+/* text-white-50 override only inside dark glass cards (not homepage sections) */
+.lx-exercise-card .text-white-50,
+.lx-roleplay-card .text-white-50 {
+  color: #cbd5e1 !important;
+  opacity: 1 !important;
+}
+
+/* White-background sections and cards — explicit dark text resets.
+   These rules are intentionally placed AFTER any dark-theme overrides
+   so specificity ties resolve in favour of readability on light bg. */
+.lx-section-light p,
+.lx-section-light h1, .lx-section-light h2, .lx-section-light h3,
+.lx-section-light h4, .lx-section-light h5, .lx-section-light h6 {
+  color: #374151 !important;
+}
+.lx-section-light .text-muted {
+  color: #6b7280 !important;
+}
+.lx-feature-card p,
+.lx-feature-card h3,
+.lx-feature-card h5 {
+  color: #374151 !important;
+}
+.lx-article-card p,
+.lx-article-card .card-text,
+.lx-article-card .text-muted {
+  color: #374151 !important;
+}
+
+/* ── Grammar practice choice buttons ── */
+.lx-premium-theme .lx-choice-btn {
+  color: #f1f5f9 !important;
+  background: rgba(255,255,255,0.07) !important;
+  border: 1px solid rgba(255,255,255,0.18) !important;
+}
+
+/* ── Grammar Pro active filter highlight ── */
+.lx-premium-theme .lx-filter-active {
+  background: linear-gradient(90deg, #4f46e5, #7c3aed) !important;
+  color: #fff !important;
+  border-color: transparent !important;
+}
+
+/* ── Bootstrap nav-pills inside dark theme ── */
+.lx-premium-theme .nav-pills .nav-link {
+  color: #ddd !important;
+  background: rgba(255,255,255,0.1) !important;
+  border: 1px solid rgba(255,255,255,0.15) !important;
+}
+
+.lx-premium-theme .nav-pills .nav-link:hover {
+  color: #fff !important;
+  background: rgba(255,255,255,0.18) !important;
+}
+
+.lx-premium-theme .nav-pills .nav-link.active,
+.lx-premium-theme .nav-pills .show > .nav-link {
+  background: linear-gradient(90deg, #4f46e5, #7c3aed) !important;
+  color: #fff !important;
+  border-color: transparent !important;
+}
+
+/* ── Bootstrap nav-tabs inside dark theme ── */
+.lx-premium-theme .nav-tabs .nav-link {
+  color: rgba(255,255,255,0.6) !important;
+  border-color: rgba(255,255,255,0.1) !important;
+}
+
+.lx-premium-theme .nav-tabs .nav-link.active {
+  background: #1e2a3a !important;
+  color: #fff !important;
+  border-bottom-color: #4f46e5 !important;
+}
+
+/* ── Card / alert colours inside dark theme ── */
+.lx-premium-theme .card {
+  background: rgba(255,255,255,0.04);
+  border-color: rgba(255,255,255,0.08);
+  color: #e0e0e0;
+}
+
+/* text-muted inside dark learning cards only — NOT on the homepage */
+.lx-exercise-card .text-muted,
+.lx-roleplay-card .text-muted,
+#lx-chat-box .text-muted {
+  color: rgba(255,255,255,0.65) !important;
+}
+
+/* Roleplay chat container */
+#lx-chat-box {
+  background: rgba(10,16,30,0.9) !important;
+  color: #e0e0e0 !important;
+}
+
+/* Chat input */
+#lx-msg-input {
+  background: rgba(255,255,255,0.07) !important;
+  border: 1px solid rgba(255,255,255,0.2) !important;
+  color: #ffffff !important;
+}
+
+#lx-msg-input::placeholder {
+  color: rgba(255,255,255,0.4) !important;
+}
+
+/* XP gain badge in score summary */
+.lx-xp-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: linear-gradient(135deg, #f59e0b, #d97706);
+  color: #fff;
+  font-weight: 700;
+  font-size: 1rem;
+  padding: 8px 20px;
+  border-radius: 24px;
+  margin-bottom: 1rem;
+}

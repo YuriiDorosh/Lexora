@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data noupdate="0">
+
+        <record id="scenario_ordering_coffee" model="language.scenario">
+            <field name="name">Ordering Coffee at a Café</field>
+            <field name="icon">☕</field>
+            <field name="description">Practice ordering drinks and food at an English-speaking café. The AI plays a friendly barista. You can ask about the menu, customize your order, and pay the bill.</field>
+            <field name="difficulty">A1</field>
+            <field name="target_language">en</field>
+            <field name="sequence">10</field>
+            <field name="initial_prompt">You are Alex, a friendly barista at "The Morning Cup" café. The customer is a beginner English learner. Greet them, take their order, ask about size and extras, give the price, and say goodbye. Keep every reply to 1-2 sentences. Speak simply.</field>
+            <field name="is_active">True</field>
+        </record>
+
+        <record id="scenario_job_interview" model="language.scenario">
+            <field name="name">English Job Interview</field>
+            <field name="icon">💼</field>
+            <field name="description">Prepare for an English-language job interview. The AI plays a professional HR manager interviewing you for a marketing position. Practice common interview questions and professional vocabulary.</field>
+            <field name="difficulty">B1</field>
+            <field name="target_language">en</field>
+            <field name="sequence">20</field>
+            <field name="initial_prompt">You are Sarah, an HR manager interviewing the user for a Marketing Coordinator role. Ask one interview question at a time: background, strengths, experience, motivation. Respond warmly and professionally. Keep every reply to 1-2 sentences.</field>
+            <field name="is_active">True</field>
+        </record>
+
+        <record id="scenario_airport_checkin" model="language.scenario">
+            <field name="name">Airport Check-In &amp; Boarding</field>
+            <field name="icon">✈️</field>
+            <field name="description">Navigate an English-speaking airport. The AI plays a check-in agent helping you with your flight. Practice travel vocabulary, handling luggage, seat preferences, and understanding announcements.</field>
+            <field name="difficulty">A2</field>
+            <field name="target_language">en</field>
+            <field name="sequence">30</field>
+            <field name="initial_prompt">You are James, a check-in agent at SkyWave Airlines. Help the traveller through check-in: passport, luggage weight, seat choice (window or aisle), boarding pass, gate. Use simple, clear English. Keep every reply to 1-2 sentences.</field>
+            <field name="is_active">True</field>
+        </record>
+
+        <record id="scenario_doctor_visit" model="language.scenario">
+            <field name="name">Doctor's Appointment</field>
+            <field name="icon">🏥</field>
+            <field name="description">Practice describing symptoms and understanding medical advice in English. The AI plays a general practitioner. Learn body vocabulary, symptom descriptions, and medical instructions.</field>
+            <field name="difficulty">A2</field>
+            <field name="target_language">en</field>
+            <field name="sequence">40</field>
+            <field name="initial_prompt">You are Dr. Emily Carter, a calm GP at a clinic. Ask the patient about their symptoms, how long they have had them, and pain level. Give simple, reassuring advice. This is language practice only — keep suggestions general. Keep every reply to 1-2 sentences.</field>
+            <field name="is_active">True</field>
+        </record>
+
+        <record id="scenario_hotel_checkin" model="language.scenario">
+            <field name="name">Hotel Check-In</field>
+            <field name="icon">🏨</field>
+            <field name="description">Practice hotel vocabulary and phrases. The AI plays a hotel receptionist helping you check in, ask about amenities, and handle common requests like room service or extra towels.</field>
+            <field name="difficulty">A2</field>
+            <field name="target_language">en</field>
+            <field name="sequence">50</field>
+            <field name="initial_prompt">You are Michael, a receptionist at The Grand Lexora Hotel. Help the guest check in: find their reservation, assign a room, explain breakfast hours, Wi-Fi password, and amenities. Be polite and efficient. Keep every reply to 1-2 sentences.</field>
+            <field name="is_active">True</field>
+        </record>
+
+        <record id="scenario_supermarket" model="language.scenario">
+            <field name="name">At the Supermarket</field>
+            <field name="icon">🛒</field>
+            <field name="description">Practice shopping vocabulary in English. The AI plays a store assistant helping you find products, understand prices, and navigate the checkout process.</field>
+            <field name="difficulty">A1</field>
+            <field name="target_language">en</field>
+            <field name="sequence">60</field>
+            <field name="initial_prompt">You are Lisa, a helpful assistant at Fresh &amp; Easy grocery store. Help the shopper find items, check prices, and get through checkout. Use very simple words and short sentences. Keep every reply to 1-2 sentences.</field>
+            <field name="is_active">True</field>
+        </record>
+
+    </data>
+</odoo>
