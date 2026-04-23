@@ -998,9 +998,22 @@ kbd {
   background: rgba(255,255,255,0.06) !important;
 }
 
-/* Grammar Pro — filter bar labels */
+/* Labels — solid white, always readable */
 .lx-premium-theme .form-label {
-  color: rgba(255,255,255,0.55) !important;
+  color: #ffffff !important;
+  opacity: 1 !important;
+  font-weight: 600;
+}
+
+/* Scenario / card description text — was text-white-50 (50% = barely visible) */
+.lx-premium-theme .text-white-50 {
+  color: rgba(255,255,255,0.82) !important;
+  opacity: 1 !important;
+}
+
+/* Filter select — stronger visible border */
+.lx-premium-theme .form-select {
+  border: 1px solid rgba(255,255,255,0.35) !important;
 }
 
 /* ── Grammar Pro active filter highlight ── */

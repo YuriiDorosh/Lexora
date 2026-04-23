@@ -154,6 +154,32 @@ page still works.
 
 - [x] M18-FIX-13 · Committed and pushed `m17_m18_learning_expansion`. ✅
 
+**Final polish pass (same session, after second commit):**
+
+- [x] M18-FIX-14 · Grammar XP JS: replaced fragile DOM rescan (`[style*="4ade80"]`)
+  with a direct counter. `rightCount` is now incremented in the click handler alongside
+  `answered`. Eliminated the DOM style-string-matching approach that returned 0 if any
+  button's inline style was rendered differently than expected. Added `credentials:'include'`
+  to the `fetch` call. `.catch` now logs to console instead of silently swallowing. ✅
+
+- [x] M18-FIX-15 · Grammar XP controller: added `_logger.info` at award time and
+  `_logger.warning` for missing-profile edge case. Added `try/except` around the award
+  block so exceptions surface in `make logs-odoo` rather than silently zeroing `xp_gained`.
+  Confirmed via `docker exec` shell test: profile found, xp_total correctly updated. ✅
+
+- [x] M18-FIX-16 · CSS polish — three rules:
+  - `.form-label`: `color: #ffffff !important; opacity: 1 !important; font-weight: 600`
+    — was `rgba(255,255,255,0.55)` which appears grey on light monitors.
+  - `.text-white-50`: overridden to `rgba(255,255,255,0.82)` — Bootstrap's 50% opacity
+    was making scenario card descriptions nearly invisible on some displays.
+  - `.form-select` additional rule: `border: 1px solid rgba(255,255,255,0.35)` for
+    clearly visible filter dropdown borders. ✅
+
+- [x] M18-FIX-17 · `--update language_portal,language_learning --stop-after-init` → 0 errors.
+  `docker restart odoo` → health pass. ✅
+
+- [x] M18-FIX-18 · Committed and pushed `m17_m18_learning_expansion`. ✅
+
 #### Troubleshooting: AI looping / hallucination (record for future milestones)
 
 **Symptom:** AI repeats the same phrase every turn, or adds `[Correction: ...]` even

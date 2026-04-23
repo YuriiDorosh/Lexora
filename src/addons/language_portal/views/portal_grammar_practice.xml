@@ -137,6 +137,7 @@
             (function() {
                 var total = document.querySelectorAll('.lx-exercise-card').length;
                 var answered = 0;
+                var rightCount = 0; // tracked directly — no DOM re-scan
 
                 document.querySelectorAll('.lx-exercise-card').forEach(function(card) {
                     var correctAnswer = card.dataset.answer;
@@ -148,10 +149,11 @@
                         btn.addEventListener('click', function() {
                             if (card.dataset.done) return;
                             card.dataset.done = '1';
-                            answered++;
 
                             var chosen = btn.dataset.value;
                             var isCorrect = chosen === correctAnswer;
+                            if (isCorrect) rightCount++;
+                            answered++;
 
                             // Style all buttons
                             buttons.forEach(function(b) {
@@ -177,37 +179,27 @@
                                 feedback.innerHTML += '<br/><span style="color:#94a3b8;font-size:0.82rem">&#x1F4A1; ' + hint + '</span>';
                             }
 
-                            // Check if all done
+                            // All exercises answered — show summary and award XP
                             if (answered === total) {
-                                // Count properly
-                                var rightCount = 0;
-                                document.querySelectorAll('.lx-exercise-card').forEach(function(c) {
-                                    var ans = c.dataset.answer;
-                                    var greenBtn = c.querySelector('[style*="4ade80"]');
-                                    if (greenBtn &amp;&amp; greenBtn.dataset.value === ans) {
-                                        var clickedWrong = c.querySelector('[style*="line-through"]');
-                                        if (!clickedWrong) rightCount++;
-                                    }
-                                });
                                 document.getElementById('lx-score-text').textContent = rightCount + ' / ' + total + ' correct';
                                 document.getElementById('lx-score-summary').classList.remove('d-none');
                                 document.getElementById('lx-score-summary').scrollIntoView({behavior:'smooth', block:'center'});
-                                // Award XP via server
                                 if (rightCount > 0) {
                                     fetch('/my/grammar-practice/score', {
                                         method: 'POST',
+                                        credentials: 'include',
                                         headers: {'Content-Type': 'application/json'},
                                         body: JSON.stringify({jsonrpc:'2.0',method:'call',params:{correct_count: rightCount}})
                                     })
                                     .then(function(r) { return r.json(); })
                                     .then(function(data) {
-                                        var xp = data.result &amp;&amp; data.result.xp_gained;
-                                        if (xp &amp;&amp; xp > 0) {
+                                        var xp = (data.result || {}).xp_gained || 0;
+                                        if (xp > 0) {
                                             document.getElementById('lx-xp-amount').textContent = xp;
                                             document.getElementById('lx-xp-gained').classList.remove('d-none');
                                         }
                                     })
-                                    .catch(function() {});
+                                    .catch(function(err) { console.warn('XP award failed:', err); });
                                 }
                             }
                         });

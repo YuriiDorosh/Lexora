@@ -67,19 +67,33 @@ class GrammarPracticePortal(http.Controller):
             correct_count = 0
 
         xp_gained = 0
-        if correct_count > 0 and "language.xp.log" in request.env.registry:
-            xp_gained = correct_count * 5
-            uid = request.env.user.id
-            request.env["language.xp.log"].sudo().create({
-                "user_id": uid,
-                "amount": xp_gained,
-                "reason": "grammar_practice",
-                "note": f"{correct_count} correct in grammar practice",
-            })
-            profile = request.env["language.user.profile"].sudo().search(
-                [("user_id", "=", uid)], limit=1
-            )
-            if profile:
-                profile.write({"xp_total": profile.xp_total + xp_gained})
+        if correct_count <= 0:
+            return {"xp_gained": 0}
+
+        uid = request.env.user.id
+        _logger.info("GrammarXP: user=%s correct=%s — attempting award", uid, correct_count)
+
+        if "language.xp.log" in request.env.registry:
+            try:
+                xp_gained = correct_count * 5
+                request.env["language.xp.log"].sudo().create({
+                    "user_id": uid,
+                    "amount": xp_gained,
+                    "reason": "grammar_practice",
+                    "note": f"{correct_count} correct in grammar practice",
+                })
+                profile = request.env["language.user.profile"].sudo().search(
+                    [("user_id", "=", uid)], limit=1
+                )
+                if profile:
+                    profile.write({"xp_total": profile.xp_total + xp_gained})
+                    _logger.info("GrammarXP: awarded %s XP to user %s (xp_total=%s)", xp_gained, uid, profile.xp_total)
+                else:
+                    _logger.warning("GrammarXP: no profile for user %s — log created but total not updated", uid)
+            except Exception as exc:
+                _logger.exception("GrammarXP: failed for user %s: %s", uid, exc)
+                xp_gained = 0
+        else:
+            _logger.warning("GrammarXP: language.xp.log not in registry — XP skipped")
 
         return {"xp_gained": xp_gained}
