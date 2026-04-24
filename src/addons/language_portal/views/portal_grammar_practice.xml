@@ -1,0 +1,130 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+<data>
+
+<template id="portal_grammar_practice_index" name="Grammar Practice">
+  <t t-call="portal.frontend_layout">
+    <t t-set="title">Grammar Practice</t>
+
+    <div id="wrap" class="oe_structure lx-premium-theme">
+
+      <!-- Hero -->
+      <section class="lx-dark-hero py-5 mb-4">
+        <div class="container text-center">
+          <h1 class="display-5 fw-bold text-white mb-2">✏️ Grammar Pro</h1>
+          <p class="lead text-white-50 mb-0">
+            Targeted grammar exercises to sharpen your English skills.
+          </p>
+        </div>
+      </section>
+
+      <div class="container pb-5">
+
+        <!-- Coming soon notice -->
+        <div class="alert lx-glass-card border-0 mb-4 d-flex align-items-center gap-3">
+          <span class="fs-2">🚀</span>
+          <div>
+            <strong class="text-white">Interactive exercises launching soon</strong>
+            <p class="mb-0 text-white-50 small">
+              The practice engine is being built. Meanwhile, study the topics below in the
+              <a href="/grammar" class="text-primary">Grammar Encyclopedia</a>.
+            </p>
+          </div>
+        </div>
+
+        <!-- Exercise set grid -->
+        <h4 class="text-white mb-3">Exercise Sets</h4>
+        <div class="row row-cols-1 row-cols-md-2 g-4">
+          <t t-foreach="exercise_sets" t-as="es">
+            <div class="col">
+              <div class="lx-glass-card h-100 d-flex flex-column">
+                <div class="d-flex align-items-center gap-3 mb-3">
+                  <span class="fs-1"><t t-esc="es['icon']"/></span>
+                  <div>
+                    <h5 class="text-white mb-1"><t t-esc="es['title']"/></h5>
+                    <span class="badge bg-secondary"><t t-esc="es['level']"/></span>
+                    <span class="badge bg-dark ms-1">
+                      <t t-esc="es['questions']"/> questions
+                    </span>
+                  </div>
+                </div>
+                <p class="text-white-50 flex-grow-1"><t t-esc="es['description']"/></p>
+                <div class="d-flex gap-2 mt-2">
+                  <a href="/grammar" class="btn btn-outline-primary btn-sm flex-grow-1">
+                    📖 Study First
+                  </a>
+                  <button class="btn btn-outline-secondary btn-sm flex-grow-1" disabled="disabled">
+                    Practice — Soon
+                  </button>
+                </div>
+              </div>
+            </div>
+          </t>
+        </div>
+
+        <!-- Study resources -->
+        <h4 class="text-white mt-5 mb-3">Study Resources</h4>
+        <div class="row g-3">
+          <div class="col-md-4">
+            <a href="/grammar/tenses" class="lx-glass-card d-block text-decoration-none p-3">
+              <div class="text-center">
+                <div class="fs-2 mb-1">⏱️</div>
+                <strong class="text-white">12 Tenses</strong>
+                <p class="text-white-50 small mb-0">Complete tense guide with examples</p>
+              </div>
+            </a>
+          </div>
+          <div class="col-md-4">
+            <a href="/grammar/articles" class="lx-glass-card d-block text-decoration-none p-3">
+              <div class="text-center">
+                <div class="fs-2 mb-1">📰</div>
+                <strong class="text-white">Articles</strong>
+                <p class="text-white-50 small mb-0">a / an / the / zero article rules</p>
+              </div>
+            </a>
+          </div>
+          <div class="col-md-4">
+            <a href="/grammar/conditionals" class="lx-glass-card d-block text-decoration-none p-3">
+              <div class="text-center">
+                <div class="fs-2 mb-1">🔀</div>
+                <strong class="text-white">Conditionals</strong>
+                <p class="text-white-50 small mb-0">All four conditionals explained</p>
+              </div>
+            </a>
+          </div>
+          <div class="col-md-4">
+            <a href="/grammar/modal-verbs" class="lx-glass-card d-block text-decoration-none p-3">
+              <div class="text-center">
+                <div class="fs-2 mb-1">🗣️</div>
+                <strong class="text-white">Modal Verbs</strong>
+                <p class="text-white-50 small mb-0">can, must, should, would…</p>
+              </div>
+            </a>
+          </div>
+          <div class="col-md-4">
+            <a href="/grammar/passive-reported" class="lx-glass-card d-block text-decoration-none p-3">
+              <div class="text-center">
+                <div class="fs-2 mb-1">🎭</div>
+                <strong class="text-white">Passive &amp; Reported</strong>
+                <p class="text-white-50 small mb-0">Transform and report speech</p>
+              </div>
+            </a>
+          </div>
+          <div class="col-md-4">
+            <a href="/idioms" class="lx-glass-card d-block text-decoration-none p-3">
+              <div class="text-center">
+                <div class="fs-2 mb-1">💬</div>
+                <strong class="text-white">Idioms Hub</strong>
+                <p class="text-white-50 small mb-0">Master idiomatic expressions</p>
+              </div>
+            </a>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </t>
+</template>
+
+</data>
+</odoo>

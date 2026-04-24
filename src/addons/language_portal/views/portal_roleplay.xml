@@ -1,0 +1,91 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+<data>
+
+<template id="portal_roleplay_index" name="AI Roleplay">
+  <t t-call="portal.frontend_layout">
+    <t t-set="title">AI Roleplay Practice</t>
+
+    <div id="wrap" class="oe_structure lx-premium-theme">
+
+      <!-- Hero -->
+      <section class="lx-dark-hero py-5 mb-4">
+        <div class="container text-center">
+          <h1 class="display-5 fw-bold text-white mb-2">🎭 AI Roleplay</h1>
+          <p class="lead text-white-50 mb-0">
+            Practice real-world conversations with an AI partner. Choose a scenario and start speaking.
+          </p>
+        </div>
+      </section>
+
+      <div class="container pb-5">
+
+        <!-- Coming Soon notice -->
+        <div class="alert lx-glass-card border-0 mb-4 d-flex align-items-center gap-3">
+          <span class="fs-2">🚀</span>
+          <div>
+            <strong class="text-white">Coming in the next release</strong>
+            <p class="mb-0 text-white-50 small">
+              Full AI conversation engine is under development. The scenarios below show what's launching soon.
+              In the meantime, browse the <a href="/grammar" class="text-primary">Grammar Guide</a> or
+              practice with <a href="/my/practice" class="text-primary">Daily SRS</a>.
+            </p>
+          </div>
+        </div>
+
+        <!-- Scenario grid -->
+        <h4 class="text-white mb-3">Available Scenarios</h4>
+        <div class="row row-cols-1 row-cols-md-2 row-cols-xl-3 g-4">
+          <t t-foreach="scenarios" t-as="sc">
+            <div class="col">
+              <div class="lx-glass-card h-100 d-flex flex-column">
+                <div class="d-flex align-items-center gap-3 mb-3">
+                  <span class="lx-scenario-icon fs-1"><t t-esc="sc['icon']"/></span>
+                  <div>
+                    <h5 class="text-white mb-1"><t t-esc="sc['title']"/></h5>
+                    <span class="badge bg-secondary"><t t-esc="sc['level']"/></span>
+                    <span class="badge bg-dark ms-1">⏱ <t t-esc="sc['duration']"/></span>
+                  </div>
+                </div>
+                <p class="text-white-50 flex-grow-1"><t t-esc="sc['description']"/></p>
+                <button class="btn btn-outline-secondary w-100 mt-2" disabled="disabled">
+                  Start Practice — Coming Soon
+                </button>
+              </div>
+            </div>
+          </t>
+        </div>
+
+        <!-- Cross-links -->
+        <div class="row g-3 mt-4">
+          <div class="col-md-6">
+            <a href="/my/practice" class="lx-glass-card d-block text-decoration-none p-3">
+              <div class="d-flex align-items-center gap-3">
+                <span class="fs-2">📚</span>
+                <div>
+                  <strong class="text-white">Daily SRS Practice</strong>
+                  <p class="text-white-50 small mb-0">Review your vocabulary cards with spaced repetition.</p>
+                </div>
+              </div>
+            </a>
+          </div>
+          <div class="col-md-6">
+            <a href="/my/grammar-practice" class="lx-glass-card d-block text-decoration-none p-3">
+              <div class="d-flex align-items-center gap-3">
+                <span class="fs-2">✏️</span>
+                <div>
+                  <strong class="text-white">Grammar Practice</strong>
+                  <p class="text-white-50 small mb-0">Targeted exercises for tenses, articles, and more.</p>
+                </div>
+              </div>
+            </a>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </t>
+</template>
+
+</data>
+</odoo>

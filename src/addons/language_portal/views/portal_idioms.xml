@@ -1,0 +1,162 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+<data>
+
+<template id="portal_idioms_index" name="Idioms Hub">
+  <t t-call="portal.frontend_layout">
+    <t t-set="title">Idioms Hub</t>
+
+    <div id="wrap" class="oe_structure lx-premium-theme">
+
+      <!-- Hero -->
+      <section class="lx-dark-hero py-5 mb-4">
+        <div class="container text-center">
+          <h1 class="display-5 fw-bold text-white mb-2">💬 Idioms Hub</h1>
+          <p class="lead text-white-50 mb-0">Master idiomatic expressions with flip cards — expression on front, meaning on back.</p>
+        </div>
+      </section>
+
+      <div class="container pb-5">
+
+        <!-- Filters bar -->
+        <form method="GET" action="/idioms" class="row g-2 mb-4 align-items-end">
+          <!-- Language tabs -->
+          <div class="col-12 mb-2">
+            <div class="d-flex gap-2 flex-wrap">
+              <t t-foreach="[('en','🇬🇧 English'), ('uk','🇺🇦 Ukrainian'), ('el','🇬🇷 Greek')]" t-as="lp">
+                <a t-attf-href="/idioms?lang=#{lp[0]}#{active_category and '&amp;category=' + active_category or ''}#{active_level and '&amp;level=' + active_level or ''}"
+                   t-attf-class="btn btn-sm #{active_lang == lp[0] and 'btn-primary' or 'btn-outline-secondary'}">
+                  <t t-esc="lp[1]"/>
+                  <span class="badge bg-secondary ms-1">
+                    <t t-esc="lang_counts.get(lp[0], 0)"/>
+                  </span>
+                </a>
+              </t>
+            </div>
+          </div>
+          <!-- Category -->
+          <div class="col-auto">
+            <select name="category" class="form-select form-select-sm"
+                    onchange="this.form.submit()">
+              <option value="">All Categories</option>
+              <t t-foreach="category_labels.items()" t-as="cat">
+                <option t-att-value="cat[0]"
+                        t-att-selected="active_category == cat[0]">
+                  <t t-esc="cat[1]"/>
+                </option>
+              </t>
+            </select>
+          </div>
+          <!-- Level -->
+          <div class="col-auto">
+            <select name="level" class="form-select form-select-sm"
+                    onchange="this.form.submit()">
+              <option value="">All Levels</option>
+              <t t-foreach="levels" t-as="lv">
+                <option t-att-value="lv" t-att-selected="active_level == lv">
+                  <t t-esc="lv"/>
+                </option>
+              </t>
+            </select>
+          </div>
+          <!-- Search -->
+          <div class="col">
+            <div class="input-group input-group-sm">
+              <input type="text" name="q" class="form-control"
+                     placeholder="Search expression…" t-att-value="search_q"/>
+              <input type="hidden" name="lang" t-att-value="active_lang"/>
+              <button type="submit" class="btn btn-primary">Search</button>
+            </div>
+          </div>
+        </form>
+
+        <!-- Cards grid -->
+        <t t-if="idioms">
+          <div class="row row-cols-1 row-cols-md-2 row-cols-xl-3 g-4">
+            <t t-foreach="idioms" t-as="idiom">
+              <div class="col">
+                <!-- Flip card wrapper -->
+                <div class="lx-flip-card" onclick="this.classList.toggle('lx-flipped')"
+                     tabindex="0"
+                     onkeydown="if(event.key==='Enter'||event.key===' ')this.classList.toggle('lx-flipped')">
+                  <div class="lx-flip-inner">
+
+                    <!-- FRONT: expression -->
+                    <div class="lx-flip-front lx-glass-card h-100">
+                      <div class="d-flex justify-content-between align-items-start mb-3">
+                        <span t-attf-class="badge bg-#{level_colors.get(idiom.level, 'secondary')}">
+                          <t t-esc="idiom.level"/>
+                        </span>
+                        <span class="badge bg-light text-dark">
+                          <t t-esc="category_labels.get(idiom.category, idiom.category)"/>
+                        </span>
+                      </div>
+                      <div class="text-center my-auto">
+                        <h4 class="lx-idiom-expression mb-2">
+                          <t t-esc="idiom.expression"/>
+                        </h4>
+                        <t t-if="idiom.literal_meaning">
+                          <p class="text-muted small mb-0">
+                            Literal: <em><t t-esc="idiom.literal_meaning"/></em>
+                          </p>
+                        </t>
+                      </div>
+                      <p class="text-center text-muted small mt-3 mb-0 lx-flip-hint">
+                        Click to reveal meaning ↓
+                      </p>
+                    </div>
+
+                    <!-- BACK: meaning + example -->
+                    <div class="lx-flip-back lx-glass-card h-100">
+                      <div class="d-flex justify-content-between align-items-start mb-3">
+                        <span t-attf-class="badge bg-#{level_colors.get(idiom.level, 'secondary')}">
+                          <t t-esc="idiom.level"/>
+                        </span>
+                        <span class="badge bg-primary text-white small">Meaning</span>
+                      </div>
+                      <h5 class="lx-idiom-expression mb-3">
+                        <t t-esc="idiom.expression"/>
+                      </h5>
+                      <p class="text-white mb-3">
+                        <t t-esc="idiom.idiomatic_meaning"/>
+                      </p>
+                      <t t-if="idiom.example">
+                        <div class="lx-example-box p-2 rounded mb-2">
+                          <p class="mb-0 fst-italic small text-white-75">
+                            "<t t-esc="idiom.example"/>"
+                          </p>
+                        </div>
+                      </t>
+                      <t t-if="idiom.origin_note">
+                        <p class="text-muted small mb-0 mt-2">
+                          📌 <t t-esc="idiom.origin_note"/>
+                        </p>
+                      </t>
+                      <p class="text-center text-muted small mt-3 mb-0 lx-flip-hint">
+                        Click to flip back ↑
+                      </p>
+                    </div>
+
+                  </div>
+                </div>
+              </div>
+            </t>
+          </div>
+        </t>
+
+        <t t-else="">
+          <div class="text-center py-5">
+            <div class="display-1 mb-3">💬</div>
+            <h3 class="text-muted">No idioms found</h3>
+            <p class="text-muted">Try a different language, category, or search term.</p>
+            <a href="/idioms" class="btn btn-primary mt-2">Clear Filters</a>
+          </div>
+        </t>
+
+      </div>
+    </div>
+  </t>
+</template>
+
+</data>
+</odoo>

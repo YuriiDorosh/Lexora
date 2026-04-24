@@ -11,3 +11,5 @@ access_language_seeded_word_user,language.seeded.word user,model_language_seeded
 access_language_seeded_word_admin,language.seeded.word admin,model_language_seeded_word,language_security.group_language_admin,1,1,1,1
 access_language_grammar_section_user,language.grammar.section user,model_language_grammar_section,language_security.group_language_user,1,0,0,0
 access_language_grammar_section_admin,language.grammar.section admin,model_language_grammar_section,language_security.group_language_admin,1,1,1,1
+access_language_idiom_user,language.idiom user,model_language_idiom,language_security.group_language_user,1,0,0,0
+access_language_idiom_admin,language.idiom admin,model_language_idiom,language_security.group_language_admin,1,1,1,1
