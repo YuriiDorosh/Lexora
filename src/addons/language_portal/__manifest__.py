@@ -29,6 +29,7 @@
         'views/portal_library.xml',
         'views/portal_roleplay.xml',
         'views/portal_grammar_practice.xml',
+        'views/portal_idioms.xml',
         'views/pdf_vocabulary.xml',
         'views/pdf_gold_vocab.xml',
         'views/pdf_grammar.xml',

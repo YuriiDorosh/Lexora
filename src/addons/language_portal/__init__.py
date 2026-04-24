@@ -507,13 +507,26 @@ def _rename_menus(env):
     ]).write({'noupdate': False})
 
 
+def _seed_idioms(env):
+    import logging
+    _log = logging.getLogger(__name__)
+    try:
+        count = env['language.idiom']._seed()
+        if count:
+            _log.info('language_portal: seeded %d new idioms', count)
+    except Exception:
+        _log.exception('language_portal: idiom seeding failed')
+
+
 def post_init_hook(env):
     _seed_knowledge_hub(env)
     _fix_library_menu_parents(env)
     _rename_menus(env)
+    _seed_idioms(env)
 
 
 def post_update_hook(env):
     _seed_knowledge_hub(env)
     _fix_library_menu_parents(env)
     _rename_menus(env)
+    _seed_idioms(env)
