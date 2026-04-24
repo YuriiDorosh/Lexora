@@ -1,50 +1,56 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
-    <data noupdate="1">
+    <!-- noupdate=0 so parent_id re-parenting applies on every update run -->
+    <data noupdate="0">
 
-        <!-- "Daily Practice" link in the website navbar (logged-in users only) -->
+        <!-- Daily Practice — child of Practice group (language_portal) -->
         <record id="menu_navbar_practice" model="website.menu">
             <field name="name">Daily Practice</field>
             <field name="url">/my/practice</field>
-            <field name="parent_id" ref="website.main_menu"/>
-            <field name="sequence">55</field>
+            <field name="parent_id" ref="language_portal.menu_practice_group"/>
+            <field name="sequence">10</field>
             <field name="user_logged">True</field>
+            <field name="user_not_logged">False</field>
         </record>
 
-        <!-- "Leaderboard" link in the website navbar (logged-in users only) -->
-        <record id="menu_navbar_leaderboard" model="website.menu">
-            <field name="name">Leaderboard</field>
-            <field name="url">/my/leaderboard</field>
-            <field name="parent_id" ref="website.main_menu"/>
-            <field name="sequence">70</field>
-            <field name="user_logged">True</field>
-        </record>
-
-        <!-- "My Profile" link in the website navbar (logged-in users only) -->
+        <!-- My Profile — child of Tools group (language_portal) -->
         <record id="menu_navbar_dashboard" model="website.menu">
             <field name="name">My Profile</field>
             <field name="url">/my/dashboard</field>
-            <field name="parent_id" ref="website.main_menu"/>
-            <field name="sequence">65</field>
+            <field name="parent_id" ref="language_portal.menu_tools_group"/>
+            <field name="sequence">10</field>
             <field name="user_logged">True</field>
+            <field name="user_not_logged">False</field>
         </record>
 
-        <!-- "XP Shop" link in the website navbar (logged-in users only) -->
+        <!-- Leaderboard — child of Tools group (language_portal) -->
+        <record id="menu_navbar_leaderboard" model="website.menu">
+            <field name="name">Leaderboard</field>
+            <field name="url">/my/leaderboard</field>
+            <field name="parent_id" ref="language_portal.menu_tools_group"/>
+            <field name="sequence">20</field>
+            <field name="user_logged">True</field>
+            <field name="user_not_logged">False</field>
+        </record>
+
+        <!-- XP Shop — child of Tools group (language_portal) -->
         <record id="menu_navbar_shop" model="website.menu">
             <field name="name">XP Shop</field>
             <field name="url">/my/shop</field>
-            <field name="parent_id" ref="website.main_menu"/>
-            <field name="sequence">80</field>
+            <field name="parent_id" ref="language_portal.menu_tools_group"/>
+            <field name="sequence">40</field>
             <field name="user_logged">True</field>
+            <field name="user_not_logged">False</field>
         </record>
 
-        <!-- "My Inventory" link in the website navbar (logged-in users only) -->
+        <!-- My Inventory — child of Tools group (language_portal) -->
         <record id="menu_navbar_inventory" model="website.menu">
             <field name="name">My Inventory</field>
             <field name="url">/my/inventory</field>
-            <field name="parent_id" ref="website.main_menu"/>
-            <field name="sequence">85</field>
+            <field name="parent_id" ref="language_portal.menu_tools_group"/>
+            <field name="sequence">50</field>
             <field name="user_logged">True</field>
+            <field name="user_not_logged">False</field>
         </record>
 
     </data>

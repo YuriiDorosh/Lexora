@@ -1138,3 +1138,92 @@ kbd {
   border-radius: 24px;
   margin-bottom: 1rem;
 }
+
+/* ══════════════════════════════════════════════════════════════
+   M18.5 — Navbar Glassmorphism Dropdowns
+   Scoped to #top_menu so only the main navbar is affected.
+   ══════════════════════════════════════════════════════════════ */
+
+/* Dropdown panel */
+#top_menu .dropdown-menu {
+  background: rgba(8, 14, 28, 0.97) !important;
+  backdrop-filter: blur(24px) !important;
+  -webkit-backdrop-filter: blur(24px) !important;
+  border: 1px solid rgba(255, 255, 255, 0.09) !important;
+  border-radius: 14px !important;
+  box-shadow: 0 12px 48px rgba(0, 0, 0, 0.55),
+              0 0 0 1px rgba(255, 255, 255, 0.04) !important;
+  padding: 8px !important;
+  min-width: 220px !important;
+  margin-top: 6px !important;
+}
+
+/* Individual dropdown links */
+#top_menu .dropdown-item {
+  color: rgba(255, 255, 255, 0.78) !important;
+  border-radius: 8px !important;
+  padding: 9px 14px !important;
+  font-size: 0.875rem !important;
+  font-weight: 500 !important;
+  letter-spacing: 0.01em !important;
+  transition: background 0.14s ease, color 0.14s ease !important;
+  margin-bottom: 1px !important;
+  line-height: 1.4 !important;
+  white-space: nowrap !important;
+}
+
+#top_menu .dropdown-item:hover,
+#top_menu .dropdown-item:focus {
+  background: rgba(99, 102, 241, 0.22) !important;
+  color: #ffffff !important;
+  outline: none !important;
+}
+
+#top_menu .dropdown-item:active {
+  background: rgba(99, 102, 241, 0.38) !important;
+  color: #ffffff !important;
+}
+
+/* Dividers inside a dropdown */
+#top_menu .dropdown-divider {
+  border-color: rgba(255, 255, 255, 0.08) !important;
+  margin: 4px 0 !important;
+}
+
+/* Caret arrow on group toggle buttons */
+#top_menu .nav-link.dropdown-toggle::after {
+  border-top-color: rgba(255, 255, 255, 0.55) !important;
+  vertical-align: 0.18em !important;
+  transition: border-top-color 0.15s !important;
+}
+
+#top_menu .nav-item.dropdown:hover > .nav-link.dropdown-toggle::after,
+#top_menu .nav-item.dropdown.show > .nav-link.dropdown-toggle::after {
+  border-top-color: #ffffff !important;
+}
+
+/* ── Mobile: strip glass so it blends into expanded hamburger ── */
+@media (max-width: 991.98px) {
+  #top_menu .dropdown-menu {
+    background: transparent !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+    border: none !important;
+    box-shadow: none !important;
+    padding: 0 0 4px 0 !important;
+    margin-top: 0 !important;
+    min-width: unset !important;
+  }
+
+  #top_menu .dropdown-item {
+    padding-left: 28px !important;
+    font-size: 0.84rem !important;
+    color: rgba(255, 255, 255, 0.65) !important;
+    border-radius: 6px !important;
+  }
+
+  #top_menu .dropdown-item:hover {
+    background: rgba(255, 255, 255, 0.07) !important;
+    color: rgba(255, 255, 255, 0.9) !important;
+  }
+}

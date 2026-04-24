@@ -1,8 +1,8 @@
 # Lexora — Implementation Plan (MVP)
 
-> Version: 1.1 (M18 fix pass complete)
+> Version: 1.2 (M19–M21 roadmap + Header UI redesign plan)
 > Last updated: 2026-04-23
-> Status: M0–M18 complete + fix pass
+> Status: M0–M18 complete; M19–M21 planned
 
 ---
 
@@ -45,6 +45,10 @@
 | M16 | Legal Protection + Documentation | ✅ Complete | Proprietary LICENSE; professional README overhaul (Avantgarde Systems branding, full feature catalogue, tech stack) |
 | M17 | AI Situational Roleplay | ✅ Complete | 6 AI-powered conversation scenarios; `/my/roleplay` glassmorphism chat UI; LLM `/roleplay` sync endpoint; grammar corrections in-context |
 | M18 | Grammar Pro — Cloze Tests | ✅ Complete | 110 EN+Greek fill-in-the-blank exercises; `/my/grammar-practice`; multiple-choice with instant green/red feedback; CEFR A1–B2 filters |
+| M18.5 | Header UI Redesign | 🗓 Planned | Category dropdown navbar (Practice / Library / Tools); glassmorphism mobile-friendly; see `docs/UI_REDESIGN_HEADER.md` |
+| M19 | Natural Speech Hub — Idioms & Phrasal Verbs | 🗓 Planned | 100+ phrasal verbs (EN) + idioms (EL/UK); interactive expression cards; `/idioms` portal |
+| M20 | Survival Phrasebook — Tourist Kits | 🗓 Planned | Essential phrase sets grouped by scenario; one-click Copy to Roleplay Chat; `/phrasebook` portal |
+| M21 | Sentence Builder — Syntax Master | 🗓 Planned | Word-ordering game using M18 sentence dataset; drag-and-drop / click-to-order mechanics; XP award; `/my/sentence-builder` |
 
 ---
 
@@ -807,3 +811,246 @@ curl -o /dev/null -w "%{http_code}" http://localhost:5433/translator
 docker exec odoo odoo --config /etc/odoo/odoo.conf \
   -d lexora --update language_portal --test-enable --no-http --stop-after-init
 ```
+
+---
+
+## M18.5 — Header UI Redesign
+
+**Goal:** Replace the flat navbar link list with a category-dropdown system that scales
+gracefully as the feature set grows. Full specification in `docs/UI_REDESIGN_HEADER.md`.
+
+**Work:**
+1. Define three dropdown groups in `data/website_menus.xml` for each portal module:
+   - **Practice** — AI Roleplay, Grammar Pro, Daily Practice, PvP Arena, Sentence Builder (M21)
+   - **Library** — Word Library, Useful Words, Grammar Guide, Idioms Hub (M19), Phrasebook (M20)
+   - **Tools** — AI Translator, PDF Exports, XP Shop, My Inventory
+2. Implement glassmorphism dropdown CSS in `premium_ui.css` (`.lx-nav-dropdown`, `.lx-nav-group`).
+3. Ensure mobile hamburger collapse works with Bootstrap's navbar toggler.
+4. Remove or re-sequence individual `website.menu` records that become children of groups.
+5. Update `branding.xml` navbar logo template to coexist with the new dropdown structure.
+
+**Verification:**
+```bash
+docker exec odoo odoo --config /etc/odoo/odoo.conf \
+  -d lexora --update language_portal,language_learning,language_pvp \
+  --stop-after-init --no-http
+
+# All three groups render in navbar; each expands on hover (desktop) or tap (mobile)
+# No orphaned flat links remain; "My Profile" and "My Dashboard" stay top-level
+```
+
+---
+
+## M19 — Natural Speech Hub (Idioms & Phrasal Verbs)
+
+**Goal:** Users can browse, search, and save 100+ phrasal verbs (English) and idioms
+(Ukrainian, Greek) via interactive expression cards at `/idioms`.
+
+**Architecture:** Static seed data in `language_portal/data/idioms_data.py` (same
+`importlib` pattern as `cloze_exercises.py`). Model `language.idiom` in `language_portal`
+stores the records with full-text search. No async services needed.
+
+**Data shape per entry:**
+
+| Field | Example |
+|---|---|
+| `expression` | "kick the bucket" |
+| `literal_meaning` | "to kick a bucket" |
+| `idiomatic_meaning` | "to die" |
+| `example_sentence` | "He kicked the bucket at the age of 90." |
+| `language` | `en` |
+| `category` | `death_and_life` / `emotions` / `money` / `work` / … |
+| `level` | `B1` |
+| `origin_note` | optional etymology note |
+
+**Work:**
+1. `language_portal/models/language_idiom.py` — `language.idiom` model with full-text
+   search field (`_rec_name = 'expression'`). Fields: `expression`, `literal_meaning`,
+   `idiomatic_meaning`, `example_sentence`, `language` (Selection en/uk/el), `category`
+   (Selection), `level` (Selection A1–C2), `origin_note`.
+2. `language_portal/models/__init__.py` — import new model.
+3. `language_portal/security/ir.model.access.csv` — Language Users: read-only; Admin: full.
+4. `language_portal/data/idioms_data.py` — 100+ entries (40 EN phrasal verbs, 35 UK idioms,
+   30 EL idioms). Loaded via post-init hook (same pattern as `seed_vocab.py`).
+5. `language_portal/controllers/portal_idioms.py`:
+   - `GET /idioms` — grid of cards, filter by language/category/level, paginated 20/page.
+   - `GET /idioms/<id>` — full expression detail page.
+   - `POST /idioms/<id>/save` — auth=user; creates `language.entry` with
+     `source_text=expression`, `created_from='seeded_content'`.
+6. `language_portal/views/portal_idioms.xml` — dark glassmorphism card grid with:
+   expression badge, literal → idiomatic flip animation, example sentence, "Save to
+   My Vocabulary" button.
+7. `data/website_menus.xml` — "Idioms Hub" under Library dropdown (M18.5) or as a
+   standalone entry (sequence=26) until M18.5 ships.
+8. `__manifest__.py`, `controllers/__init__.py` — updated.
+
+**Verification:**
+```bash
+docker exec odoo odoo --config /etc/odoo/odoo.conf \
+  -d lexora --update language_portal --stop-after-init --no-http
+
+# Model count
+docker exec odoo odoo-bin shell -d lexora -c /etc/odoo/odoo.conf << 'EOF'
+count = env['language.idiom'].sudo().search_count([])
+print(f"Idioms seeded: {count}")  # expect ≥100
+EOF
+
+curl -b cookies.txt http://localhost:5433/idioms  # → 200
+# Cards render; filter by language works; "Save to My Vocabulary" creates language.entry
+```
+
+---
+
+## M20 — Survival Phrasebook (Tourist Kits)
+
+**Goal:** Users can browse scenario-grouped phrase collections (Hotel, Taxi, Restaurant,
+Emergency, Shopping, Airport) in three languages and copy any phrase directly into an AI
+Roleplay session at `/phrasebook`.
+
+**Architecture:** Fully static — phrase data in a Python file, no model or DB table needed.
+`language_portal/data/phrasebook_data.py` provides `PHRASEBOOK` dict keyed by scenario.
+No async services. "Copy to Roleplay" opens a new Roleplay session pre-filled with the
+phrase as the first user message.
+
+**Data shape:**
+
+```python
+PHRASEBOOK = {
+    "hotel": {
+        "icon": "🏨",
+        "label": "Hotel Check-In",
+        "phrases": [
+            {
+                "en": "I have a reservation under the name ...",
+                "uk": "У мене є бронювання на ім'я ...",
+                "el": "Έχω κράτηση στο όνομα ...",
+                "tags": ["check-in", "beginner"],
+            },
+            ...
+        ],
+    },
+    ...  # taxi, restaurant, emergency, shopping, airport
+}
+```
+
+**Work:**
+1. `language_portal/data/phrasebook_data.py` — 6 scenarios × ~15 phrases = ~90 entries,
+   all three languages side-by-side.
+2. `language_portal/controllers/portal_phrasebook.py`:
+   - `GET /phrasebook` — scenario grid (6 cards). Loaded via `importlib` pattern.
+   - `GET /phrasebook/<scenario>` — phrase list for one scenario, language tabs.
+   - `POST /phrasebook/copy-to-roleplay` — auth=user; redirects to
+     `/my/roleplay/<scenario_id>` with `?prefill=<phrase_url_encoded>`. The Roleplay
+     portal controller already accepts a `prefill` query param and injects it as the
+     first user message.
+3. `language_portal/views/portal_phrasebook.xml` — scenario grid + phrase list with:
+   language tab switcher (EN / UK / EL), copy-to-clipboard button per phrase,
+   "Practice in Roleplay" CTA linking to the most relevant scenario (e.g., Hotel
+   phrases → Hotel Check-In roleplay scenario).
+4. `data/website_menus.xml` — "Phrasebook" under Library dropdown (sequence=27).
+5. `__manifest__.py`, `controllers/__init__.py` — updated.
+
+**Note:** `POST /my/roleplay/<id>/send` already supports arbitrary first messages.
+The `prefill` integration requires a one-line addition to `portal_roleplay.py`'s
+`GET /my/roleplay/<id>` route: read `kw.get('prefill', '')` and pass it to the
+template; JS auto-submits it as the first user turn.
+
+**Verification:**
+```bash
+docker exec odoo odoo --config /etc/odoo/odoo.conf \
+  -d lexora --update language_portal --stop-after-init --no-http
+
+curl -b cookies.txt http://localhost:5433/phrasebook           # → 200
+curl -b cookies.txt http://localhost:5433/phrasebook/hotel     # → 200
+# Language tabs switch correctly; "Practice in Roleplay" redirects to correct scenario
+# "Copy to Roleplay" opens roleplay with phrase pre-filled in chat input
+```
+
+---
+
+## M21 — Sentence Builder (Syntax Master)
+
+**Goal:** A new game mode at `/my/sentence-builder` where users reconstruct a scrambled
+sentence word-by-word. Reuses the M18 `cloze_exercises.py` dataset (entries with longer
+`sentence` fields). Awards XP on completion. No new data files or async services.
+
+**Mechanics:**
+
+- A sentence is split into individual words (tokens), shuffled, and displayed as
+  draggable/clickable tiles.
+- User clicks tiles in order to build the sentence in an answer tray.
+- On "Check": correct order turns green; wrong order shows the correct sentence.
+- Score = number of sentences built correctly out of 5 (one session).
+- XP: 10 XP per correct sentence (same `language.xp.log` + registry guard pattern as M18).
+
+**Tokenisation rule:** Split on whitespace only; preserve punctuation attached to words
+(e.g., "day." stays as one token). The answer is compared after joining tokens with spaces
+and stripping trailing punctuation from the joined string (same normalise logic as M18's
+`answer.trim()`).
+
+**Work:**
+1. `language_portal/controllers/portal_sentence_builder.py`:
+   - `GET /my/sentence-builder` — filters M18 exercises with `level` and `language` params;
+     picks 5 sentences with ≥5 words; shuffles tokens per sentence; renders template.
+   - `POST /my/sentence-builder/score` (JSON-RPC, auth=user) — awards 10 XP per correct
+     sentence via `language.xp.log` (registry guard identical to M18).
+2. `language_portal/views/portal_sentence_builder.xml` — dark glassmorphism UI:
+   - Token tiles: `.lx-token-tile` pill buttons in a scramble tray.
+   - Answer tray: `.lx-answer-tray` — click a tile to move it here; click in tray to
+     move back. No drag-and-drop library dependency (pure click-to-move JS, ~50 lines).
+   - "Check" button reveals green/red feedback per sentence; "Next" advances to the
+     next sentence.
+   - Score summary (same `#lx-score-summary` + XP badge pattern as Grammar Pro).
+3. `data/website_menus.xml` — "Sentence Builder" under Practice dropdown (sequence=24).
+4. `__manifest__.py`, `controllers/__init__.py` — updated.
+
+**Reuse pattern (copy from M18, not re-invent):**
+
+```python
+# Controller: load exercises via importlib (identical to grammar practice)
+_EXERCISES_PATH = os.path.join(os.path.dirname(__file__), "../data/cloze_exercises.py")
+
+def _load_exercises():
+    spec = importlib.util.spec_from_file_location("cloze_exercises", _EXERCISES_PATH)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod.CLOZE_EXERCISES  # reuse existing dataset, filter for sentence length
+
+# XP award: identical registry guard and xp.log write as grammar_practice_score()
+```
+
+**Verification:**
+```bash
+docker exec odoo odoo --config /etc/odoo/odoo.conf \
+  -d lexora --update language_portal --stop-after-init --no-http
+
+curl -b cookies.txt http://localhost:5433/my/sentence-builder  # → 200
+# 5 scrambled sentences render; tiles are clickable; answer tray fills correctly;
+# "Check" shows green/red; XP badge appears on final score summary.
+```
+
+---
+
+## Dependency Graph (updated)
+
+```
+M0 → M1 → M2 → M3
+               ↓
+               M4 → M4b → M4c
+               ↓
+          M5   M6
+          ↓    ↓
+          M7 ←→ M8
+          ↓
+          M9 → M10 → M11 → M12 → M13 → M14 → M15 → M16 → M17 → M18
+                                                                    ↓
+                                                              M18.5 (Header)
+                                                                    ↓
+                                                  M19 ←──────── parallel ──────→ M20
+                                                                    ↓
+                                                                   M21
+```
+
+M19, M20, M21 can be developed in parallel after M18 is stable.
+M18.5 (Header) is a pure UI refactor — safe to interleave with any of M19–M21.
+M21 has a hard dependency on M18's `cloze_exercises.py` dataset.

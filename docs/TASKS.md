@@ -15,6 +15,141 @@
 
 ## Current Milestone
 
+### Roadmap Planning — M19 / M20 / M21 + Header UI Redesign
+
+**Status:** Planning complete. Ready to begin implementation.
+**Started:** 2026-04-23
+**Branch:** `m19_m20_m21_expansion`
+
+**Scope:** Documentation-only pass defining three new content milestones and a navbar
+redesign. No code written yet. Full specs in `docs/PLAN.md` (v1.2) and
+`docs/UI_REDESIGN_HEADER.md`.
+
+#### Sub-steps
+
+- [x] Plan-01 · Branch `m19_m20_m21_expansion` created from `m17_m18_learning_expansion`. ✅
+- [x] Plan-02 · `docs/PLAN.md` bumped to v1.2; M18.5/M19/M20/M21 rows added to overview table. ✅
+- [x] Plan-03 · Full milestone specs appended to PLAN.md (Architecture, Work, Verification for each). ✅
+- [x] Plan-04 · `docs/UI_REDESIGN_HEADER.md` created — navbar groups, CSS plan, Odoo XML strategy. ✅
+- [x] Plan-05 · `docs/TASKS.md` updated with this planning block + M19/M20/M21 sub-task stubs. ✅
+- [ ] Plan-06 · Commit and push `m19_m20_m21_expansion`.
+
+---
+
+### M18.5 — Header UI Redesign
+
+**Status:** Not started.
+**Branch:** `m19_m20_m21_expansion` (or dedicated branch at implementation time)
+
+#### Sub-steps
+
+- [ ] M18.5-01 · Read `docs/UI_REDESIGN_HEADER.md` thoroughly before touching any XML.
+- [ ] M18.5-02 · Audit all existing `website.menu` records across `language_portal`,
+  `language_learning`, `language_pvp`; list current sequence numbers.
+- [ ] M18.5-03 · Create three parent menu records (Practice / Library / Tools) in
+  `language_portal/data/website_menus.xml`.
+- [ ] M18.5-04 · Re-parent all existing child menu records to their correct group.
+- [ ] M18.5-05 · Add glassmorphism dropdown CSS to `premium_ui.css`.
+- [ ] M18.5-06 · Test mobile collapse (Bootstrap toggler).
+- [ ] M18.5-07 · `--update language_portal,language_learning,language_pvp --stop-after-init`.
+- [ ] M18.5-08 · Verify all links still resolve; no 404s introduced.
+- [ ] M18.5-09 · Commit and push.
+
+#### Blockers
+
+(none yet)
+
+---
+
+### M19 — Natural Speech Hub (Idioms & Phrasal Verbs)
+
+**Status:** Not started.
+**Branch:** TBD
+
+#### Sub-steps
+
+- [ ] M19-01 · `language_portal/models/language_idiom.py` — model definition.
+- [ ] M19-02 · `language_portal/models/__init__.py` — import.
+- [ ] M19-03 · `language_portal/security/ir.model.access.csv` — read-only for Language Users.
+- [ ] M19-04 · `language_portal/data/idioms_data.py` — 100+ entries (40 EN phrasal verbs,
+  35 UK idioms, 30 EL idioms). Each: `expression`, `literal_meaning`, `idiomatic_meaning`,
+  `example_sentence`, `language`, `category`, `level`, `origin_note`.
+- [ ] M19-05 · Post-init hook in `language_portal/__init__.py` to seed from `idioms_data.py`.
+- [ ] M19-06 · `language_portal/controllers/portal_idioms.py` — `GET /idioms`,
+  `GET /idioms/<id>`, `POST /idioms/<id>/save`.
+- [ ] M19-07 · `language_portal/controllers/__init__.py` — import.
+- [ ] M19-08 · `language_portal/views/portal_idioms.xml` — dark card grid, flip animation,
+  category/language/level filters, "Save to Vocabulary" button.
+- [ ] M19-09 · `data/website_menus.xml` — "Idioms Hub" entry (sequence=26).
+- [ ] M19-10 · `__manifest__.py` — new files registered.
+- [ ] M19-11 · `--update language_portal --stop-after-init` → 0 errors.
+- [ ] M19-12 · Verify idiom count ≥100, `/idioms` → 200, save creates `language.entry`.
+- [ ] M19-13 · Commit and push.
+
+#### Blockers
+
+(none yet)
+
+---
+
+### M20 — Survival Phrasebook (Tourist Kits)
+
+**Status:** Not started.
+**Branch:** TBD
+
+#### Sub-steps
+
+- [ ] M20-01 · `language_portal/data/phrasebook_data.py` — 6 scenarios × ~15 phrases,
+  EN/UK/EL side-by-side. Scenarios: hotel, taxi, restaurant, emergency, shopping, airport.
+- [ ] M20-02 · `language_portal/controllers/portal_phrasebook.py` — `GET /phrasebook`,
+  `GET /phrasebook/<scenario>`, `POST /phrasebook/copy-to-roleplay`.
+- [ ] M20-03 · `language_portal/controllers/__init__.py` — import.
+- [ ] M20-04 · `language_portal/views/portal_phrasebook.xml` — scenario grid + phrase list
+  with EN/UK/EL tab switcher, copy-to-clipboard, "Practice in Roleplay" CTA.
+- [ ] M20-05 · `language_portal/controllers/portal_roleplay.py` — add `prefill` query param
+  handling to `GET /my/roleplay/<id>`; pass to template; JS auto-submits as first turn.
+- [ ] M20-06 · `data/website_menus.xml` — "Phrasebook" entry (sequence=27).
+- [ ] M20-07 · `__manifest__.py` — new files registered.
+- [ ] M20-08 · `--update language_portal --stop-after-init` → 0 errors.
+- [ ] M20-09 · Verify `/phrasebook` → 200; language tabs work; copy-to-roleplay redirects
+  to correct scenario with phrase pre-filled.
+- [ ] M20-10 · Commit and push.
+
+#### Blockers
+
+(none yet)
+
+---
+
+### M21 — Sentence Builder (Syntax Master)
+
+**Status:** Not started. Depends on M18 dataset (already available).
+**Branch:** TBD
+
+#### Sub-steps
+
+- [ ] M21-01 · `language_portal/controllers/portal_sentence_builder.py` —
+  `GET /my/sentence-builder` (load + filter M18 exercises with ≥5 words, pick 5, shuffle
+  tokens); `POST /my/sentence-builder/score` (JSON-RPC, 10 XP/correct, registry guard).
+- [ ] M21-02 · `language_portal/controllers/__init__.py` — import.
+- [ ] M21-03 · `language_portal/views/portal_sentence_builder.xml` — scramble tray
+  (`.lx-token-tile` pills), answer tray (`.lx-answer-tray`), Check button, feedback,
+  score summary with XP badge. Pure click-to-move JS (no drag library).
+- [ ] M21-04 · `data/website_menus.xml` — "Sentence Builder" entry (sequence=24).
+- [ ] M21-05 · `__manifest__.py` — new files registered.
+- [ ] M21-06 · `--update language_portal --stop-after-init` → 0 errors.
+- [ ] M21-07 · Verify `/my/sentence-builder` → 200; 5 scrambled sentences render;
+  correct order scores correctly; XP badge appears; `language.xp.log` entry created.
+- [ ] M21-08 · Commit and push.
+
+#### Blockers
+
+(none yet)
+
+---
+
+## Completed Milestones (M18 fix pass)
+
 ### M18 — Grammar Pro — Cloze Tests (fix pass)
 
 **Status:** Complete and verified.
