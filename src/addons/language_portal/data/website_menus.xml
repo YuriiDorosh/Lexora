@@ -1,7 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
-    <!-- noupdate=0 so renames and additions apply on every update run -->
+    <!-- noupdate=0 so parent_id changes and additions apply on every update run -->
     <data noupdate="0">
+
+        <!-- ════════════════════════════════════════════════════
+             Standalone top-level items
+             ════════════════════════════════════════════════════ -->
 
         <record id="menu_navbar_articles" model="website.menu">
             <field name="name">Community Posts</field>
@@ -12,7 +16,6 @@
             <field name="user_not_logged">True</field>
         </record>
 
-        <!-- Translator — public, always visible -->
         <record id="menu_translator" model="website.menu">
             <field name="name">Translator</field>
             <field name="url">/translator</field>
@@ -22,67 +25,110 @@
             <field name="user_not_logged">True</field>
         </record>
 
-        <!-- AI Roleplay — authenticated only -->
+        <!-- ════════════════════════════════════════════════════
+             PRACTICE dropdown group
+             Children added here + in language_learning (Daily Practice)
+             ════════════════════════════════════════════════════ -->
+
+        <record id="menu_practice_group" model="website.menu">
+            <field name="name">Practice</field>
+            <field name="url">#</field>
+            <field name="parent_id" ref="website.main_menu"/>
+            <field name="sequence">30</field>
+            <field name="user_logged">True</field>
+            <field name="user_not_logged">False</field>
+        </record>
+
+        <!-- Daily Practice lives in language_learning — re-parented there -->
+
         <record id="menu_ai_roleplay" model="website.menu">
             <field name="name">AI Roleplay</field>
             <field name="url">/my/roleplay</field>
-            <field name="parent_id" ref="website.main_menu"/>
-            <field name="sequence">26</field>
+            <field name="parent_id" ref="menu_practice_group"/>
+            <field name="sequence">20</field>
             <field name="user_logged">True</field>
             <field name="user_not_logged">False</field>
         </record>
 
-        <!-- Grammar Pro — authenticated only -->
         <record id="menu_grammar_pro" model="website.menu">
             <field name="name">Grammar Pro</field>
             <field name="url">/my/grammar-practice</field>
-            <field name="parent_id" ref="website.main_menu"/>
-            <field name="sequence">27</field>
+            <field name="parent_id" ref="menu_practice_group"/>
+            <field name="sequence">30</field>
             <field name="user_logged">True</field>
             <field name="user_not_logged">False</field>
         </record>
 
-        <!-- Library dropdown parent -->
+        <!-- ════════════════════════════════════════════════════
+             LIBRARY dropdown group  (existing parent, updated)
+             ════════════════════════════════════════════════════ -->
+
         <record id="menu_library_parent" model="website.menu">
             <field name="name">Library</field>
-            <field name="url">/useful-words</field>
+            <field name="url">#</field>
             <field name="parent_id" ref="website.main_menu"/>
-            <field name="sequence">25</field>
+            <field name="sequence">50</field>
+            <field name="user_logged">True</field>
+            <field name="user_not_logged">True</field>
         </record>
 
         <record id="menu_useful_words" model="website.menu">
             <field name="name">Useful Words</field>
             <field name="url">/useful-words</field>
             <field name="parent_id" ref="menu_library_parent"/>
-            <field name="sequence">30</field>
+            <field name="sequence">10</field>
         </record>
 
         <record id="menu_grammar_guide" model="website.menu">
             <field name="name">Grammar Guide</field>
             <field name="url">/grammar</field>
             <field name="parent_id" ref="menu_library_parent"/>
-            <field name="sequence">31</field>
+            <field name="sequence">20</field>
         </record>
 
-        <!-- My Posts — portal navbar, authenticated users only -->
+        <!-- Idioms Hub (M19) — placeholder, activated when module is installed -->
+        <!-- <record id="menu_idioms_hub" ...> added in M19 -->
+
+        <!-- Phrasebook (M20) — placeholder, activated when module is installed -->
+        <!-- <record id="menu_phrasebook" ...> added in M20 -->
+
+        <!-- ════════════════════════════════════════════════════
+             TOOLS dropdown group
+             Children added here + in language_learning + language_pvp
+             ════════════════════════════════════════════════════ -->
+
+        <record id="menu_tools_group" model="website.menu">
+            <field name="name">Tools</field>
+            <field name="url">#</field>
+            <field name="parent_id" ref="website.main_menu"/>
+            <field name="sequence">70</field>
+            <field name="user_logged">True</field>
+            <field name="user_not_logged">False</field>
+        </record>
+
+        <!-- My Profile, Leaderboard, Arena, XP Shop, Inventory live in their
+             own modules — re-parented in language_learning/language_pvp files -->
+
         <record id="menu_my_posts" model="website.menu">
             <field name="name">My Posts</field>
             <field name="url">/my/posts</field>
-            <field name="parent_id" ref="website.main_menu"/>
-            <field name="sequence">62</field>
+            <field name="parent_id" ref="menu_tools_group"/>
+            <field name="sequence">50</field>
             <field name="user_logged">True</field>
             <field name="user_not_logged">False</field>
         </record>
 
-        <!-- Moderation Queue — visible to logged-in users; route guards access internally -->
         <record id="menu_moderation_queue" model="website.menu">
             <field name="name">Moderation Queue</field>
             <field name="url">/my/moderation</field>
-            <field name="parent_id" ref="website.main_menu"/>
-            <field name="sequence">63</field>
+            <field name="parent_id" ref="menu_tools_group"/>
+            <field name="sequence">60</field>
             <field name="user_logged">True</field>
             <field name="user_not_logged">False</field>
         </record>
+
+        <!-- Sentence Builder (M21) — placeholder -->
+        <!-- <record id="menu_sentence_builder" ...> added in M21 -->
 
     </data>
 </odoo>
