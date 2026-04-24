@@ -29,6 +29,7 @@
         'views/pdf_vocabulary.xml',
         'views/pdf_gold_vocab.xml',
         'views/pdf_grammar.xml',
+        'views/portal_phrasebook.xml',
     ],
     'assets': {
         'web.assets_frontend': [

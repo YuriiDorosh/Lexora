@@ -1,0 +1,238 @@
+PHRASEBOOK = {
+    "hotel": {
+        "icon": "🏨",
+        "label": "Hotel Check-In",
+        "phrases": [
+            {
+                "en": "I have a reservation under the name ...",
+                "uk": "У мене є бронювання на ім'я ...",
+                "el": "Έχω κράτηση στο όνομα ...",
+                "tags": ["check-in", "beginner"],
+            },
+            {
+                "en": "I'd like to check in, please.",
+                "uk": "Я хотів би зареєструватися, будь ласка.",
+                "el": "Θα ήθελα να κάνω check-in, παρακαλώ.",
+                "tags": ["check-in", "beginner"],
+            },
+            {
+                "en": "What time is check-out?",
+                "uk": "О котрій годині виїзд?",
+                "el": "Τι ώρα είναι το check-out;",
+                "tags": ["check-out", "beginner"],
+            },
+            {
+                "en": "Can I have a room with a sea view?",
+                "uk": "Чи можна отримати кімнату з видом на море?",
+                "el": "Μπορώ να έχω δωμάτιο με θέα στη θάλασσα;",
+                "tags": ["room", "intermediate"],
+            },
+            {
+                "en": "Is breakfast included?",
+                "uk": "Чи включений сніданок?",
+                "el": "Περιλαμβάνεται το πρωινό;",
+                "tags": ["breakfast", "beginner"],
+            },
+            {
+                "en": "The air conditioning is not working.",
+                "uk": "Кондиціонер не працює.",
+                "el": "Το κλιματιστικό δεν λειτουργεί.",
+                "tags": ["room", "intermediate"],
+            },
+            {
+                "en": "Can you bring extra towels, please?",
+                "uk": "Чи можете принести додаткові рушники, будь ласка?",
+                "el": "Μπορείτε να φέρετε επιπλέον πετσέτες, παρακαλώ;",
+                "tags": ["room", "beginner"],
+            },
+            {
+                "en": "I'd like to extend my stay by one night.",
+                "uk": "Я хотів би продовжити перебування на одну ніч.",
+                "el": "Θα ήθελα να παρατείνω τη διαμονή μου κατά μία νύχτα.",
+                "tags": ["check-out", "intermediate"],
+            },
+            {
+                "en": "Could you wake me up at 7 a.m.?",
+                "uk": "Чи могли б ви розбудити мене о 7 ранку?",
+                "el": "Μπορείτε να με ξυπνήσετε στις 7 το πρωί;",
+                "tags": ["service", "beginner"],
+            },
+            {
+                "en": "Is there Wi-Fi in the room?",
+                "uk": "Чи є Wi-Fi у кімнаті?",
+                "el": "Υπάρχει Wi-Fi στο δωμάτιο;",
+                "tags": ["internet", "beginner"],
+            },
+            {
+                "en": "I'll be checking out tomorrow morning.",
+                "uk": "Я виїжджатиму завтра вранці.",
+                "el": "Θα κάνω check-out αύριο το πρωί.",
+                "tags": ["check-out", "beginner"],
+            },
+            {
+                "en": "Can I leave my luggage here until the afternoon?",
+                "uk": "Чи можу я залишити багаж тут до вечора?",
+                "el": "Μπορώ να αφήσω τις αποσκευές μου εδώ μέχρι το απόγευμα;",
+                "tags": ["luggage", "intermediate"],
+            },
+        ],
+    },
+    "taxi": {
+        "icon": "🚕",
+        "label": "Taking a Taxi",
+        "phrases": [
+            {
+                "en": "Please take me to this address.",
+                "uk": "Будь ласка, відвезіть мене за цією адресою.",
+                "el": "Παρακαλώ πηγαίνετέ με σε αυτή τη διεύθυνση.",
+                "tags": ["direction", "beginner"],
+            },
+            {
+                "en": "How much will it cost to get to the airport?",
+                "uk": "Скільки коштуватиме поїздка до аеропорту?",
+                "el": "Πόσο θα κοστίσει να πάω στο αεροδρόμιο;",
+                "tags": ["price", "beginner"],
+            },
+            {
+                "en": "Can you turn on the meter, please?",
+                "uk": "Чи можете ввімкнути лічильник, будь ласка?",
+                "el": "Μπορείτε να ανοίξετε το ταξίμετρο, παρακαλώ;",
+                "tags": ["meter", "intermediate"],
+            },
+            {
+                "en": "Please stop here.",
+                "uk": "Будь ласка, зупиніться тут.",
+                "el": "Σταματήστε εδώ, παρακαλώ.",
+                "tags": ["direction", "beginner"],
+            },
+            {
+                "en": "How long will it take to get there?",
+                "uk": "Скільки часу займе дістатися туди?",
+                "el": "Πόση ώρα θα πάρει για να φτάσουμε εκεί;",
+                "tags": ["time", "beginner"],
+            },
+            {
+                "en": "I need to catch a flight at 6 p.m.",
+                "uk": "Мені потрібно встигнути на рейс о 18:00.",
+                "el": "Πρέπει να προλάβω πτήση στις 6 μ.μ.",
+                "tags": ["airport", "intermediate"],
+            },
+            {
+                "en": "Can you drive faster, please? I'm late.",
+                "uk": "Чи можете їхати швидше, будь ласка? Я запізнююся.",
+                "el": "Μπορείτε να οδηγείτε πιο γρήγορα, παρακαλώ; Αργώ.",
+                "tags": ["direction", "intermediate"],
+            },
+            {
+                "en": "Keep the change.",
+                "uk": "Здачі не треба.",
+                "el": "Κρατήστε τα ρέστα.",
+                "tags": ["payment", "beginner"],
+            },
+            {
+                "en": "Do you accept credit cards?",
+                "uk": "Чи приймаєте кредитні картки?",
+                "el": "Δέχεστε πιστωτικές κάρτες;",
+                "tags": ["payment", "beginner"],
+            },
+            {
+                "en": "Please take the fastest route.",
+                "uk": "Будь ласка, їдьте найшвидшим маршрутом.",
+                "el": "Παρακαλώ πάρτε τη γρηγορότερη διαδρομή.",
+                "tags": ["direction", "intermediate"],
+            },
+            {
+                "en": "Can you help me with my luggage?",
+                "uk": "Чи можете допомогти мені з багажем?",
+                "el": "Μπορείτε να με βοηθήσετε με τις αποσκευές μου;",
+                "tags": ["luggage", "beginner"],
+            },
+            {
+                "en": "I left my bag in the taxi.",
+                "uk": "Я залишив сумку в таксі.",
+                "el": "Άφησα την τσάντα μου στο ταξί.",
+                "tags": ["emergency", "intermediate"],
+            },
+        ],
+    },
+    "restaurant": {
+        "icon": "🍽️",
+        "label": "Restaurant & Café",
+        "phrases": [
+            {
+                "en": "A table for two, please.",
+                "uk": "Столик на двох, будь ласка.",
+                "el": "Ένα τραπέζι για δύο, παρακαλώ.",
+                "tags": ["ordering", "beginner"],
+            },
+            {
+                "en": "Could I see the menu, please?",
+                "uk": "Чи можу я побачити меню, будь ласка?",
+                "el": "Μπορώ να δω το μενού, παρακαλώ;",
+                "tags": ["menu", "beginner"],
+            },
+            {
+                "en": "I'd like to order, please.",
+                "uk": "Я хотів би зробити замовлення, будь ласка.",
+                "el": "Θα ήθελα να παραγγείλω, παρακαλώ.",
+                "tags": ["ordering", "beginner"],
+            },
+            {
+                "en": "What do you recommend?",
+                "uk": "Що ви рекомендуєте?",
+                "el": "Τι συνιστάτε;",
+                "tags": ["menu", "beginner"],
+            },
+            {
+                "en": "I'm allergic to nuts.",
+                "uk": "Я алергічний на горіхи.",
+                "el": "Έχω αλλεργία στους ξηρούς καρπούς.",
+                "tags": ["dietary", "intermediate"],
+            },
+            {
+                "en": "Is this dish vegetarian?",
+                "uk": "Чи є ця страва вегетаріанською?",
+                "el": "Αυτό το πιάτο είναι χορτοφαγικό;",
+                "tags": ["dietary", "beginner"],
+            },
+            {
+                "en": "The food is delicious!",
+                "uk": "Їжа дуже смачна!",
+                "el": "Το φαγητό είναι νόστιμο!",
+                "tags": ["compliment", "beginner"],
+            },
+            {
+                "en": "Could we have the bill, please?",
+                "uk": "Чи можемо отримати рахунок, будь ласка?",
+                "el": "Μπορούμε να έχουμε τον λογαριασμό, παρακαλώ;",
+                "tags": ["payment", "beginner"],
+            },
+            {
+                "en": "We'd like to pay separately.",
+                "uk": "Ми хотіли б заплатити окремо.",
+                "el": "Θα θέλαμε να πληρώσουμε χωριστά.",
+                "tags": ["payment", "intermediate"],
+            },
+            {
+                "en": "Can I have a glass of water, please?",
+                "uk": "Чи можна склянку води, будь ласка?",
+                "el": "Μπορώ να έχω ένα ποτήρι νερό, παρακαλώ;",
+                "tags": ["drinks", "beginner"],
+            },
+            {
+                "en": "This is not what I ordered.",
+                "uk": "Це не те, що я замовляв.",
+                "el": "Αυτό δεν είναι αυτό που παράγγειλα.",
+                "tags": ["complaint", "intermediate"],
+            },
+            {
+                "en": "Could you bring more bread, please?",
+                "uk": "Чи можете принести більше хліба, будь ласка?",
+                "el": "Μπορείτε να φέρετε περισσότερο ψωμί, παρακαλώ;",
+                "tags": ["ordering", "beginner"],
+            },
+        ],
+    },
+}
+
+SCENARIO_ORDER = ["hotel", "taxi", "restaurant"]
