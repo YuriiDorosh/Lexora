@@ -473,23 +473,42 @@ def _seed_grammar(env):
 
 
 def _fix_library_menu_parents(env):
-    """Wire Useful Words + Grammar Guide under each website's Library parent.
+    """Wire all dropdown children to their website-specific parent groups.
 
-    The XML data file creates children with parent_id pointing to the global
-    template Library entry. Odoo also creates website-specific copies of that
-    parent (one per website). The children must point to the website-specific
-    copies so the dropdown renders on each website.
+    When Odoo loads website.menu XML data, it creates one global record per
+    entry. For each website it creates per-website copies. Children created by
+    the XML receive parent_id pointing to the GLOBAL parent, not the
+    website-specific copy. This function corrects parent_ids so all three
+    dropdown groups (Practice, Library, Tools) render correctly on every
+    website.
     """
     Menu = env['website.menu'].sudo()
-    library_parents = Menu.search([('name', 'ilike', 'Library'), ('parent_id.parent_id', '=', False)])
-    # website-specific Library entries (have website_id set)
-    site_libs = library_parents.filtered(lambda m: m.website_id)
-    for lib in site_libs:
-        children = Menu.search([
-            ('parent_id.name', 'ilike', 'Library'),
-            ('website_id', '=', lib.website_id.id),
-        ])
-        children.write({'parent_id': lib.id})
+
+    # URL → group name mapping
+    group_map = {
+        '#practice': ('Practice', ['/my/practice', '/my/roleplay', '/my/grammar-practice']),
+        '#library':  ('Library',  ['/useful-words', '/grammar', '/idioms', '/phrasebook']),
+        '#tools':    ('Tools',    ['/my/dashboard', '/my/leaderboard', '/my/arena',
+                                   '/my/shop', '/my/inventory', '/my/posts', '/my/moderation']),
+    }
+
+    websites = env['website.website'].sudo().search([])
+    for website in websites:
+        for _key, (group_name, child_urls) in group_map.items():
+            # Find the website-specific group record
+            group = Menu.search([
+                ('name', '=', group_name),
+                ('website_id', '=', website.id),
+            ], limit=1)
+            if not group:
+                continue
+            # Reparent any website-specific child with a matching URL
+            children = Menu.search([
+                ('url', 'in', child_urls),
+                ('website_id', '=', website.id),
+            ])
+            if children:
+                children.write({'parent_id': group.id})
 
 
 def _rename_menus(env):
