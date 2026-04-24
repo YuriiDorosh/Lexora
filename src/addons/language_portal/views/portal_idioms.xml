@@ -1,144 +1,253 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
-    <template id="portal_idioms_index" name="Idioms Hub">
-        <t t-call="portal.frontend_layout">
-            <t t-set="title">Idioms &amp; Phrasal Verbs</t>
-            <div id="wrap" class="oe_structure lx-premium-theme">
 
-                <!-- Hero -->
-                <section class="lx-hero-section py-4 mb-4">
-                    <div class="container">
-                        <h1 class="lx-hero-title mb-1">Idioms &amp; Phrasal Verbs</h1>
-                        <p class="lx-hero-sub text-white-50">Natural speech expressions in English and Greek</p>
-                    </div>
-                </section>
+<!-- ══════════════════════════════════════════════════════════════════
+     M19 — Idioms Hub  (index: flip-card grid + filters)
+     ══════════════════════════════════════════════════════════════════ -->
+<template id="portal_idioms_index" name="Idioms Hub">
+    <t t-call="portal.frontend_layout">
+        <t t-set="title">Idioms &amp; Phrasal Verbs</t>
+        <div id="wrap" class="oe_structure lx-premium-theme">
 
-                <div class="container pb-5">
-                    <!-- Filters -->
-                    <form method="get" action="/idioms" class="row g-2 mb-4">
-                        <div class="col-auto">
-                            <select name="language" class="form-select form-select-sm lx-filter-select">
-                                <option value="">All Languages</option>
-                                <t t-foreach="languages" t-as="lopt">
-                                    <option t-att-value="lopt[0]"
-                                            t-att-selected="filter_language == lopt[0]">
-                                        <t t-out="lopt[1]"/>
-                                    </option>
-                                </t>
-                            </select>
-                        </div>
-                        <div class="col-auto">
-                            <select name="category" class="form-select form-select-sm lx-filter-select">
-                                <option value="">All Categories</option>
-                                <t t-foreach="categories" t-as="copt">
-                                    <option t-att-value="copt[0]"
-                                            t-att-selected="filter_category == copt[0]">
-                                        <t t-out="copt[1]"/>
-                                    </option>
-                                </t>
-                            </select>
-                        </div>
-                        <div class="col-auto">
-                            <select name="level" class="form-select form-select-sm lx-filter-select">
-                                <option value="">All Levels</option>
-                                <t t-foreach="levels" t-as="lvopt">
-                                    <option t-att-value="lvopt[0]"
-                                            t-att-selected="filter_level == lvopt[0]">
-                                        <t t-out="lvopt[1]"/>
-                                    </option>
-                                </t>
-                            </select>
-                        </div>
-                        <div class="col-auto">
-                            <button type="submit" class="btn btn-sm lx-btn-primary">Filter</button>
-                            <a href="/idioms" class="btn btn-sm btn-outline-secondary ms-1">Reset</a>
-                        </div>
-                    </form>
-
-                    <!-- Count -->
-                    <p class="text-white-50 small mb-3">
-                        <t t-out="len(idioms)"/> expression(s) found
+            <!-- ── Hero ── -->
+            <section class="lx-hero-section lx-idioms-hero py-5 mb-0">
+                <div class="container text-center">
+                    <span class="lx-idioms-hero-icon">💬</span>
+                    <h1 class="lx-hero-title mt-2 mb-1">Idioms &amp; Phrasal Verbs</h1>
+                    <p class="lx-hero-sub text-white-50 mb-0">
+                        Master natural speech — click any card to reveal its meaning
                     </p>
+                </div>
+            </section>
 
-                    <!-- Cards grid -->
-                    <t t-if="not idioms">
-                        <div class="lx-glass-card p-5 text-center text-white-50">
-                            <p class="mb-0">No idioms match your filters. <a href="/idioms" class="lx-link">Reset filters</a></p>
-                        </div>
+            <div class="container py-4 pb-5">
+
+                <!-- ── Filter bar ── -->
+                <form method="get" action="/idioms"
+                      class="lx-filter-bar d-flex flex-wrap gap-2 align-items-center mb-4">
+
+                    <select name="language" class="form-select form-select-sm lx-filter-select"
+                            onchange="this.form.submit()">
+                        <option value="">🌐 All Languages</option>
+                        <t t-foreach="languages" t-as="lopt">
+                            <option t-att-value="lopt[0]"
+                                    t-att-selected="'selected' if filter_language == lopt[0] else False">
+                                <t t-out="lopt[1]"/>
+                            </option>
+                        </t>
+                    </select>
+
+                    <select name="category" class="form-select form-select-sm lx-filter-select"
+                            onchange="this.form.submit()">
+                        <option value="">📂 All Categories</option>
+                        <t t-foreach="categories" t-as="copt">
+                            <option t-att-value="copt[0]"
+                                    t-att-selected="'selected' if filter_category == copt[0] else False">
+                                <t t-out="copt[1]"/>
+                            </option>
+                        </t>
+                    </select>
+
+                    <select name="level" class="form-select form-select-sm lx-filter-select"
+                            onchange="this.form.submit()">
+                        <option value="">🎓 All Levels</option>
+                        <t t-foreach="levels" t-as="lvopt">
+                            <option t-att-value="lvopt[0]"
+                                    t-att-selected="'selected' if filter_level == lvopt[0] else False">
+                                <t t-out="lvopt[1]"/>
+                            </option>
+                        </t>
+                    </select>
+
+                    <t t-if="filter_language or filter_category or filter_level">
+                        <a href="/idioms" class="btn btn-sm lx-btn-outline-sm">✕ Clear</a>
                     </t>
-                    <div t-else="" class="row g-3">
-                        <t t-foreach="idioms" t-as="idiom">
-                            <div class="col-md-6 col-lg-4">
-                                <a t-attf-href="/idioms/{{ idiom.id }}" class="text-decoration-none">
-                                    <div class="lx-glass-card p-3 h-100 lx-idiom-card">
-                                        <div class="d-flex justify-content-between align-items-start mb-2">
+
+                    <span class="ms-auto text-white-50 small">
+                        <t t-out="len(idioms)"/> expression<t t-if="len(idioms) != 1">s</t>
+                    </span>
+                </form>
+
+                <!-- ── Empty state ── -->
+                <t t-if="not idioms">
+                    <div class="lx-glass-card p-5 text-center">
+                        <div class="lx-empty-icon mb-3">🔍</div>
+                        <p class="text-white-50 mb-2">No idioms match your filters.</p>
+                        <a href="/idioms" class="btn btn-sm lx-btn-primary">Reset Filters</a>
+                    </div>
+                </t>
+
+                <!-- ── Flip-card grid ── -->
+                <div t-else="" class="row g-4" id="lx-idioms-grid">
+                    <t t-foreach="idioms" t-as="idiom">
+                        <div class="col-sm-6 col-lg-4">
+                            <!-- Outer wrapper: click toggles .lx-flipped -->
+                            <div class="lx-flip-card" onclick="this.classList.toggle('lx-flipped')"
+                                 role="button" tabindex="0"
+                                 onkeydown="if(event.key==='Enter'||event.key===' ')this.classList.toggle('lx-flipped')"
+                                 t-att-data-id="idiom.id">
+
+                                <div class="lx-flip-inner">
+
+                                    <!-- FRONT -->
+                                    <div class="lx-flip-front">
+                                        <div class="lx-flip-badges">
                                             <span class="lx-badge lx-badge-level">
                                                 <t t-out="idiom.level"/>
                                             </span>
-                                            <span class="lx-badge lx-badge-lang text-uppercase">
-                                                <t t-out="idiom.language"/>
+                                            <span t-attf-class="lx-badge lx-badge-lang lx-lang-{{ idiom.language }}">
+                                                <t t-out="idiom.language.upper()"/>
                                             </span>
                                         </div>
-                                        <h5 class="text-white fw-bold mb-1">
-                                            <t t-out="idiom.expression"/>
-                                        </h5>
-                                        <p class="text-white-50 small mb-2">
-                                            <t t-out="idiom.idiomatic_meaning"/>
-                                        </p>
-                                        <p class="text-white-50 small fst-italic mb-0" t-if="idiom.example">
-                                            "<t t-out="idiom.example"/>"
-                                        </p>
+
+                                        <div class="lx-flip-front-body">
+                                            <div class="lx-flip-expression">
+                                                <t t-out="idiom.expression"/>
+                                            </div>
+                                            <t t-if="idiom.literal_meaning">
+                                                <p class="lx-flip-literal">
+                                                    Literally: <em><t t-out="idiom.literal_meaning"/></em>
+                                                </p>
+                                            </t>
+                                        </div>
+
+                                        <div class="lx-flip-hint">
+                                            Tap to reveal meaning →
+                                        </div>
                                     </div>
-                                </a>
-                            </div>
+
+                                    <!-- BACK -->
+                                    <div class="lx-flip-back">
+                                        <div class="lx-flip-badges">
+                                            <span class="lx-badge lx-badge-level">
+                                                <t t-out="idiom.level"/>
+                                            </span>
+                                            <t t-if="idiom.category">
+                                                <span class="lx-badge lx-badge-cat">
+                                                    <t t-out="idiom.category.replace('_', ' ').title()"/>
+                                                </span>
+                                            </t>
+                                        </div>
+
+                                        <div class="lx-flip-back-body">
+                                            <p class="lx-flip-meaning">
+                                                <t t-out="idiom.idiomatic_meaning"/>
+                                            </p>
+                                            <t t-if="idiom.example">
+                                                <p class="lx-flip-example">
+                                                    "<t t-out="idiom.example"/>"
+                                                </p>
+                                            </t>
+                                        </div>
+
+                                        <a t-attf-href="/idioms/{{ idiom.id }}"
+                                           class="lx-flip-detail-link"
+                                           onclick="event.stopPropagation()">
+                                            Full details →
+                                        </a>
+                                    </div>
+
+                                </div><!-- /.lx-flip-inner -->
+                            </div><!-- /.lx-flip-card -->
+                        </div><!-- /.col -->
+                    </t>
+                </div><!-- /#lx-idioms-grid -->
+
+                <!-- ── Keyboard hint ── -->
+                <p class="text-center text-white-50 small mt-5 mb-0">
+                    Click or press Enter on any card to flip it
+                </p>
+
+            </div><!-- /.container -->
+        </div><!-- /#wrap -->
+    </t>
+</template>
+
+
+<!-- ══════════════════════════════════════════════════════════════════
+     M19 — Idiom Detail page
+     ══════════════════════════════════════════════════════════════════ -->
+<template id="portal_idioms_detail" name="Idiom Detail">
+    <t t-call="portal.frontend_layout">
+        <t t-set="title" t-value="idiom.expression"/>
+        <div id="wrap" class="oe_structure lx-premium-theme">
+            <div class="container py-5" style="max-width: 760px;">
+
+                <a href="/idioms" class="lx-back-link mb-4 d-inline-block">
+                    ← Back to Idioms Hub
+                </a>
+
+                <!-- Main card -->
+                <div class="lx-glass-card lx-idiom-detail-card p-4 p-md-5">
+
+                    <!-- Badges row -->
+                    <div class="d-flex flex-wrap gap-2 mb-4">
+                        <span class="lx-badge lx-badge-level"><t t-out="idiom.level"/></span>
+                        <span t-attf-class="lx-badge lx-badge-lang lx-lang-{{ idiom.language }}">
+                            <t t-out="idiom.language.upper()"/>
+                        </span>
+                        <t t-if="idiom.category">
+                            <span class="lx-badge lx-badge-cat">
+                                <t t-out="idiom.category.replace('_', ' ').title()"/>
+                            </span>
                         </t>
                     </div>
-                </div>
-            </div>
-        </t>
-    </template>
 
-    <template id="portal_idioms_detail" name="Idiom Detail">
-        <t t-call="portal.frontend_layout">
-            <t t-set="title" t-value="idiom.expression"/>
-            <div id="wrap" class="oe_structure lx-premium-theme">
-                <div class="container py-5">
-                    <a href="/idioms" class="btn btn-sm btn-outline-secondary mb-4">← Back to Idioms</a>
+                    <!-- Expression headline -->
+                    <h1 class="text-white fw-bold mb-2" style="font-size: 2rem;">
+                        <t t-out="idiom.expression"/>
+                    </h1>
 
-                    <div class="lx-glass-card p-4 p-md-5">
-                        <div class="d-flex gap-2 mb-3">
-                            <span class="lx-badge lx-badge-level"><t t-out="idiom.level"/></span>
-                            <span class="lx-badge lx-badge-lang text-uppercase"><t t-out="idiom.language"/></span>
-                        </div>
+                    <!-- Literal meaning -->
+                    <t t-if="idiom.literal_meaning">
+                        <p class="text-white-50 mb-4" style="font-size: 0.95rem;">
+                            <span class="text-white-50 fw-semibold">Literally: </span>
+                            <em><t t-out="idiom.literal_meaning"/></em>
+                        </p>
+                    </t>
 
-                        <h1 class="text-white fw-bold mb-1">
-                            <t t-out="idiom.expression"/>
-                        </h1>
+                    <hr class="lx-divider my-4"/>
 
-                        <t t-if="idiom.literal_meaning">
-                            <p class="text-white-50 mb-3">
-                                <strong class="text-white-50">Literal:</strong>
-                                <t t-out="idiom.literal_meaning"/>
+                    <!-- Meaning -->
+                    <div class="lx-detail-section mb-4">
+                        <h5 class="lx-detail-label">💡 Meaning</h5>
+                        <p class="text-white fs-5 lh-base">
+                            <t t-out="idiom.idiomatic_meaning"/>
+                        </p>
+                    </div>
+
+                    <!-- Example -->
+                    <t t-if="idiom.example">
+                        <div class="lx-detail-section lx-example-block mb-4">
+                            <h5 class="lx-detail-label">📖 Example</h5>
+                            <p class="text-white fst-italic lh-base">
+                                "<t t-out="idiom.example"/>"
                             </p>
-                        </t>
+                        </div>
+                    </t>
 
-                        <hr class="border-secondary"/>
+                    <!-- Origin -->
+                    <t t-if="idiom.origin_note">
+                        <div class="lx-detail-section mb-4">
+                            <h5 class="lx-detail-label">🏛️ Origin</h5>
+                            <p class="text-white-50 lh-base">
+                                <t t-out="idiom.origin_note"/>
+                            </p>
+                        </div>
+                    </t>
 
-                        <h5 class="text-white mt-3 mb-1">Meaning</h5>
-                        <p class="text-white"><t t-out="idiom.idiomatic_meaning"/></p>
+                </div><!-- /.lx-glass-card -->
 
-                        <t t-if="idiom.example">
-                            <h5 class="text-white mt-3 mb-1">Example</h5>
-                            <p class="text-white fst-italic">"<t t-out="idiom.example"/>"</p>
-                        </t>
-
-                        <t t-if="idiom.origin_note">
-                            <h5 class="text-white mt-3 mb-1">Origin</h5>
-                            <p class="text-white-50"><t t-out="idiom.origin_note"/></p>
-                        </t>
-                    </div>
+                <!-- Navigation hint -->
+                <div class="text-center mt-4">
+                    <a href="/idioms" class="btn lx-btn-outline-sm">
+                        ← Browse More Idioms
+                    </a>
                 </div>
-            </div>
-        </t>
-    </template>
+
+            </div><!-- /.container -->
+        </div><!-- /#wrap -->
+    </t>
+</template>
+
 </odoo>
