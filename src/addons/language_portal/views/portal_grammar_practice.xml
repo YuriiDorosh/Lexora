@@ -4,12 +4,12 @@
     <template id="portal_grammar_practice" name="Grammar Pro — Cloze Practice">
         <t t-call="portal.frontend_layout">
             <t t-set="title">Grammar Pro</t>
-            <div id="wrap" class="lx-premium-theme">
+            <div id="wrap" class="lx-premium-theme" style="background:#0f172a;min-height:100vh">
 
                 <!-- Hero -->
                 <section style="background:linear-gradient(135deg,#0a2a1a 0%,#0d3b22 50%,#0a1a2a 100%);padding:48px 0 32px">
                     <div class="container text-center">
-                        <h1 class="display-5 fw-bold text-white mb-2">📝 Grammar Pro</h1>
+                        <h1 class="display-5 fw-bold mb-2" style="color:#ffffff">📝 Grammar Pro</h1>
                         <p class="lead mb-0" style="color:rgba(255,255,255,0.65)">Fill in the blank · Immediate feedback · <t t-esc="total_pool"/> exercises available</p>
                     </div>
                 </section>
@@ -17,13 +17,12 @@
                 <div class="container py-4" style="max-width:900px">
 
                     <!-- Filter bar -->
-                    <div class="card mb-4 border-0" style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08)!important;border-radius:14px">
+                    <div class="card mb-4 border-0" style="background:#f8fafc;border:1px solid #e2e8f0!important;border-radius:14px">
                         <div class="card-body p-3">
                             <form method="get" action="/my/grammar-practice" class="row g-2 align-items-end">
-                                <!-- Language -->
                                 <div class="col-auto">
-                                    <label class="form-label text-white-50 small mb-1">Language</label>
-                                    <select name="lang" class="form-select form-select-sm" style="background:#1a1a2e;color:#e0e0e0;border:1px solid rgba(255,255,255,0.15);border-radius:8px">
+                                    <label class="form-label small mb-1" style="color:#0f172a;font-weight:600">Language</label>
+                                    <select name="lang" class="form-select form-select-sm" style="background:#ffffff;color:#1e293b;border:1px solid #cbd5e1;border-radius:8px">
                                         <t t-foreach="languages.items()" t-as="lp">
                                             <option t-att-value="lp[0]" t-att-selected="active_lang == lp[0] and 'selected' or False">
                                                 <t t-esc="lp[1]"/>
@@ -31,10 +30,9 @@
                                         </t>
                                     </select>
                                 </div>
-                                <!-- Category -->
                                 <div class="col-auto">
-                                    <label class="form-label text-white-50 small mb-1">Category</label>
-                                    <select name="category" class="form-select form-select-sm" style="background:#1a1a2e;color:#e0e0e0;border:1px solid rgba(255,255,255,0.15);border-radius:8px">
+                                    <label class="form-label small mb-1" style="color:#0f172a;font-weight:600">Category</label>
+                                    <select name="category" class="form-select form-select-sm" style="background:#ffffff;color:#1e293b;border:1px solid #cbd5e1;border-radius:8px">
                                         <option value="">All categories</option>
                                         <t t-foreach="available_categories" t-as="cat">
                                             <option t-att-value="cat" t-att-selected="active_category == cat and 'selected' or False">
@@ -43,10 +41,9 @@
                                         </t>
                                     </select>
                                 </div>
-                                <!-- Level -->
                                 <div class="col-auto">
-                                    <label class="form-label text-white-50 small mb-1">CEFR Level</label>
-                                    <select name="level" class="form-select form-select-sm" style="background:#1a1a2e;color:#e0e0e0;border:1px solid rgba(255,255,255,0.15);border-radius:8px">
+                                    <label class="form-label small mb-1" style="color:#0f172a;font-weight:600">CEFR Level</label>
+                                    <select name="level" class="form-select form-select-sm" style="background:#ffffff;color:#1e293b;border:1px solid #cbd5e1;border-radius:8px">
                                         <option value="">All levels</option>
                                         <t t-foreach="levels" t-as="lv">
                                             <option t-att-value="lv" t-att-selected="active_level == lv and 'selected' or False">
@@ -64,10 +61,9 @@
                         </div>
                     </div>
 
-                    <!-- No exercises -->
                     <t t-if="not exercises">
                         <div class="text-center py-5">
-                            <p class="text-muted">No exercises found for this filter. Try a different category or level.</p>
+                            <p style="color:rgba(255,255,255,0.5)">No exercises found for this filter. Try a different category or level.</p>
                         </div>
                     </t>
 
@@ -78,7 +74,7 @@
                             <div class="lx-exercise-card mb-3"
                                  t-att-data-answer="ex['answer']"
                                  t-att-data-hint="ex.get('hint', '')"
-                                 style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:14px;padding:20px 24px;transition:border-color 0.3s">
+                                 style="background:#1e293b;border:1px solid rgba(255,255,255,0.08);border-radius:14px;padding:20px 24px;transition:border-color 0.3s">
 
                                 <div class="d-flex align-items-start gap-3 mb-3">
                                     <span class="badge rounded-pill" style="background:rgba(255,255,255,0.08);color:#aaa;font-size:0.75rem;padding:4px 10px;flex-shrink:0;margin-top:2px">
@@ -118,9 +114,9 @@
 
                     <!-- Score summary (hidden until all answered) -->
                     <div id="lx-score-summary" class="d-none text-center py-4">
-                        <div style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.1);border-radius:16px;padding:32px">
+                        <div style="background:#1e293b;border:1px solid rgba(255,255,255,0.08);border-radius:16px;padding:32px">
                             <p class="display-6 fw-bold text-white mb-1" id="lx-score-text">—</p>
-                            <p class="text-white-50 mb-3">exercises completed</p>
+                            <p style="color:rgba(255,255,255,0.5);margin-bottom:12px">exercises completed</p>
                             <div id="lx-xp-gained" class="d-none mb-4">
                                 <span class="lx-xp-badge">⚡ <span id="lx-xp-amount">0</span> XP earned!</span>
                             </div>
@@ -137,7 +133,7 @@
             (function() {
                 var total = document.querySelectorAll('.lx-exercise-card').length;
                 var answered = 0;
-                var rightCount = 0; // tracked directly — no DOM re-scan
+                var rightCount = 0;
 
                 document.querySelectorAll('.lx-exercise-card').forEach(function(card) {
                     var correctAnswer = card.dataset.answer;
@@ -155,7 +151,6 @@
                             if (isCorrect) rightCount++;
                             answered++;
 
-                            // Style all buttons
                             buttons.forEach(function(b) {
                                 b.disabled = true;
                                 if (b.dataset.value === correctAnswer) {
@@ -165,10 +160,8 @@
                                 }
                             });
 
-                            // Card border
                             card.style.borderColor = isCorrect ? 'rgba(34,197,94,0.4)' : 'rgba(239,68,68,0.35)';
 
-                            // Feedback text
                             feedback.classList.remove('d-none');
                             if (isCorrect) {
                                 feedback.innerHTML = '<span style="color:#4ade80">✓ Correct!</span>';
@@ -179,14 +172,12 @@
                                 feedback.innerHTML += '<br/><span style="color:#94a3b8;font-size:0.82rem">&#x1F4A1; ' + hint + '</span>';
                             }
 
-                            // All exercises answered — show summary and award XP
                             if (answered === total) {
                                 document.getElementById('lx-score-text').textContent = rightCount + ' / ' + total + ' correct';
                                 document.getElementById('lx-score-summary').classList.remove('d-none');
                                 document.getElementById('lx-score-summary').scrollIntoView({behavior:'smooth', block:'center'});
                                 if (rightCount > 0) {
-                                    console.log('XP Sent:', rightCount);
-                                    var csrfTok = (document.querySelector('input[name="csrf_token"]') || {}).value || (typeof odoo !== 'undefined' ? odoo.csrf_token : '');
+                                    var csrfTok = (typeof odoo !== 'undefined' ? odoo.csrf_token : '');
                                     fetch('/my/grammar-practice/score', {
                                         method: 'POST',
                                         credentials: 'same-origin',
@@ -203,7 +194,6 @@
                                     })
                                     .then(function(r) { return r.json(); })
                                     .then(function(data) {
-                                        console.log('XP response:', data);
                                         var xp = (data.result || {}).xp_gained || 0;
                                         if (xp > 0) {
                                             document.getElementById('lx-xp-amount').textContent = xp;

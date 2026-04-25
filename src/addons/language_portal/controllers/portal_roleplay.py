@@ -71,7 +71,6 @@ class RoleplayPortal(http.Controller):
             )
             _logger.info("Roleplay[%s]: status=%s", scenario_id, resp.status_code)
             resp.raise_for_status()
-            # Decode bytes explicitly — avoids any content-type detection issue
             import json as _json
             raw = resp.content.decode("utf-8", errors="replace")
             _logger.info("Roleplay[%s]: body=%s", scenario_id, raw[:300])

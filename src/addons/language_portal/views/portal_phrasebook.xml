@@ -1,0 +1,107 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo>
+
+  <!-- Phrasebook index — scenario grid -->
+  <template id="portal_phrasebook_index" name="Phrasebook">
+    <t t-call="portal.frontend_layout">
+      <t t-set="head">
+        <title>Survival Phrasebook — Lexora</title>
+      </t>
+      <div id="wrap" class="lx-premium-theme">
+
+        <!-- Hero -->
+        <section class="lx-hero py-5">
+          <div class="container text-center">
+            <h1 class="lx-hero-title mb-2">🌍 Survival Phrasebook</h1>
+            <p class="lx-hero-subtitle">Essential phrases for travellers — Hotel, Taxi, Restaurant</p>
+          </div>
+        </section>
+
+        <div class="container py-5">
+          <div class="row g-4 justify-content-center">
+            <t t-foreach="scenarios" t-as="sc">
+              <div class="col-12 col-sm-6 col-lg-4">
+                <a t-attf-href="/phrasebook/{{ sc['key'] }}" class="lx-scenario-card d-block text-decoration-none h-100">
+                  <div class="lx-scenario-icon"><t t-out="sc['icon']"/></div>
+                  <div class="lx-scenario-label"><t t-out="sc['label']"/></div>
+                  <div class="lx-scenario-count"><t t-out="sc['count']"/> phrases</div>
+                  <div class="lx-scenario-cta">Browse →</div>
+                </a>
+              </div>
+            </t>
+          </div>
+        </div>
+
+      </div>
+    </t>
+  </template>
+
+  <!-- Phrasebook scenario — phrase list -->
+  <template id="portal_phrasebook_scenario" name="Phrasebook Scenario">
+    <t t-call="portal.frontend_layout">
+      <t t-set="head">
+        <title t-out="scenario_label + ' — Phrasebook — Lexora'"/>
+      </t>
+      <div id="wrap" class="lx-premium-theme">
+
+        <!-- Hero -->
+        <section class="lx-hero py-4">
+          <div class="container">
+            <div class="d-flex align-items-center gap-3 mb-2">
+              <a href="/phrasebook" class="lx-btn-outline-sm">← Back</a>
+              <h1 class="lx-hero-title mb-0">
+                <t t-out="scenario_icon"/> <t t-out="scenario_label"/>
+              </h1>
+            </div>
+            <p class="lx-hero-subtitle">Click a phrase to copy it to your clipboard</p>
+          </div>
+        </section>
+
+        <div class="container py-4">
+
+          <!-- Language tabs -->
+          <div class="d-flex gap-2 mb-4 flex-wrap">
+            <t t-foreach="[('en','English'),('uk','Ukrainian'),('el','Greek')]" t-as="ltab">
+              <a t-attf-href="/phrasebook/{{ scenario_key }}?lang={{ ltab[0] }}"
+                 t-attf-class="lx-lang-tab{{ ' lx-lang-tab-active' if active_lang == ltab[0] else '' }}">
+                <t t-out="ltab[1]"/>
+              </a>
+            </t>
+          </div>
+
+          <!-- Phrase list -->
+          <div class="row g-3">
+            <t t-foreach="phrases" t-as="phrase">
+              <div class="col-12 col-md-6">
+                <div class="lx-phrase-card"
+                     t-att-data-text="phrase.get(active_lang, phrase.get('en', ''))">
+                  <div class="lx-phrase-text">
+                    <t t-out="phrase.get(active_lang, phrase.get('en', ''))"/>
+                  </div>
+                  <div class="lx-phrase-actions">
+                    <!-- secondary langs hint -->
+                    <t t-if="active_lang != 'en'">
+                      <span class="lx-phrase-hint" t-out="phrase.get('en', '')"/>
+                    </t>
+                    <button class="lx-copy-btn"
+                            t-att-data-text="phrase.get(active_lang, phrase.get('en', ''))"
+                            onclick="(function(btn){
+                              var txt = btn.getAttribute('data-text');
+                              navigator.clipboard.writeText(txt).then(function(){
+                                btn.textContent = '✓ Copied';
+                                btn.classList.add('lx-copied');
+                                setTimeout(function(){ btn.textContent = '📋 Copy'; btn.classList.remove('lx-copied'); }, 1800);
+                              });
+                            })(this)">📋 Copy</button>
+                  </div>
+                </div>
+              </div>
+            </t>
+          </div>
+
+        </div>
+      </div>
+    </t>
+  </template>
+
+</odoo>

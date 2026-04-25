@@ -24,17 +24,14 @@ class GrammarPracticePortal(http.Controller):
     def grammar_practice(self, lang="en", category=None, level=None, **kw):
         exercises, categories, levels, languages = _load_exercises()
 
-        # Filter
         pool = [e for e in exercises if e["language"] == lang]
         if category:
             pool = [e for e in pool if e["category"] == category]
         if level:
             pool = [e for e in pool if e["level"] == level]
 
-        # Pick a random batch of 10 exercises
         batch = random.sample(pool, min(10, len(pool))) if pool else []
 
-        # Shuffle choices for each exercise so the answer isn't always first
         shuffled = []
         for ex in batch:
             ex_copy = dict(ex)

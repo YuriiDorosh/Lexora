@@ -948,282 +948,250 @@ kbd {
 }
 
 /* ================================================================
-   PREMIUM THEME — Dark page wrapper  (M17 / M18)
-   Use #wrap selector for Odoo portal override specificity
+   M20 — Survival Phrasebook
    ================================================================ */
 
-#wrap.lx-premium-theme,
-.lx-premium-theme {
-  background-color: #0f172a !important;
-  color: #e0e0e0 !important;
-  min-height: 100vh;
+/* Scenario index cards */
+.lx-scenario-card {
+  background: rgba(15, 22, 40, 0.82);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  border: 1px solid rgba(255,255,255,0.10);
+  border-radius: 20px;
+  padding: 2rem 1.5rem;
+  text-align: center;
+  color: #e2e8f0;
+  transition: transform 0.25s, box-shadow 0.25s, border-color 0.25s;
+  box-shadow: 0 4px 24px rgba(0,0,0,0.35);
 }
 
-/* Odoo injects o_portal_wrap which can re-whiten backgrounds */
-.lx-premium-theme .o_portal_wrap,
-.lx-premium-theme > * {
-  background-color: transparent;
+.lx-scenario-card:hover {
+  transform: translateY(-4px);
+  border-color: rgba(99,102,241,0.50);
+  box-shadow: 0 8px 32px rgba(99,102,241,0.22);
+  color: #f8fafc;
 }
 
-/* ── Form controls ── */
-.lx-premium-theme .form-control,
-.lx-premium-theme .form-select {
-  background-color: #1e2a3a !important;
-  border: 1px solid rgba(255,255,255,0.4) !important;
-  color: #f1f5f9 !important;
+.lx-scenario-icon {
+  font-size: 3rem;
+  margin-bottom: 0.75rem;
+  line-height: 1;
 }
 
-.lx-premium-theme .form-control:focus,
-.lx-premium-theme .form-select:focus {
-  background-color: #243040 !important;
-  border-color: rgba(138,43,226,0.6) !important;
-  color: #fff !important;
-  box-shadow: 0 0 0 3px rgba(138,43,226,0.22) !important;
-  outline: none !important;
-}
-
-.lx-premium-theme .form-control::placeholder {
-  color: rgba(255,255,255,0.38) !important;
-}
-
-.lx-premium-theme select option {
-  background: #1a2535;
-  color: #f1f5f9;
-}
-
-/* ── Labels — nuclear white, uppercase, always readable ── */
-.lx-premium-theme .form-label {
-  color: #ffffff !important;
-  opacity: 1 !important;
-  font-weight: 700 !important;
-  font-size: 0.82rem !important;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-}
-
-/* ── Headings: white ONLY inside dark glass learning cards ── */
-/* NEVER override globally — .lx-section-title-light (#0f172a) on the
-   homepage features section would become white-on-white. */
-.lx-exercise-card h1, .lx-exercise-card h2, .lx-exercise-card h3,
-.lx-exercise-card h4, .lx-exercise-card h5, .lx-exercise-card h6,
-.lx-roleplay-card h1, .lx-roleplay-card h2, .lx-roleplay-card h3,
-.lx-roleplay-card h4, .lx-roleplay-card h5, .lx-roleplay-card h6 {
-  color: #ffffff !important;
-}
-
-/* ── Body text — ONLY inside specific dark learning containers ── */
-/* Excluded: .lx-section-light, .lx-feature-card, .lx-article-card (all white bg) */
-.lx-exercise-card p,
-.lx-roleplay-card p,
-#lx-chat-box p,
-#lx-workbook p {
-  color: #cbd5e1 !important;
-}
-
-/* text-white-50 override only inside dark glass cards (not homepage sections) */
-.lx-exercise-card .text-white-50,
-.lx-roleplay-card .text-white-50 {
-  color: #cbd5e1 !important;
-  opacity: 1 !important;
-}
-
-/* White-background sections and cards — explicit dark text resets.
-   These rules are intentionally placed AFTER any dark-theme overrides
-   so specificity ties resolve in favour of readability on light bg. */
-.lx-section-light p,
-.lx-section-light h1, .lx-section-light h2, .lx-section-light h3,
-.lx-section-light h4, .lx-section-light h5, .lx-section-light h6 {
-  color: #374151 !important;
-}
-.lx-section-light .text-muted {
-  color: #6b7280 !important;
-}
-.lx-feature-card p,
-.lx-feature-card h3,
-.lx-feature-card h5 {
-  color: #374151 !important;
-}
-.lx-article-card p,
-.lx-article-card .card-text,
-.lx-article-card .text-muted {
-  color: #374151 !important;
-}
-
-/* ── Grammar practice choice buttons ── */
-.lx-premium-theme .lx-choice-btn {
-  color: #f1f5f9 !important;
-  background: rgba(255,255,255,0.07) !important;
-  border: 1px solid rgba(255,255,255,0.18) !important;
-}
-
-/* ── Grammar Pro active filter highlight ── */
-.lx-premium-theme .lx-filter-active {
-  background: linear-gradient(90deg, #4f46e5, #7c3aed) !important;
-  color: #fff !important;
-  border-color: transparent !important;
-}
-
-/* ── Bootstrap nav-pills inside dark theme ── */
-.lx-premium-theme .nav-pills .nav-link {
-  color: #ddd !important;
-  background: rgba(255,255,255,0.1) !important;
-  border: 1px solid rgba(255,255,255,0.15) !important;
-}
-
-.lx-premium-theme .nav-pills .nav-link:hover {
-  color: #fff !important;
-  background: rgba(255,255,255,0.18) !important;
-}
-
-.lx-premium-theme .nav-pills .nav-link.active,
-.lx-premium-theme .nav-pills .show > .nav-link {
-  background: linear-gradient(90deg, #4f46e5, #7c3aed) !important;
-  color: #fff !important;
-  border-color: transparent !important;
-}
-
-/* ── Bootstrap nav-tabs inside dark theme ── */
-.lx-premium-theme .nav-tabs .nav-link {
-  color: rgba(255,255,255,0.6) !important;
-  border-color: rgba(255,255,255,0.1) !important;
-}
-
-.lx-premium-theme .nav-tabs .nav-link.active {
-  background: #1e2a3a !important;
-  color: #fff !important;
-  border-bottom-color: #4f46e5 !important;
-}
-
-/* ── Card / alert colours inside dark theme ── */
-.lx-premium-theme .card {
-  background: rgba(255,255,255,0.04);
-  border-color: rgba(255,255,255,0.08);
-  color: #e0e0e0;
-}
-
-/* text-muted inside dark learning cards only — NOT on the homepage */
-.lx-exercise-card .text-muted,
-.lx-roleplay-card .text-muted,
-#lx-chat-box .text-muted {
-  color: rgba(255,255,255,0.65) !important;
-}
-
-/* Roleplay chat container */
-#lx-chat-box {
-  background: rgba(10,16,30,0.9) !important;
-  color: #e0e0e0 !important;
-}
-
-/* Chat input */
-#lx-msg-input {
-  background: rgba(255,255,255,0.07) !important;
-  border: 1px solid rgba(255,255,255,0.2) !important;
-  color: #ffffff !important;
-}
-
-#lx-msg-input::placeholder {
-  color: rgba(255,255,255,0.4) !important;
-}
-
-/* XP gain badge in score summary */
-.lx-xp-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  background: linear-gradient(135deg, #f59e0b, #d97706);
-  color: #fff;
+.lx-scenario-label {
+  font-family: var(--lx-font-display);
+  font-size: 1.25rem;
   font-weight: 700;
-  font-size: 1rem;
-  padding: 8px 20px;
-  border-radius: 24px;
+  color: #f1f5f9;
+  margin-bottom: 0.35rem;
+}
+
+.lx-scenario-count {
+  font-size: 0.88rem;
+  color: rgba(255,255,255,0.50);
   margin-bottom: 1rem;
 }
 
-/* ══════════════════════════════════════════════════════════════
-   M18.5 — Navbar Glassmorphism Dropdowns
-   Scoped to #top_menu so only the main navbar is affected.
-   ══════════════════════════════════════════════════════════════ */
-
-/* Dropdown panel */
-#top_menu .dropdown-menu {
-  background: rgba(8, 14, 28, 0.97) !important;
-  backdrop-filter: blur(24px) !important;
-  -webkit-backdrop-filter: blur(24px) !important;
-  border: 1px solid rgba(255, 255, 255, 0.09) !important;
-  border-radius: 14px !important;
-  box-shadow: 0 12px 48px rgba(0, 0, 0, 0.55),
-              0 0 0 1px rgba(255, 255, 255, 0.04) !important;
-  padding: 8px !important;
-  min-width: 220px !important;
-  margin-top: 6px !important;
+.lx-scenario-cta {
+  display: inline-block;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #818cf8;
+  letter-spacing: 0.04em;
 }
 
-/* Individual dropdown links */
-#top_menu .dropdown-item {
-  color: rgba(255, 255, 255, 0.78) !important;
-  border-radius: 8px !important;
-  padding: 9px 14px !important;
-  font-size: 0.875rem !important;
-  font-weight: 500 !important;
-  letter-spacing: 0.01em !important;
-  transition: background 0.14s ease, color 0.14s ease !important;
-  margin-bottom: 1px !important;
-  line-height: 1.4 !important;
-  white-space: nowrap !important;
+/* Language tabs */
+.lx-lang-tab {
+  display: inline-block;
+  padding: 0.45rem 1.1rem;
+  border-radius: 999px;
+  font-size: 0.88rem;
+  font-weight: 600;
+  background: rgba(255,255,255,0.07);
+  color: rgba(255,255,255,0.70);
+  border: 1px solid rgba(255,255,255,0.12);
+  text-decoration: none;
+  transition: all 0.2s;
 }
 
-#top_menu .dropdown-item:hover,
-#top_menu .dropdown-item:focus {
-  background: rgba(99, 102, 241, 0.22) !important;
+.lx-lang-tab:hover {
+  background: rgba(99,102,241,0.20);
+  color: #a5b4fc;
+  border-color: rgba(99,102,241,0.40);
+  text-decoration: none;
+}
+
+.lx-lang-tab-active {
+  background: linear-gradient(90deg, var(--lx-indigo), var(--lx-purple));
+  color: #fff !important;
+  border-color: transparent;
+}
+
+/* Phrase cards */
+.lx-phrase-card {
+  background: rgba(15, 22, 40, 0.75);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid rgba(255,255,255,0.09);
+  border-radius: 14px;
+  padding: 1.1rem 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  transition: border-color 0.2s, box-shadow 0.2s;
+  height: 100%;
+}
+
+.lx-phrase-card:hover {
+  border-color: rgba(99,102,241,0.35);
+  box-shadow: 0 4px 20px rgba(99,102,241,0.15);
+}
+
+.lx-phrase-text {
+  font-size: 1.05rem;
+  font-weight: 500;
+  color: #f1f5f9;
+  line-height: 1.5;
+  flex: 1;
+}
+
+.lx-phrase-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.lx-phrase-hint {
+  font-size: 0.80rem;
+  color: rgba(255,255,255,0.38);
+  font-style: italic;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Copy button */
+.lx-copy-btn {
+  flex-shrink: 0;
+  background: rgba(99,102,241,0.15);
+  color: #a5b4fc;
+  border: 1px solid rgba(99,102,241,0.30);
+  border-radius: 8px;
+  padding: 0.30rem 0.85rem;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: var(--lx-font-body);
+  transition: all 0.2s;
+}
+
+.lx-copy-btn:hover {
+  background: rgba(99,102,241,0.28);
+  border-color: rgba(99,102,241,0.55);
+  color: #c7d2fe;
+}
+
+.lx-copy-btn.lx-copied {
+  background: rgba(16,185,129,0.22);
+  color: #6ee7b7;
+  border-color: rgba(16,185,129,0.40);
+}
+
+/* ── Idioms Hub — Flip Cards ─────────────────────────────────────────────── */
+.lx-flip-card {
+  perspective: 1200px;
+  height: 280px;
+  cursor: pointer;
+  outline: none;
+}
+
+.lx-flip-inner {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  transform-style: preserve-3d;
+  transition: transform 0.55s cubic-bezier(0.4, 0.2, 0.2, 1);
+}
+
+.lx-flip-card.lx-flipped .lx-flip-inner {
+  transform: rotateY(180deg);
+}
+
+.lx-flip-front,
+.lx-flip-back {
+  position: absolute;
+  inset: 0;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 1.25rem;
+  border-radius: 16px;
+}
+
+.lx-flip-back {
+  transform: rotateY(180deg);
+}
+
+.lx-idiom-expression {
+  color: #e0e7ff;
+  font-family: var(--lx-font-heading);
+  font-weight: 700;
+}
+
+.lx-example-box {
+  background: rgba(255,255,255,0.06);
+  border-left: 3px solid var(--lx-accent);
+}
+
+.lx-flip-hint {
+  font-size: 0.75rem;
+  opacity: 0.5;
+}
+
+.lx-flip-card:focus .lx-flip-front,
+.lx-flip-card:hover .lx-flip-front {
+  box-shadow: 0 0 0 2px rgba(99,102,241,0.45);
+}
+
+/* ── White-on-white fix: force text colour inside dark containers ── */
+.lx-premium-theme .lx-hero h1,
+.lx-premium-theme .lx-hero h2,
+.lx-premium-theme .lx-hero p,
+.lx-premium-theme section[style*="background:linear-gradient"] h1,
+.lx-premium-theme section[style*="background:linear-gradient"] h2,
+.lx-premium-theme section[style*="background:linear-gradient"] p {
   color: #ffffff !important;
-  outline: none !important;
 }
 
-#top_menu .dropdown-item:active {
-  background: rgba(99, 102, 241, 0.38) !important;
+.lx-premium-theme section[style*="background:linear-gradient"] p.lead {
+  color: rgba(255,255,255,0.65) !important;
+}
+
+/* Scoped text-muted override — only dark glassmorphism cards, not light pages */
+.lx-exercise-card .text-muted,
+#lx-chat-box .text-muted,
+.lx-glass-card .text-muted {
+  color: rgba(255,255,255,0.5) !important;
+}
+
+/* XP badge for grammar practice score summary */
+.lx-xp-badge {
+  display: inline-block;
+  padding: 8px 24px;
+  background: linear-gradient(90deg, #f59e0b, #d97706);
+  color: #fff;
+  border-radius: 999px;
+  font-weight: 700;
+  font-size: 1.1rem;
+}
+
+/* Grammar exercise card — ensure white text on dark bg */
+.lx-exercise-card p.text-white {
   color: #ffffff !important;
-}
-
-/* Dividers inside a dropdown */
-#top_menu .dropdown-divider {
-  border-color: rgba(255, 255, 255, 0.08) !important;
-  margin: 4px 0 !important;
-}
-
-/* Caret arrow on group toggle buttons */
-#top_menu .nav-link.dropdown-toggle::after {
-  border-top-color: rgba(255, 255, 255, 0.55) !important;
-  vertical-align: 0.18em !important;
-  transition: border-top-color 0.15s !important;
-}
-
-#top_menu .nav-item.dropdown:hover > .nav-link.dropdown-toggle::after,
-#top_menu .nav-item.dropdown.show > .nav-link.dropdown-toggle::after {
-  border-top-color: #ffffff !important;
-}
-
-/* ── Mobile: strip glass so it blends into expanded hamburger ── */
-@media (max-width: 991.98px) {
-  #top_menu .dropdown-menu {
-    background: transparent !important;
-    backdrop-filter: none !important;
-    -webkit-backdrop-filter: none !important;
-    border: none !important;
-    box-shadow: none !important;
-    padding: 0 0 4px 0 !important;
-    margin-top: 0 !important;
-    min-width: unset !important;
-  }
-
-  #top_menu .dropdown-item {
-    padding-left: 28px !important;
-    font-size: 0.84rem !important;
-    color: rgba(255, 255, 255, 0.65) !important;
-    border-radius: 6px !important;
-  }
-
-  #top_menu .dropdown-item:hover {
-    background: rgba(255, 255, 255, 0.07) !important;
-    color: rgba(255, 255, 255, 0.9) !important;
-  }
 }
