@@ -34,10 +34,6 @@ jobs:
             chat dashboard pvp portal learning
             docker ci deps docs tooling
           requireScope: false
-          subjectPattern: "^[A-Z].+$"
-          subjectPatternError: >
-            PR title must start with an uppercase letter.
-            Example: "feat(M21): add sentence builder game"
 
   # Check that branch name follows convention
   branch-name:

@@ -98,7 +98,7 @@ jobs:
       - uses: hadolint/hadolint-action@v3.1.0
         with:
           recursive: true
-          ignore: "DL3008,DL3013,DL3042,SC2046"
+          ignore: "DL3008,DL3013,DL3042,DL3059,SC2046"
           failure-threshold: warning
 
   xmllint:

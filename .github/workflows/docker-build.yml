@@ -57,7 +57,7 @@ jobs:
       - name: Build Odoo
         uses: docker/build-push-action@v6
         with:
-          context: docker_compose/odoo
+          context: .
           file: docker_compose/odoo/Dockerfile
           push: false
           tags: lexora-odoo:ci

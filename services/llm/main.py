@@ -17,15 +17,19 @@ mode so the RabbitMQ consumer never dies; /health honestly reports
 ``llm_ready=false`` in that case.
 """
 
+from __future__ import annotations
+
+import contextlib
+from contextlib import asynccontextmanager
 import json
 import logging
 import os
 import re
 import threading
 import time
-from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from pydantic import BaseModel
 
 logging.basicConfig(level=logging.INFO)
 _logger = logging.getLogger("llm-service")
@@ -49,9 +53,7 @@ QUEUE_FAILED = "enrichment.failed"
 # ---------------------------------------------------------------------------
 
 LLM_MODEL_REPO = os.getenv("LLM_MODEL_REPO", "Qwen/Qwen2.5-1.5B-Instruct-GGUF")
-LLM_MODEL_FILENAME = os.getenv(
-    "LLM_MODEL_FILENAME", "qwen2.5-1.5b-instruct-q4_k_m.gguf"
-)
+LLM_MODEL_FILENAME = os.getenv("LLM_MODEL_FILENAME", "qwen2.5-1.5b-instruct-q4_k_m.gguf")
 LLM_MODEL_DIR = os.getenv("LLM_MODEL_DIR", "/models")
 LLM_N_CTX = int(os.getenv("LLM_N_CTX", "2048"))
 LLM_N_THREADS = int(os.getenv("LLM_N_THREADS", "0"))  # 0 = auto
@@ -87,11 +89,13 @@ def _resolve_model_path() -> str:
             "pre-seed the llm_models volume or set LLM_AUTO_DOWNLOAD=1."
         )
 
-    from huggingface_hub import hf_hub_download  # noqa: PLC0415
+    from huggingface_hub import hf_hub_download
 
     _logger.info(
         "Downloading model %s/%s → %s (this can take a while on first boot)",
-        LLM_MODEL_REPO, LLM_MODEL_FILENAME, LLM_MODEL_DIR,
+        LLM_MODEL_REPO,
+        LLM_MODEL_FILENAME,
+        LLM_MODEL_DIR,
     )
     downloaded = hf_hub_download(
         repo_id=LLM_MODEL_REPO,
@@ -109,10 +113,10 @@ def _init_llm():
     OOM, etc.) logs the cause and returns False so the service keeps
     running in stub mode.  /health reports the actual state.
     """
-    global _llm  # noqa: PLW0603
+    global _llm
     try:
         model_path = _resolve_model_path()
-        from llama_cpp import Llama  # noqa: PLC0415
+        from llama_cpp import Llama
 
         kwargs = {
             "model_path": model_path,
@@ -131,9 +135,10 @@ def _init_llm():
         _llm = Llama(**kwargs)
         _logger.info("LLM model loaded successfully.")
         return True
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         _logger.warning(
-            "LLM initialisation failed (%s) — staying in stub mode.", exc,
+            "LLM initialisation failed (%s) — staying in stub mode.",
+            exc,
         )
         return False
 
@@ -179,7 +184,7 @@ def _parse_enrichment_json(raw: str) -> dict:
     text = (raw or "").strip()
     try:
         parsed = json.loads(text)
-    except Exception:  # noqa: BLE001
+    except Exception:
         match = _JSON_OBJECT_RE.search(text)
         if not match:
             raise ValueError(f"no JSON object in model output: {text[:200]!r}") from None
@@ -250,13 +255,16 @@ def _enrich(source_text: str, source_language: str, language: str) -> dict:
             # produces garbage.  Log and stub out.
             _logger.warning(
                 "LLM JSON parse failed (attempt %d): %s — falling back to stub.",
-                attempt + 1, exc,
+                attempt + 1,
+                exc,
             )
             return _stub_enrich(source_text, source_language, language)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             last_exc = exc
             _logger.warning(
-                "LLM generation error (attempt %d): %s", attempt + 1, exc,
+                "LLM generation error (attempt %d): %s",
+                attempt + 1,
+                exc,
             )
             time.sleep(1)
 
@@ -276,8 +284,7 @@ def _stub_enrich(source_text: str, source_language: str, language: str) -> dict:
             f"{prefix} A third example for '{source_text}'.",
         ],
         "explanation": (
-            f"{prefix} No real explanation available — LLM not loaded. "
-            f"Text: '{source_text}'"
+            f"{prefix} No real explanation available — LLM not loaded. " f"Text: '{source_text}'"
         ),
     }
 
@@ -291,7 +298,7 @@ _consumer_alive = False
 
 def _publish(channel, queue_name: str, payload: dict):
     """Declare queue (idempotent) and publish a JSON message."""
-    import pika  # noqa: PLC0415
+    import pika
 
     channel.queue_declare(queue=queue_name, durable=True)
     channel.basic_publish(
@@ -316,35 +323,46 @@ def _process_message(channel, method, properties, body):
 
         _logger.info(
             "Processing job_id=%s %s→%s text='%s'",
-            job_id, source_language, language, source_text,
+            job_id,
+            source_language,
+            language,
+            source_text,
         )
 
         result = _enrich(source_text, source_language, language)
 
-        _publish(channel, QUEUE_COMPLETED, {
-            "job_id": job_id,
-            "payload": result,
-        })
+        _publish(
+            channel,
+            QUEUE_COMPLETED,
+            {
+                "job_id": job_id,
+                "payload": result,
+            },
+        )
         channel.basic_ack(delivery_tag=method.delivery_tag)
         _logger.info("Completed job_id=%s", job_id)
 
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         job_id = message.get("job_id", "?") if message else "?"
         _logger.error("Failed job_id=%s: %s", job_id, exc)
         try:
-            _publish(channel, QUEUE_FAILED, {
-                "job_id": message.get("job_id", "") if message else "",
-                "payload": {"error": str(exc)},
-            })
+            _publish(
+                channel,
+                QUEUE_FAILED,
+                {
+                    "job_id": message.get("job_id", "") if message else "",
+                    "payload": {"error": str(exc)},
+                },
+            )
             channel.basic_ack(delivery_tag=method.delivery_tag)
-        except Exception:  # noqa: BLE001
+        except Exception:
             channel.basic_nack(delivery_tag=method.delivery_tag, requeue=False)
 
 
 def _consumer_thread():
     """Background thread: connect to RabbitMQ and consume enrichment.requested."""
-    global _consumer_alive  # noqa: PLW0603
-    import pika  # noqa: PLC0415
+    global _consumer_alive
+    import pika
 
     while True:
         try:
@@ -368,7 +386,7 @@ def _consumer_thread():
                 _llm_ready,
             )
             channel.start_consuming()
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             _consumer_alive = False
             _logger.warning("RabbitMQ connection lost: %s — reconnecting in 5s", exc)
             time.sleep(5)
@@ -381,7 +399,7 @@ def _consumer_thread():
 
 def _loader_thread():
     """Run _init_llm() off the request path so /health is immediately usable."""
-    global _llm_ready  # noqa: PLW0603
+    global _llm_ready
     _llm_ready = _init_llm()
 
 
@@ -426,9 +444,6 @@ def health():
 # Sync roleplay endpoint (no RabbitMQ — direct HTTP call from Odoo controller)
 # ---------------------------------------------------------------------------
 
-from pydantic import BaseModel  # noqa: E402
-from typing import List, Optional  # noqa: E402
-
 
 class RoleplayMessage(BaseModel):
     role: str  # "user" or "assistant"
@@ -437,7 +452,7 @@ class RoleplayMessage(BaseModel):
 
 class RoleplayRequest(BaseModel):
     system_prompt: str
-    history: List[RoleplayMessage] = []
+    history: list[RoleplayMessage] = []
     user_message: str
     target_language: str = "en"
 
@@ -456,7 +471,7 @@ _ROLEPLAY_WRAPPER = (
 
 def _roleplay(req: RoleplayRequest) -> str:
     lang_name = LANG_NAMES.get(req.target_language, req.target_language)
-    wrapper = _ROLEPLAY_WRAPPER.format(lang=lang_name)
+    wrapper = _ROLEPLAY_WRAPPER
     system_content = wrapper + "\n\n" + req.system_prompt
 
     messages = [{"role": "system", "content": system_content}]
@@ -478,7 +493,7 @@ def _roleplay(req: RoleplayRequest) -> str:
             repeat_penalty=1.15,
         )
         return completion["choices"][0]["message"]["content"].strip()
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         _logger.warning("Roleplay generation error: %s", exc)
         return "I'm sorry, I couldn't respond right now. Please try again!"
 
