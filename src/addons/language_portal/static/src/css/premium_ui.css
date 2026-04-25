@@ -1158,3 +1158,40 @@ kbd {
 .lx-flip-card:hover .lx-flip-front {
   box-shadow: 0 0 0 2px rgba(99,102,241,0.45);
 }
+
+/* ── White-on-white fix: force text colour inside dark containers ── */
+.lx-premium-theme .lx-hero h1,
+.lx-premium-theme .lx-hero h2,
+.lx-premium-theme .lx-hero p,
+.lx-premium-theme section[style*="background:linear-gradient"] h1,
+.lx-premium-theme section[style*="background:linear-gradient"] h2,
+.lx-premium-theme section[style*="background:linear-gradient"] p {
+  color: #ffffff !important;
+}
+
+.lx-premium-theme section[style*="background:linear-gradient"] p.lead {
+  color: rgba(255,255,255,0.65) !important;
+}
+
+/* Scoped text-muted override — only dark glassmorphism cards, not light pages */
+.lx-exercise-card .text-muted,
+#lx-chat-box .text-muted,
+.lx-glass-card .text-muted {
+  color: rgba(255,255,255,0.5) !important;
+}
+
+/* XP badge for grammar practice score summary */
+.lx-xp-badge {
+  display: inline-block;
+  padding: 8px 24px;
+  background: linear-gradient(90deg, #f59e0b, #d97706);
+  color: #fff;
+  border-radius: 999px;
+  font-weight: 700;
+  font-size: 1.1rem;
+}
+
+/* Grammar exercise card — ensure white text on dark bg */
+.lx-exercise-card p.text-white {
+  color: #ffffff !important;
+}

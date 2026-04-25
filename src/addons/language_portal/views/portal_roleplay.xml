@@ -1,91 +1,226 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
-<data>
 
-<template id="portal_roleplay_index" name="AI Roleplay">
-  <t t-call="portal.frontend_layout">
-    <t t-set="title">AI Roleplay Practice</t>
+    <!-- ================================================================
+         Roleplay Scenario Grid  /my/roleplay
+    ================================================================ -->
+    <template id="portal_roleplay_grid" name="AI Roleplay — Scenario Grid">
+        <t t-call="portal.frontend_layout">
+            <t t-set="title">AI Roleplay</t>
+            <div id="wrap" class="oe_structure lx-premium-theme">
 
-    <div id="wrap" class="oe_structure lx-premium-theme">
+                <!-- Hero -->
+                <section class="lx-hero py-5" style="background:linear-gradient(135deg,#1a0533 0%,#2d0b5e 50%,#0d1b4b 100%);min-height:200px">
+                    <div class="container text-center py-3">
+                        <h1 class="display-5 fw-bold text-white mb-2">🎭 AI Roleplay</h1>
+                        <p class="lead text-white-50">Practice real conversations with an AI language partner. Get instant corrections and build confidence.</p>
+                    </div>
+                </section>
 
-      <!-- Hero -->
-      <section class="lx-dark-hero py-5 mb-4">
-        <div class="container text-center">
-          <h1 class="display-5 fw-bold text-white mb-2">🎭 AI Roleplay</h1>
-          <p class="lead text-white-50 mb-0">
-            Practice real-world conversations with an AI partner. Choose a scenario and start speaking.
-          </p>
-        </div>
-      </section>
+                <div class="container py-5">
+                    <div class="row g-4">
+                        <t t-foreach="scenarios" t-as="sc">
+                            <div class="col-md-6 col-lg-4">
+                                <div class="card h-100 border-0 shadow-sm" style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08)!important;border-radius:16px;transition:transform 0.2s,box-shadow 0.2s;"
+                                     onmouseover="this.style.transform='translateY(-4px)';this.style.boxShadow='0 12px 32px rgba(138,43,226,0.25)'"
+                                     onmouseout="this.style.transform='';this.style.boxShadow=''">
+                                    <div class="card-body p-4">
+                                        <div class="d-flex align-items-center mb-3">
+                                            <span style="font-size:2.5rem;margin-right:14px"><t t-esc="sc.icon"/></span>
+                                            <div>
+                                                <h5 class="mb-1 text-white fw-bold" style="font-size:1rem"><t t-esc="sc.name"/></h5>
+                                                <span class="badge" style="background:linear-gradient(90deg,#8a2be2,#4169e1);font-size:0.7rem">
+                                                    <t t-esc="sc.difficulty"/>
+                                                </span>
+                                                <span class="badge ms-1" style="background:rgba(255,255,255,0.1);color:#aaa;font-size:0.7rem">
+                                                    <t t-if="sc.target_language == 'en'">🇬🇧 English</t>
+                                                    <t t-elif="sc.target_language == 'uk'">🇺🇦 Ukrainian</t>
+                                                    <t t-elif="sc.target_language == 'el'">🇬🇷 Greek</t>
+                                                </span>
+                                            </div>
+                                        </div>
+                                        <p class="text-white-50 small mb-4" style="line-height:1.5"><t t-esc="sc.description"/></p>
+                                        <a t-attf-href="/my/roleplay/#{sc.id}"
+                                           class="btn btn-sm w-100"
+                                           style="background:linear-gradient(90deg,#8a2be2,#4169e1);color:#fff;border:none;border-radius:8px;font-weight:600">
+                                            Start Conversation →
+                                        </a>
+                                    </div>
+                                </div>
+                            </div>
+                        </t>
+                    </div>
 
-      <div class="container pb-5">
-
-        <!-- Coming Soon notice -->
-        <div class="alert lx-glass-card border-0 mb-4 d-flex align-items-center gap-3">
-          <span class="fs-2">🚀</span>
-          <div>
-            <strong class="text-white">Coming in the next release</strong>
-            <p class="mb-0 text-white-50 small">
-              Full AI conversation engine is under development. The scenarios below show what's launching soon.
-              In the meantime, browse the <a href="/grammar" class="text-primary">Grammar Guide</a> or
-              practice with <a href="/my/practice" class="text-primary">Daily SRS</a>.
-            </p>
-          </div>
-        </div>
-
-        <!-- Scenario grid -->
-        <h4 class="text-white mb-3">Available Scenarios</h4>
-        <div class="row row-cols-1 row-cols-md-2 row-cols-xl-3 g-4">
-          <t t-foreach="scenarios" t-as="sc">
-            <div class="col">
-              <div class="lx-glass-card h-100 d-flex flex-column">
-                <div class="d-flex align-items-center gap-3 mb-3">
-                  <span class="lx-scenario-icon fs-1"><t t-esc="sc['icon']"/></span>
-                  <div>
-                    <h5 class="text-white mb-1"><t t-esc="sc['title']"/></h5>
-                    <span class="badge bg-secondary"><t t-esc="sc['level']"/></span>
-                    <span class="badge bg-dark ms-1">⏱ <t t-esc="sc['duration']"/></span>
-                  </div>
+                    <t t-if="not scenarios">
+                        <div class="text-center py-5">
+                            <p class="text-white-50">No roleplay scenarios available yet.</p>
+                        </div>
+                    </t>
                 </div>
-                <p class="text-white-50 flex-grow-1"><t t-esc="sc['description']"/></p>
-                <button class="btn btn-outline-secondary w-100 mt-2" disabled="disabled">
-                  Start Practice — Coming Soon
-                </button>
-              </div>
             </div>
-          </t>
-        </div>
+        </t>
+    </template>
 
-        <!-- Cross-links -->
-        <div class="row g-3 mt-4">
-          <div class="col-md-6">
-            <a href="/my/practice" class="lx-glass-card d-block text-decoration-none p-3">
-              <div class="d-flex align-items-center gap-3">
-                <span class="fs-2">📚</span>
-                <div>
-                  <strong class="text-white">Daily SRS Practice</strong>
-                  <p class="text-white-50 small mb-0">Review your vocabulary cards with spaced repetition.</p>
+    <!-- ================================================================
+         Roleplay Chat  /my/roleplay/<id>
+    ================================================================ -->
+    <template id="portal_roleplay_chat" name="AI Roleplay — Chat">
+        <t t-call="portal.frontend_layout">
+            <t t-set="title" t-value="scenario.name"/>
+            <div id="wrap" class="lx-premium-theme">
+
+                <div class="container py-4" style="max-width:860px">
+
+                    <!-- Back + header -->
+                    <div class="d-flex align-items-center mb-4 gap-3">
+                        <a href="/my/roleplay" class="btn btn-sm" style="background:rgba(255,255,255,0.08);color:#ccc;border:1px solid rgba(255,255,255,0.15);border-radius:8px">
+                            ← Back
+                        </a>
+                        <div>
+                            <h2 class="mb-0 text-white fw-bold" style="font-size:1.3rem">
+                                <t t-esc="scenario.icon"/> <t t-esc="scenario.name"/>
+                            </h2>
+                            <span class="badge" style="background:linear-gradient(90deg,#8a2be2,#4169e1);font-size:0.7rem">
+                                <t t-esc="scenario.difficulty"/>
+                            </span>
+                            <span class="text-white-50 small ms-2">
+                                <t t-if="scenario.target_language == 'en'">🇬🇧 English</t>
+                                <t t-elif="scenario.target_language == 'uk'">🇺🇦 Ukrainian</t>
+                                <t t-elif="scenario.target_language == 'el'">🇬🇷 Greek</t>
+                            </span>
+                        </div>
+                        <div class="ms-auto">
+                            <form t-attf-action="/my/roleplay/#{scenario.id}/reset" method="post">
+                                <input type="hidden" name="csrf_token" t-att-value="request.csrf_token()"/>
+                                <button type="submit" class="btn btn-sm" style="background:rgba(220,53,69,0.15);color:#f66;border:1px solid rgba(220,53,69,0.3);border-radius:8px"
+                                        onclick="return confirm('Reset this conversation?')">
+                                    🔄 Reset
+                                </button>
+                            </form>
+                        </div>
+                    </div>
+
+                    <!-- Chat box -->
+                    <div id="lx-chat-box"
+                         style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:16px;min-height:420px;max-height:520px;overflow-y:auto;padding:24px;display:flex;flex-direction:column;gap:12px">
+
+                        <t t-if="not history">
+                            <div class="text-center py-4" style="color:rgba(255,255,255,0.5)">
+                                <p style="font-size:1.1rem">👋 Start the conversation below!</p>
+                                <p class="small">The AI will respond in character and correct your mistakes.</p>
+                            </div>
+                        </t>
+
+                        <t t-foreach="history" t-as="msg">
+                            <t t-if="msg['role'] == 'user'">
+                                <div class="d-flex justify-content-end">
+                                    <div style="max-width:75%;background:linear-gradient(135deg,#8a2be2,#4169e1);color:#fff;border-radius:16px 16px 4px 16px;padding:12px 16px;font-size:0.92rem;line-height:1.5">
+                                        <t t-esc="msg['content']"/>
+                                    </div>
+                                </div>
+                            </t>
+                            <t t-if="msg['role'] == 'assistant'">
+                                <div class="d-flex justify-content-start">
+                                    <div style="max-width:80%;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.12);color:#e0e0e0;border-radius:16px 16px 16px 4px;padding:12px 16px;font-size:0.92rem;line-height:1.6">
+                                        <t t-esc="msg['content']"/>
+                                    </div>
+                                </div>
+                            </t>
+                        </t>
+
+                        <!-- Typing indicator (hidden by default) -->
+                        <div id="lx-typing" class="d-none d-flex justify-content-start">
+                            <div style="background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.12);color:#aaa;border-radius:16px;padding:10px 16px;font-size:0.85rem">
+                                ✦ Typing…
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Input row -->
+                    <div class="mt-3 d-flex gap-2" id="lx-chat-form">
+                        <input id="lx-msg-input" type="text" class="form-control"
+                               placeholder="Type your message… (Enter to send)"
+                               style="background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.18);color:#fff;border-radius:10px;font-size:0.93rem"
+                               autocomplete="off"/>
+                        <button id="lx-send-btn" class="btn px-4"
+                                style="background:linear-gradient(90deg,#8a2be2,#4169e1);color:#fff;border:none;border-radius:10px;font-weight:600;white-space:nowrap">
+                            Send →
+                        </button>
+                    </div>
+                    <p class="small mt-2" style="color:rgba(255,255,255,0.4)">Press <kbd>Enter</kbd> to send · The AI responds in character and corrects grammar mistakes.</p>
+
                 </div>
-              </div>
-            </a>
-          </div>
-          <div class="col-md-6">
-            <a href="/my/grammar-practice" class="lx-glass-card d-block text-decoration-none p-3">
-              <div class="d-flex align-items-center gap-3">
-                <span class="fs-2">✏️</span>
-                <div>
-                  <strong class="text-white">Grammar Practice</strong>
-                  <p class="text-white-50 small mb-0">Targeted exercises for tenses, articles, and more.</p>
-                </div>
-              </div>
-            </a>
-          </div>
-        </div>
+            </div>
 
-      </div>
-    </div>
-  </t>
-</template>
+            <script type="text/javascript">
+            (function() {
+                var scenarioId = <t t-esc="scenario.id"/>;
+                var chatBox = document.getElementById('lx-chat-box');
+                var input = document.getElementById('lx-msg-input');
+                var sendBtn = document.getElementById('lx-send-btn');
+                var typing = document.getElementById('lx-typing');
 
-</data>
+                function scrollToBottom() {
+                    chatBox.scrollTop = chatBox.scrollHeight;
+                }
+                scrollToBottom();
+
+                function appendBubble(role, content) {
+                    var isUser = role === 'user';
+                    var wrap = document.createElement('div');
+                    wrap.className = 'd-flex ' + (isUser ? 'justify-content-end' : 'justify-content-start');
+                    var bubble = document.createElement('div');
+                    bubble.textContent = content;
+                    if (isUser) {
+                        bubble.style.cssText = 'max-width:75%;background:linear-gradient(135deg,#8a2be2,#4169e1);color:#fff;border-radius:16px 16px 4px 16px;padding:12px 16px;font-size:0.92rem;line-height:1.5';
+                    } else {
+                        bubble.style.cssText = 'max-width:80%;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.12);color:#e0e0e0;border-radius:16px 16px 16px 4px;padding:12px 16px;font-size:0.92rem;line-height:1.6';
+                    }
+                    wrap.appendChild(bubble);
+                    chatBox.insertBefore(wrap, typing);
+                    scrollToBottom();
+                }
+
+                function sendMessage() {
+                    var msg = input.value.trim();
+                    if (!msg) return;
+                    input.value = '';
+                    input.disabled = true;
+                    sendBtn.disabled = true;
+                    appendBubble('user', msg);
+                    typing.classList.remove('d-none');
+                    scrollToBottom();
+
+                    fetch('/my/roleplay/' + scenarioId + '/send', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({jsonrpc:'2.0',method:'call',params:{message: msg}})
+                    })
+                    .then(function(r) { return r.json(); })
+                    .then(function(data) {
+                        typing.classList.add('d-none');
+                        var reply = (data.result &amp;&amp; data.result.reply) || '…';
+                        appendBubble('assistant', reply);
+                    })
+                    .catch(function() {
+                        typing.classList.add('d-none');
+                        appendBubble('assistant', 'Sorry, something went wrong. Please try again!');
+                    })
+                    .finally(function() {
+                        input.disabled = false;
+                        sendBtn.disabled = false;
+                        input.focus();
+                    });
+                }
+
+                sendBtn.addEventListener('click', sendMessage);
+                input.addEventListener('keydown', function(e) {
+                    if (e.key === 'Enter') { e.preventDefault(); sendMessage(); }
+                });
+            })();
+            </script>
+
+        </t>
+    </template>
+
 </odoo>

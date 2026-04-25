@@ -20,6 +20,7 @@
         'security/record_rules.xml',
         'data/seeded_posts.xml',
         'data/grammar_sections.xml',
+        'data/roleplay_scenarios.xml',
         'data/website_menus.xml',
         'views/branding.xml',
         'views/portal_translator.xml',

@@ -13,3 +13,7 @@ access_language_grammar_section_user,language.grammar.section user,model_languag
 access_language_grammar_section_admin,language.grammar.section admin,model_language_grammar_section,language_security.group_language_admin,1,1,1,1
 access_language_idiom_user,language.idiom user,model_language_idiom,language_security.group_language_user,1,0,0,0
 access_language_idiom_admin,language.idiom admin,model_language_idiom,language_security.group_language_admin,1,1,1,1
+access_language_scenario_user,language.scenario user,model_language_scenario,language_security.group_language_user,1,0,0,0
+access_language_scenario_admin,language.scenario admin,model_language_scenario,language_security.group_language_admin,1,1,1,1
+access_language_scenario_session_user,language.scenario.session user,model_language_scenario_session,language_security.group_language_user,1,1,1,0
+access_language_scenario_session_admin,language.scenario.session admin,model_language_scenario_session,language_security.group_language_admin,1,1,1,1
