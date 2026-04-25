@@ -9,6 +9,7 @@ docker_compose/db/backups/*
 !logs/.gitkeep
 !logs/nginx/.gitkeep
 !docker_compose/db/backups/.gitkeep
+!docker_compose/db/backups/verify_backup.sh
 
 # =========================
 # Environment / secrets
