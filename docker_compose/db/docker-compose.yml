@@ -32,18 +32,28 @@ services:
       - ../../.env
     environment:
       PGPASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_HOST: postgres
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-7}
     volumes:
       - ./backups:/backups
       - ./backup.sh:/backup.sh
-      - ./handle-backup.sh:/handle-backup.sh
+      - ./backups/verify_backup.sh:/verify_backup.sh
     networks:
       - backend
     depends_on:
       - postgres
-    command: sh -c "
-      (/handle-backup.sh && while true; do sleep 60; /handle-backup.sh; done) &
-      (/backup.sh && while true; do sleep 86400; /backup.sh; done) &
-      tail -f /dev/null
+    # Runs a full backup once at startup, then every 24 h (86400 s).
+    # verify_backup.sh is executed after each backup so failures are logged
+    # immediately and visible in `docker logs postgres_backup`.
+    command: >
+      sh -c "
+        echo '[scheduler] Waiting 30 s for postgres to be ready...' &&
+        sleep 30 &&
+        while true; do
+          /backup.sh && /verify_backup.sh || echo '[scheduler] WARN: backup or verify reported errors';
+          echo '[scheduler] Next backup in 24 h.';
+          sleep 86400;
+        done
       "
 
   postgres-exporter:

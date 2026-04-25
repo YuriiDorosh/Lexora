@@ -18,22 +18,36 @@ services:
     ports:
       - "5432:5432"
 
-  # backup-prod:
-  #   image: postgres:15
-  #   container_name: postgres_backup-prod
-  #   restart: unless-stopped
-  #   env_file:
-  #     - ../../.env
-  #   environment:
-  #     PGPASSWORD: ${POSTGRES_PASSWORD}
-  #   volumes:
-  #     - ./backups:/backups
-  #     - ./backup-prod.sh:/backup.sh
-  #   networks:
-  #     - backend-prod
-  #   depends_on:
-  #     - postgres-prod
-  #   command: sh -c "while true; do /backup.sh; sleep 86400; done"
+  backup-prod:
+    image: postgres:15
+    container_name: postgres_backup-prod
+    restart: unless-stopped
+    env_file:
+      - ../../.env
+    environment:
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_HOST: postgres-prod
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-14}
+    volumes:
+      - ./backups:/backups
+      - ./backup-prod.sh:/backup.sh
+      - ./backups/verify_backup.sh:/verify_backup.sh
+    networks:
+      - backend-prod
+    depends_on:
+      - postgres-prod
+    # Waits for Postgres to be fully up, then runs a backup immediately and
+    # every 24 h (86400 s). verify_backup.sh checks integrity after each run.
+    command: >
+      sh -c "
+        echo '[scheduler] Waiting 30 s for postgres-prod to be ready...' &&
+        sleep 30 &&
+        while true; do
+          /backup.sh && /verify_backup.sh || echo '[scheduler] WARN: backup or verify reported errors';
+          echo '[scheduler] Next backup in 24 h.';
+          sleep 86400;
+        done
+      "
 
 volumes:
   postgres_data:
