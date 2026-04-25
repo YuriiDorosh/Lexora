@@ -486,7 +486,7 @@ def _fix_library_menu_parents(env):
 
     # URL → group name mapping
     group_map = {
-        '#practice': ('Practice', ['/my/practice', '/my/roleplay', '/my/grammar-practice']),
+        '#practice': ('Practice', ['/my/practice', '/my/roleplay', '/my/grammar-practice', '/my/sentence-builder']),
         '#library':  ('Library',  ['/useful-words', '/grammar', '/idioms', '/phrasebook']),
         '#tools':    ('Tools',    ['/my/dashboard', '/my/leaderboard', '/my/arena',
                                    '/my/shop', '/my/inventory', '/my/posts', '/my/moderation']),

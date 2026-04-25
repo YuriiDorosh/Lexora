@@ -44,7 +44,8 @@ class SentenceBuilderPortal(http.Controller):
 
         sentences = []
         for ex in batch_raw:
-            tokens = _tokenise(ex["sentence"])
+            full_sentence = ex["sentence"].replace("_", ex["answer"])
+            tokens = _tokenise(full_sentence)
             shuffled = tokens[:]
             # Ensure shuffle is different from original
             for _ in range(10):
@@ -52,7 +53,7 @@ class SentenceBuilderPortal(http.Controller):
                 if shuffled != tokens:
                     break
             sentences.append({
-                "original": ex["sentence"],
+                "original": full_sentence,
                 "tokens": tokens,
                 "shuffled": shuffled,
                 "level": ex.get("level", ""),
