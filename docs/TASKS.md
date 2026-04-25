@@ -15,6 +15,465 @@
 
 ## Current Milestone
 
+### Roadmap Planning — M19 / M20 / M21 + Header UI Redesign
+
+**Status:** Planning complete. Ready to begin implementation.
+**Started:** 2026-04-23
+**Branch:** `m19_m20_m21_expansion`
+
+**Scope:** Documentation-only pass defining three new content milestones and a navbar
+redesign. No code written yet. Full specs in `docs/PLAN.md` (v1.2) and
+`docs/UI_REDESIGN_HEADER.md`.
+
+#### Sub-steps
+
+- [x] Plan-01 · Branch `m19_m20_m21_expansion` created from `m17_m18_learning_expansion`. ✅
+- [x] Plan-02 · `docs/PLAN.md` bumped to v1.2; M18.5/M19/M20/M21 rows added to overview table. ✅
+- [x] Plan-03 · Full milestone specs appended to PLAN.md (Architecture, Work, Verification for each). ✅
+- [x] Plan-04 · `docs/UI_REDESIGN_HEADER.md` created — navbar groups, CSS plan, Odoo XML strategy. ✅
+- [x] Plan-05 · `docs/TASKS.md` updated with this planning block + M19/M20/M21 sub-task stubs. ✅
+- [ ] Plan-06 · Commit and push `m19_m20_m21_expansion`.
+
+---
+
+### M18.5 — Header UI Redesign
+
+**Status:** Not started.
+**Branch:** `m19_m20_m21_expansion` (or dedicated branch at implementation time)
+
+#### Sub-steps
+
+- [ ] M18.5-01 · Read `docs/UI_REDESIGN_HEADER.md` thoroughly before touching any XML.
+- [ ] M18.5-02 · Audit all existing `website.menu` records across `language_portal`,
+  `language_learning`, `language_pvp`; list current sequence numbers.
+- [ ] M18.5-03 · Create three parent menu records (Practice / Library / Tools) in
+  `language_portal/data/website_menus.xml`.
+- [ ] M18.5-04 · Re-parent all existing child menu records to their correct group.
+- [ ] M18.5-05 · Add glassmorphism dropdown CSS to `premium_ui.css`.
+- [ ] M18.5-06 · Test mobile collapse (Bootstrap toggler).
+- [ ] M18.5-07 · `--update language_portal,language_learning,language_pvp --stop-after-init`.
+- [ ] M18.5-08 · Verify all links still resolve; no 404s introduced.
+- [ ] M18.5-09 · Commit and push.
+
+#### Blockers
+
+(none yet)
+
+---
+
+### M19 — Natural Speech Hub (Idioms & Phrasal Verbs)
+
+**Status:** Not started.
+**Branch:** TBD
+
+#### Sub-steps
+
+- [ ] M19-01 · `language_portal/models/language_idiom.py` — model definition.
+- [ ] M19-02 · `language_portal/models/__init__.py` — import.
+- [ ] M19-03 · `language_portal/security/ir.model.access.csv` — read-only for Language Users.
+- [ ] M19-04 · `language_portal/data/idioms_data.py` — 100+ entries (40 EN phrasal verbs,
+  35 UK idioms, 30 EL idioms). Each: `expression`, `literal_meaning`, `idiomatic_meaning`,
+  `example_sentence`, `language`, `category`, `level`, `origin_note`.
+- [ ] M19-05 · Post-init hook in `language_portal/__init__.py` to seed from `idioms_data.py`.
+- [ ] M19-06 · `language_portal/controllers/portal_idioms.py` — `GET /idioms`,
+  `GET /idioms/<id>`, `POST /idioms/<id>/save`.
+- [ ] M19-07 · `language_portal/controllers/__init__.py` — import.
+- [ ] M19-08 · `language_portal/views/portal_idioms.xml` — dark card grid, flip animation,
+  category/language/level filters, "Save to Vocabulary" button.
+- [ ] M19-09 · `data/website_menus.xml` — "Idioms Hub" entry (sequence=26).
+- [ ] M19-10 · `__manifest__.py` — new files registered.
+- [ ] M19-11 · `--update language_portal --stop-after-init` → 0 errors.
+- [ ] M19-12 · Verify idiom count ≥100, `/idioms` → 200, save creates `language.entry`.
+- [ ] M19-13 · Commit and push.
+
+#### Blockers
+
+(none yet)
+
+---
+
+### M20 — Survival Phrasebook (Tourist Kits)
+
+**Status:** Not started.
+**Branch:** TBD
+
+#### Sub-steps
+
+- [ ] M20-01 · `language_portal/data/phrasebook_data.py` — 6 scenarios × ~15 phrases,
+  EN/UK/EL side-by-side. Scenarios: hotel, taxi, restaurant, emergency, shopping, airport.
+- [ ] M20-02 · `language_portal/controllers/portal_phrasebook.py` — `GET /phrasebook`,
+  `GET /phrasebook/<scenario>`, `POST /phrasebook/copy-to-roleplay`.
+- [ ] M20-03 · `language_portal/controllers/__init__.py` — import.
+- [ ] M20-04 · `language_portal/views/portal_phrasebook.xml` — scenario grid + phrase list
+  with EN/UK/EL tab switcher, copy-to-clipboard, "Practice in Roleplay" CTA.
+- [ ] M20-05 · `language_portal/controllers/portal_roleplay.py` — add `prefill` query param
+  handling to `GET /my/roleplay/<id>`; pass to template; JS auto-submits as first turn.
+- [ ] M20-06 · `data/website_menus.xml` — "Phrasebook" entry (sequence=27).
+- [ ] M20-07 · `__manifest__.py` — new files registered.
+- [ ] M20-08 · `--update language_portal --stop-after-init` → 0 errors.
+- [ ] M20-09 · Verify `/phrasebook` → 200; language tabs work; copy-to-roleplay redirects
+  to correct scenario with phrase pre-filled.
+- [ ] M20-10 · Commit and push.
+
+#### Blockers
+
+(none yet)
+
+---
+
+### M21 — Sentence Builder (Syntax Master)
+
+**Status:** Not started. Depends on M18 dataset (already available).
+**Branch:** TBD
+
+#### Sub-steps
+
+- [ ] M21-01 · `language_portal/controllers/portal_sentence_builder.py` —
+  `GET /my/sentence-builder` (load + filter M18 exercises with ≥5 words, pick 5, shuffle
+  tokens); `POST /my/sentence-builder/score` (JSON-RPC, 10 XP/correct, registry guard).
+- [ ] M21-02 · `language_portal/controllers/__init__.py` — import.
+- [ ] M21-03 · `language_portal/views/portal_sentence_builder.xml` — scramble tray
+  (`.lx-token-tile` pills), answer tray (`.lx-answer-tray`), Check button, feedback,
+  score summary with XP badge. Pure click-to-move JS (no drag library).
+- [ ] M21-04 · `data/website_menus.xml` — "Sentence Builder" entry (sequence=24).
+- [ ] M21-05 · `__manifest__.py` — new files registered.
+- [ ] M21-06 · `--update language_portal --stop-after-init` → 0 errors.
+- [ ] M21-07 · Verify `/my/sentence-builder` → 200; 5 scrambled sentences render;
+  correct order scores correctly; XP badge appears; `language.xp.log` entry created.
+- [ ] M21-08 · Commit and push.
+
+#### Blockers
+
+(none yet)
+
+---
+
+## Completed Milestones (M18 fix pass)
+
+### M18 — Grammar Pro — Cloze Tests (fix pass)
+
+**Status:** Complete and verified.
+**Started:** 2026-04-23
+**Completed:** 2026-04-23
+**Branch:** `m17_m18_learning_expansion`
+
+**Scope:** Post-launch bug-fix and polish pass for M17 (AI Roleplay) and M18 (Grammar Pro).
+Four issues corrected: (1) silent LLM bridge failure due to `urllib.request` in Odoo worker
+context; (2) grey-on-grey / white-on-white UI contrast failures across roleplay and grammar
+pages; (3) Grammar shuffle bug silently discarding shuffled choices; (4) Grammar XP endpoint
+activation and badge display.
+
+#### Architecture note — synchronous LLM chat call
+
+The roleplay feature uses a **direct synchronous HTTP call** from the Odoo portal controller
+to the LLM service, bypassing RabbitMQ entirely. This is intentional: a conversation turn
+requires an immediate response to render in the browser, so async queuing is not suitable.
+
+```
+Browser POST /my/roleplay/<id>/send (JSON-RPC)
+    → Odoo worker: portal_roleplay.py:roleplay_send()
+        → requests.post("http://llm-service:8000/roleplay", timeout=90)
+            LLM service: POST /roleplay endpoint (FastAPI sync)
+                → llama.cpp inference (~10–40 s on E5-2680v2)
+            → {"reply": "..."}
+        ← raw = resp.content.decode("utf-8", errors="replace")
+        ← data = json.loads(raw)
+        ← reply = str(data.get("reply") or "").strip()
+    → session.append_message("user", message)
+    → session.append_message("assistant", reply)
+    → return {"status": "ok", "reply": reply}
+Browser JS: data.result.reply → injected into chat DOM
+```
+
+**Why `requests` not `urllib.request`:** Odoo 18 uses `workers=4` (standard prefork, not
+gevent). `urllib.request.urlopen()` has no `json=` convenience parameter and requires
+manual encoding; more critically it fails silently when called from within an Odoo worker
+request context due to signal-handling differences. The `requests` library (v2.31.0,
+already a transitive Odoo dependency) works correctly in all Odoo worker configurations.
+
+**Why `resp.content.decode()` not `resp.json()`:** `requests.Response.json()` delegates
+to the `json` decoder but first checks the `Content-Type` header. If the LLM service
+returns `application/json` with a charset suffix or any deviation, the sniffing can fail.
+Explicit `resp.content.decode("utf-8", errors="replace")` + `json.loads(raw)` is
+content-type-agnostic and logs the raw body before parsing, which is invaluable for
+debugging LLM response malformations.
+
+**`language.xp.log` registry guard:** The grammar practice XP endpoint
+(`/my/grammar-practice/score`) is in `language_portal` but writes to a model owned by
+`language_learning`. Rather than adding a hard manifest dependency between these two
+modules, the code uses `"language.xp.log" in request.env.registry` as a runtime guard.
+If `language_learning` is not installed, XP is simply not awarded — the grammar practice
+page still works.
+
+#### Sub-steps (fix pass)
+
+- [x] M18-FIX-01 · `portal_roleplay.py` — replaced `urllib.request` with `import requests
+  as _requests`. Added step-by-step logging: request send, HTTP status, raw body
+  (first 300 chars), parse result. Changed parse path to
+  `raw = resp.content.decode("utf-8", errors="replace")` + `json.loads(raw)`.
+  Fallback reply "I'm sorry, I couldn't respond right now." when `reply` is empty. ✅
+
+- [x] M18-FIX-02 · `premium_ui.css` — dark theme CSS block hardened:
+  - Selector changed from `.lx-premium-theme` to `#wrap.lx-premium-theme, .lx-premium-theme`
+    with `background-color: #0f172a !important` to beat Odoo portal's `#wrap { background: #fff }`.
+  - `.lx-premium-theme .form-control`, `.form-select` forced dark background + light text.
+  - `.lx-choice-btn` forced `color: #ddd !important` (was invisible on dark background).
+  - `.nav-pills .nav-link`: inactive = `color: rgba(255,255,255,0.65)`, translucent background.
+  - `.nav-pills .nav-link.active`: `background: linear-gradient(90deg, #4f46e5, #7c3aed)`.
+  - `.nav-tabs` active state: dark card background + indigo bottom border.
+  - `#lx-chat-box` forced dark; `#lx-msg-input` forced dark with light placeholder. ✅
+
+- [x] M18-FIX-03 · `portal_grammar_practice.py` — shuffle bug fixed.
+  Root cause: `for ex in batch: ex = dict(ex)` reassigned the loop variable but never
+  updated `batch`. Fixed by building a new `shuffled = []` list:
+  ```python
+  shuffled = []
+  for ex in batch:
+      ex_copy = dict(ex)
+      choices = list(ex_copy["choices"])
+      random.shuffle(choices)
+      ex_copy["choices"] = choices
+      shuffled.append(ex_copy)
+  batch = shuffled
+  ```
+  Now filters actually work — changing Category or Level shows a different, properly
+  shuffled set of exercises. ✅
+
+- [x] M18-FIX-04 · `language_learning/models/language_xp_log.py` — added
+  `'grammar_practice': 'Grammar Practice'` to `REASON_LABELS` selection. ✅
+
+- [x] M18-FIX-05 · `portal_grammar_practice_score` endpoint activated (was already
+  implemented; confirmed `"language.xp.log" in request.env.registry` guard allows
+  it to run when `language_learning` is installed). Rate: 5 XP per correct answer. ✅
+
+- [x] M18-FIX-06 · `portal_grammar_practice.xml` — score summary updated:
+  Added `<div id="lx-xp-gained" class="d-none mb-4">` with `.lx-xp-badge` span.
+  JS `fetch('/my/grammar-practice/score', ...)` call added in "all answered" handler;
+  on success shows `⚡ N XP earned!` badge. XML entities used for `&&` (`&amp;&amp;`)
+  and `<br/>` (not bare `<br>`). ✅
+
+- [x] M18-FIX-07 · `--update language_portal,language_learning --stop-after-init --no-http`
+  → 0 errors, 0 failures. ✅
+
+- [x] M18-FIX-08 · `docker restart odoo` → health pass; routes reloaded. ✅
+
+- [x] M18-FIX-09 · **AI "broken record" / hallucination loop fixed** (second fix pass):
+  - Root cause A — `_ROLEPLAY_WRAPPER` conflicted with scenario `initial_prompt`: both
+    contained correction instructions, doubling up and confusing the 1.5B model into
+    fixating on the `[Correction: ...]` pattern every turn.
+  - Root cause B — no `repeat_penalty` in `create_chat_completion` call. Without it,
+    the model's probability distribution has no penalty for reusing n-grams, so a
+    trapped output loop compounds itself.
+  - Root cause C — scenario `initial_prompt` strings used numbered instruction lists
+    (1) 2) 3) 4) 5)). The 1.5B model tries to "follow the list" and outputs correction
+    markers even when nothing is wrong, because the list itself is the dominant pattern.
+  - **Fix A** — rewrote `_ROLEPLAY_WRAPPER` in `services/llm/main.py` to cover ONLY
+    format constraints (max 2-3 sentences, never repeat, only one correction at end).
+    Removed correction example from the wrapper — each scenario prompt handles that.
+  - **Fix B** — added `repeat_penalty=1.15` to `create_chat_completion`; reduced
+    `max_tokens` from 256 to 200 to enforce conciseness at the generation level.
+  - **Fix C** — simplified all 6 scenario `initial_prompt` strings to 2-3 plain
+    sentences describing only the character and context. Removed all numbered lists.
+    Changed `roleplay_scenarios.xml` from `noupdate="1"` to `noupdate="0"` so
+    prompts update on `--update language_portal`.
+  - CSS nav-pills: inactive link color raised from `rgba(255,255,255,0.65)` to
+    `#ddd` (solid) so filter pills are never translucent-grey on dark backgrounds. ✅
+
+- [x] M18-FIX-10 · `--update language_portal,language_learning --stop-after-init --no-http`
+  → scenarios XML loaded, 0 errors. ✅
+
+- [x] M18-FIX-11 · LLM service rebuilt (`docker compose up -d --build`) with new
+  `repeat_penalty` and simplified wrapper. ✅
+
+- [x] M18-FIX-12 · `docker restart odoo` → health pass. ✅
+
+- [x] M18-FIX-13 · Committed and pushed `m17_m18_learning_expansion`. ✅
+
+**Final polish pass (same session, after second commit):**
+
+- [x] M18-FIX-14 · Grammar XP JS: replaced fragile DOM rescan (`[style*="4ade80"]`)
+  with a direct counter. `rightCount` is now incremented in the click handler alongside
+  `answered`. Eliminated the DOM style-string-matching approach that returned 0 if any
+  button's inline style was rendered differently than expected. Added `credentials:'include'`
+  to the `fetch` call. `.catch` now logs to console instead of silently swallowing. ✅
+
+- [x] M18-FIX-15 · Grammar XP controller: added `_logger.info` at award time and
+  `_logger.warning` for missing-profile edge case. Added `try/except` around the award
+  block so exceptions surface in `make logs-odoo` rather than silently zeroing `xp_gained`.
+  Confirmed via `docker exec` shell test: profile found, xp_total correctly updated. ✅
+
+- [x] M18-FIX-16 · CSS polish — three rules:
+  - `.form-label`: `color: #ffffff !important; opacity: 1 !important; font-weight: 600`
+    — was `rgba(255,255,255,0.55)` which appears grey on light monitors.
+  - `.text-white-50`: overridden to `rgba(255,255,255,0.82)` — Bootstrap's 50% opacity
+    was making scenario card descriptions nearly invisible on some displays.
+  - `.form-select` additional rule: `border: 1px solid rgba(255,255,255,0.35)` for
+    clearly visible filter dropdown borders. ✅
+
+- [x] M18-FIX-17 · `--update language_portal,language_learning --stop-after-init` → 0 errors.
+  `docker restart odoo` → health pass. ✅
+
+- [x] M18-FIX-18 · Committed and pushed `m17_m18_learning_expansion`. ✅
+
+#### Troubleshooting: AI looping / hallucination (record for future milestones)
+
+**Symptom:** AI repeats the same phrase every turn, or adds `[Correction: ...]` even
+when the user's message was correct.
+
+**Diagnosis checklist:**
+1. Is `repeat_penalty` set? Default in llama.cpp is 1.0 (no penalty). Set to 1.1–1.2.
+2. Does the system prompt contain numbered lists? 1.5B models latch onto list patterns
+   and emit them even when the condition isn't met. Replace with plain prose.
+3. Is the wrapper prompt conflicting with the scenario prompt? If both give correction
+   instructions, the model tries to satisfy both → over-corrects every turn.
+4. Is `max_tokens` too high? A budget of 200 forces conciseness. 512 leaves room for
+   the model to ramble and loop.
+5. Is the history window too large? `history[-10:]` is fine; `history[-20:]` can push
+   the context past the model's attention window and cause incoherent repetition.
+
+**Fix template for any future sync LLM endpoint:**
+```python
+completion = _llm.create_chat_completion(
+    messages=messages,
+    max_tokens=200,        # enforce brevity
+    temperature=0.7,
+    repeat_penalty=1.15,   # prevent n-gram loops
+)
+```
+
+**Prompt engineering rule for 1.5B models:** Keep system prompts under 100 words.
+Use plain prose. Numbered lists cause the model to pattern-match on the list format
+rather than the instruction content.
+
+#### Files changed (fix pass)
+
+- `src/addons/language_portal/controllers/portal_roleplay.py` ✅
+- `src/addons/language_portal/controllers/portal_grammar_practice.py` ✅
+- `src/addons/language_portal/static/src/css/premium_ui.css` ✅
+- `src/addons/language_portal/views/portal_grammar_practice.xml` ✅
+- `src/addons/language_learning/models/language_xp_log.py` ✅
+- `src/addons/language_portal/data/roleplay_scenarios.xml` ✅
+- `services/llm/main.py` ✅
+- `docs/TASKS.md` (this file) ✅
+- `docs/PLAN.md` (v1.1) ✅
+
+#### Blockers
+
+(none)
+
+---
+
+## Completed Milestones (M17 + M18 initial implementation)
+
+### M18 — Grammar Pro — Cloze Tests (initial)
+
+**Status:** Complete and verified.
+**Started:** 2026-04-23
+**Completed:** 2026-04-23
+**Branch:** `m17_m18_learning_expansion`
+
+**Scope:** 110 English + Greek fill-in-the-blank grammar exercises. Multiple-choice UI
+with instant green/red feedback, CEFR A1–B2 level filters, category filters, and XP
+award on completion. No async services — entirely portal-side with static exercise data.
+
+#### Sub-steps
+
+- [x] M18-01 · `language_portal/data/cloze_exercises.py` — static data file with
+  `CLOZE_EXERCISES` list, `CATEGORIES` dict, `LEVELS` list, `LANGUAGES` dict.
+  110 exercises: EN (articles, verb forms, prepositions, modals, conditionals, tenses)
+  + Greek (A1/A2). Each exercise: `{language, category, level, sentence, answer, choices[4], hint}`. ✅
+
+- [x] M18-02 · `language_portal/controllers/portal_grammar_practice.py` —
+  `GrammarPracticePortal` controller:
+  - `GET /my/grammar-practice` — loads exercises via `importlib.util.spec_from_file_location`,
+    filters by `lang`/`category`/`level`, samples random batch of 10, shuffles choices.
+  - `POST /my/grammar-practice/score` (JSON-RPC) — awards 5 XP per correct answer
+    via `language.xp.log` (registry guard) + updates `language.user.profile.xp_total`. ✅
+
+- [x] M18-03 · `language_portal/views/portal_grammar_practice.xml` — premium dark UI:
+  hero strip, filter bar (language/category/level selects + New Set button),
+  exercise cards with `data-answer`/`data-hint` attributes, multiple-choice buttons,
+  feedback div, score summary with XP badge. Inline JS: per-card click handler,
+  green/red button styling, feedback text with hint, XP fetch call. ✅
+
+- [x] M18-04 · `language_portal/controllers/__init__.py` — `portal_grammar_practice` import. ✅
+- [x] M18-05 · `data/website_menus.xml` — "Grammar Pro" navbar entry (sequence=25). ✅
+- [x] M18-06 · `__manifest__.py` — new controller + view + data files listed. ✅
+- [x] M18-07 · `--update language_portal --stop-after-init` → 0 errors. ✅
+
+---
+
+### M17 — AI Situational Roleplay (initial)
+
+**Status:** Complete and verified.
+**Started:** 2026-04-23
+**Completed:** 2026-04-23
+**Branch:** `m17_m18_learning_expansion`
+
+**Scope:** 6 AI-powered conversational roleplay scenarios (café, job interview, doctor,
+hotel, airport, market). Each scenario has a dedicated LLM system prompt that enforces
+language coaching: AI plays a native speaker, corrects grammar inline, adapts vocabulary
+to CEFR level. Full glassmorphism dark chat UI. Synchronous LLM call (no RabbitMQ).
+
+#### Key architecture decisions
+
+- **No RabbitMQ for roleplay**: Conversation turns need an immediate response for the
+  chat UX to work. The `POST /my/roleplay/<id>/send` JSON-RPC route calls the LLM
+  service synchronously via `requests.post(..., timeout=90)`. This is a deliberate
+  divergence from the enrichment/translation async pattern.
+- **Session persistence in Odoo DB**: `language.scenario.session.chat_history` stores
+  the full conversation as a JSON string (list of `{role, content}` dicts). This lets
+  the LLM receive the conversation history on every turn for contextual replies.
+- **LLM `/roleplay` endpoint on the service**: The LLM service exposes a new sync
+  FastAPI endpoint `POST /roleplay` that accepts `{system_prompt, history, user_message,
+  target_language}` and returns `{"reply": "..."}`. Distinct from `POST /enrich`
+  (RabbitMQ-backed). Uses the same loaded Llama model.
+
+#### Sub-steps
+
+- [x] M17-01 · `language_portal/models/language_scenario.py` — `language.scenario` model:
+  `name`, `description`, `icon` (Char emoji), `target_language` (Selection en/uk/el),
+  `initial_prompt` (Text — LLM system prompt), `is_active` (Boolean, default True),
+  `sequence` (Integer). 6 scenario records seeded via `data/scenarios.xml`. ✅
+
+- [x] M17-02 · `language_portal/models/language_scenario_session.py` —
+  `language.scenario.session` model: `scenario_id` (Many2one), `user_id` (Many2one),
+  `chat_history` (Text, stores JSON array), UNIQUE(scenario_id, user_id).
+  Methods: `get_or_create_session(scenario_id, user_id)`, `get_history()` → list of dicts,
+  `append_message(role, content)` → deserializes, appends, re-serializes. ✅
+
+- [x] M17-03 · `services/llm/main.py` — added `POST /roleplay` FastAPI endpoint:
+  accepts `RoleplayRequest(system_prompt, history, user_message, target_language)`,
+  builds chat messages list (system + history + new user message), calls
+  `_llm.create_chat_completion(messages, max_tokens=512, temperature=0.7)`,
+  returns `{"reply": assistant_content}`. Falls back to
+  `"I'm sorry, I couldn't respond right now."` on any exception. ✅
+
+- [x] M17-04 · `language_portal/controllers/portal_roleplay.py` —
+  `RoleplayPortal` controller with 4 routes:
+  - `GET /my/roleplay` — grid of active scenarios.
+  - `GET /my/roleplay/<id>` — chat page for a scenario; loads/creates session.
+  - `POST /my/roleplay/<id>/send` (JSON-RPC) — synchronous LLM call (see architecture note).
+  - `POST /my/roleplay/<id>/reset` — clears `chat_history` to `"[]"`. ✅
+
+- [x] M17-05 · `language_portal/views/portal_roleplay.xml` — two templates:
+  `portal_roleplay_grid` (scenario cards in glassmorphism grid) +
+  `portal_roleplay_chat` (dark chat UI: message bubbles, message input,
+  Send button, JS WebSocket-style XHR loop). ✅
+
+- [x] M17-06 · `language_portal/models/__init__.py` — scenario + session imports. ✅
+- [x] M17-07 · `language_portal/security/ir.model.access.csv` — scenario/session rows. ✅
+- [x] M17-08 · `language_portal/controllers/__init__.py` — `portal_roleplay` import. ✅
+- [x] M17-09 · `data/website_menus.xml` — "Roleplay" navbar entry (sequence=23). ✅
+- [x] M17-10 · `__manifest__.py` — new models + controller + view + data files. ✅
+- [x] M17-11 · `--update language_portal --stop-after-init` → 0 errors. ✅
+
+#### Blockers
+
+(none)
+
+---
+
 ### M16 — Legal Protection + Documentation Overhaul
 
 **Status:** Complete and verified.

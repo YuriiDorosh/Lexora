@@ -420,3 +420,70 @@ def health():
         "model_repo": LLM_MODEL_REPO,
         "model_filename": LLM_MODEL_FILENAME,
     }
+
+
+# ---------------------------------------------------------------------------
+# Sync roleplay endpoint (no RabbitMQ — direct HTTP call from Odoo controller)
+# ---------------------------------------------------------------------------
+
+from pydantic import BaseModel  # noqa: E402
+from typing import List, Optional  # noqa: E402
+
+
+class RoleplayMessage(BaseModel):
+    role: str  # "user" or "assistant"
+    content: str
+
+
+class RoleplayRequest(BaseModel):
+    system_prompt: str
+    history: List[RoleplayMessage] = []
+    user_message: str
+    target_language: str = "en"
+
+
+_ROLEPLAY_WRAPPER = (
+    "STRICT OUTPUT RULES — obey these before anything else:\n"
+    "1. Maximum 2-3 sentences per reply. Stop after 3 sentences.\n"
+    "2. NEVER repeat a sentence or phrase you already wrote in this conversation.\n"
+    "3. Only correct SIGNIFICANT mistakes (wrong tense, wrong word). "
+    "Ignore minor errors like missing articles.\n"
+    "4. When you correct, add ONE note at the very end only: [Correction: X → Y]\n"
+    "5. Never list multiple corrections. Never correct the same thing twice.\n"
+    "6. Stay in character. Respond naturally as your character would.\n\n"
+)
+
+
+def _roleplay(req: RoleplayRequest) -> str:
+    lang_name = LANG_NAMES.get(req.target_language, req.target_language)
+    wrapper = _ROLEPLAY_WRAPPER.format(lang=lang_name)
+    system_content = wrapper + "\n\n" + req.system_prompt
+
+    messages = [{"role": "system", "content": system_content}]
+    for msg in req.history[-10:]:  # keep last 10 messages to stay within context
+        messages.append({"role": msg.role, "content": msg.content})
+    messages.append({"role": "user", "content": req.user_message})
+
+    if not _llm_ready or _llm is None:
+        return (
+            f"[stub: LLM not loaded] I understand you said: '{req.user_message}'. "
+            f"Let's continue our conversation in {lang_name}!"
+        )
+
+    try:
+        completion = _llm.create_chat_completion(
+            messages=messages,
+            max_tokens=200,
+            temperature=0.7,
+            repeat_penalty=1.15,
+        )
+        return completion["choices"][0]["message"]["content"].strip()
+    except Exception as exc:  # noqa: BLE001
+        _logger.warning("Roleplay generation error: %s", exc)
+        return "I'm sorry, I couldn't respond right now. Please try again!"
+
+
+@app.post("/roleplay")
+def roleplay_endpoint(req: RoleplayRequest):
+    reply = _roleplay(req)
+    return {"status": "ok", "reply": reply}
