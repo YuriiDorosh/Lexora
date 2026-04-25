@@ -23,6 +23,8 @@ Env vars:
   TRANSLATE_TIMEOUT_SECONDS    default: 10
 """
 
+import contextlib
+from contextlib import asynccontextmanager
 import json
 import logging
 import os
@@ -30,10 +32,9 @@ import socket
 import threading
 import time
 import uuid
-from contextlib import asynccontextmanager
 
-import pika
 from fastapi import FastAPI
+import pika
 from pydantic import BaseModel
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s %(message)s")
@@ -77,10 +78,12 @@ _MYMEMORY_LOCALES: dict[str, str] = {
 def _translate_with_provider(provider: str, text: str, source: str, target: str) -> str:
     """Call the given deep_translator provider.  Raises on any failure."""
     if provider == "google":
-        from deep_translator import GoogleTranslator  # noqa: PLC0415
+        from deep_translator import GoogleTranslator
+
         return GoogleTranslator(source=source, target=target).translate(text)
     if provider == "mymemory":
-        from deep_translator import MyMemoryTranslator  # noqa: PLC0415
+        from deep_translator import MyMemoryTranslator
+
         src_locale = _MYMEMORY_LOCALES.get(source, source)
         tgt_locale = _MYMEMORY_LOCALES.get(target, target)
         return MyMemoryTranslator(source=src_locale, target=tgt_locale).translate(text)
@@ -97,23 +100,40 @@ def _translate(source_text: str, source_language: str, target_language: str) -> 
         return source_text
 
     try:
-        result = _translate_with_provider(TRANSLATE_PROVIDER, source_text, source_language, target_language)
-        _logger.debug("Provider '%s' succeeded for %s→%s", TRANSLATE_PROVIDER, source_language, target_language)
+        result = _translate_with_provider(
+            TRANSLATE_PROVIDER, source_text, source_language, target_language
+        )
+        _logger.debug(
+            "Provider '%s' succeeded for %s→%s",
+            TRANSLATE_PROVIDER,
+            source_language,
+            target_language,
+        )
         return result
     except Exception as primary_exc:
         _logger.warning(
             "Primary provider '%s' failed (%s) — switching to fallback '%s'",
-            TRANSLATE_PROVIDER, primary_exc, TRANSLATE_FALLBACK_PROVIDER,
+            TRANSLATE_PROVIDER,
+            primary_exc,
+            TRANSLATE_FALLBACK_PROVIDER,
         )
 
     try:
-        result = _translate_with_provider(TRANSLATE_FALLBACK_PROVIDER, source_text, source_language, target_language)
-        _logger.info("Fallback provider '%s' succeeded for %s→%s", TRANSLATE_FALLBACK_PROVIDER, source_language, target_language)
+        result = _translate_with_provider(
+            TRANSLATE_FALLBACK_PROVIDER, source_text, source_language, target_language
+        )
+        _logger.info(
+            "Fallback provider '%s' succeeded for %s→%s",
+            TRANSLATE_FALLBACK_PROVIDER,
+            source_language,
+            target_language,
+        )
         return result
     except Exception as fallback_exc:
         _logger.error(
             "Fallback provider '%s' also failed: %s",
-            TRANSLATE_FALLBACK_PROVIDER, fallback_exc,
+            TRANSLATE_FALLBACK_PROVIDER,
+            fallback_exc,
         )
         raise fallback_exc
 
@@ -121,6 +141,7 @@ def _translate(source_text: str, source_language: str, target_language: str) -> 
 # ---------------------------------------------------------------------------
 # RabbitMQ publisher helper
 # ---------------------------------------------------------------------------
+
 
 def _make_connection():
     credentials = pika.PlainCredentials(RABBITMQ_USER, RABBITMQ_PASSWORD)
@@ -158,6 +179,7 @@ def _publish_result(channel, queue_name: str, job_id: str, payload: dict):
 # Message handler
 # ---------------------------------------------------------------------------
 
+
 def _handle_message(channel, method, _properties, body):
     """Process a single translation.requested message."""
     message: dict = {}
@@ -172,26 +194,37 @@ def _handle_message(channel, method, _properties, body):
 
         _logger.info(
             "Processing job_id=%s %s→%s text=%r",
-            job_id, source_language, target_language, source_text[:50],
+            job_id,
+            source_language,
+            target_language,
+            source_text[:50],
         )
 
         translated = _translate(source_text, source_language, target_language)
-        _publish_result(channel, QUEUE_COMPLETED, job_id, {
-            "translated_text": translated,
-            "source_language": source_language,
-            "target_language": target_language,
-        })
+        _publish_result(
+            channel,
+            QUEUE_COMPLETED,
+            job_id,
+            {
+                "translated_text": translated,
+                "source_language": source_language,
+                "target_language": target_language,
+            },
+        )
         channel.basic_ack(delivery_tag=method.delivery_tag)
         _logger.info("Completed job_id=%s result=%r", job_id, translated[:60])
 
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         _logger.error("Translation failed for job_id=%s: %s", message.get("job_id", "?"), exc)
-        try:
-            _publish_result(channel, QUEUE_FAILED, message.get("job_id", str(uuid.uuid4())), {
-                "error": str(exc),
-            })
-        except Exception:
-            pass
+        with contextlib.suppress(Exception):
+            _publish_result(
+                channel,
+                QUEUE_FAILED,
+                message.get("job_id", str(uuid.uuid4())),
+                {
+                    "error": str(exc),
+                },
+            )
         channel.basic_ack(delivery_tag=method.delivery_tag)
 
 
@@ -213,8 +246,11 @@ def _run_consumer():
             channel.queue_declare(queue=QUEUE_REQUESTED, durable=True)
             channel.basic_qos(prefetch_count=1)
             channel.basic_consume(queue=QUEUE_REQUESTED, on_message_callback=_handle_message)
-            _logger.info("Translation consumer started (provider=%s, fallback=%s). Waiting for messages…",
-                         TRANSLATE_PROVIDER, TRANSLATE_FALLBACK_PROVIDER)
+            _logger.info(
+                "Translation consumer started (provider=%s, fallback=%s). Waiting for messages…",
+                TRANSLATE_PROVIDER,
+                TRANSLATE_FALLBACK_PROVIDER,
+            )
             channel.start_consuming()
         except Exception as exc:
             if _stop_event.is_set():
@@ -227,15 +263,19 @@ def _run_consumer():
 # FastAPI app with lifespan
 # ---------------------------------------------------------------------------
 
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Start the consumer thread on startup; stop it on shutdown."""
-    global _consumer_thread  # noqa: PLW0603
+    global _consumer_thread
     _stop_event.clear()
     _consumer_thread = threading.Thread(target=_run_consumer, daemon=True, name="rmq-consumer")
     _consumer_thread.start()
-    _logger.info("Translation service started (provider=%s, timeout=%ss).",
-                 TRANSLATE_PROVIDER, TRANSLATE_TIMEOUT_SECONDS)
+    _logger.info(
+        "Translation service started (provider=%s, timeout=%ss).",
+        TRANSLATE_PROVIDER,
+        TRANSLATE_TIMEOUT_SECONDS,
+    )
     yield
     _logger.info("Translation service shutting down…")
     _stop_event.set()
@@ -265,10 +305,11 @@ def health():
 # Synchronous HTTP endpoint — used by the Lexora Translator Tool (M15)
 # ---------------------------------------------------------------------------
 
+
 class TranslateRequest(BaseModel):
     text: str
-    source: str   # en / uk / el
-    target: str   # en / uk / el
+    source: str  # en / uk / el
+    target: str  # en / uk / el
 
 
 @app.post("/translate")
@@ -283,6 +324,6 @@ def translate_sync(req: TranslateRequest):
     try:
         result = _translate(text, req.source, req.target)
         return {"status": "ok", "result": result}
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         _logger.warning("sync /translate failed: %s", exc)
         return {"status": "error", "message": str(exc)}

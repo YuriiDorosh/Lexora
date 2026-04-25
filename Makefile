@@ -451,3 +451,56 @@ down-audio:
 
 logs-audio:
 	$(LOGS) $(AUDIO_CONTAINER)
+
+# =============================================================================
+# Developer tooling
+# =============================================================================
+.PHONY: install-dev lint fmt fmt-check typecheck security pre-commit-install \
+        pre-commit-run audit
+
+## Install all dev tools into the local venv
+install-dev:
+	pip install -r requirements/dev-requirements.txt
+	pre-commit install --install-hooks
+
+## Ruff lint (auto-fix)
+lint:
+	ruff check --fix src/addons services
+
+## Ruff format (apply)
+fmt:
+	ruff format src/addons services
+
+## Ruff format (check only — used in CI)
+fmt-check:
+	ruff format --check src/addons services
+
+## Mypy type-check on FastAPI services
+typecheck:
+	mypy services/translation/main.py services/llm/main.py \
+	     services/anki/main.py services/audio/main.py
+
+## Bandit security scan
+security:
+	bandit -c pyproject.toml -ll -r services/ src/addons/language_*/
+
+## pip-audit — check all service deps for known CVEs
+audit:
+	@for svc in translation llm anki audio; do \
+	  echo "=== $$svc ==="; \
+	  pip-audit -r services/$$svc/requirements.txt; \
+	done
+
+## Run all pre-commit hooks against all files
+pre-commit-install:
+	pre-commit install --install-hooks
+
+pre-commit-run:
+	pre-commit run --all-files
+
+## Full local quality gate (lint + fmt-check + typecheck + security)
+check:
+	$(MAKE) lint
+	$(MAKE) fmt-check
+	$(MAKE) typecheck
+	$(MAKE) security

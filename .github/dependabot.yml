@@ -1,0 +1,63 @@
+version: 2
+
+updates:
+  # GitHub Actions
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "Europe/Kyiv"
+    labels:
+      - "dependencies"
+      - "ci"
+    commit-message:
+      prefix: "ci(deps)"
+
+  # Translation microservice
+  - package-ecosystem: "pip"
+    directory: "/services/translation"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    labels:
+      - "dependencies"
+      - "translation-service"
+    commit-message:
+      prefix: "build(deps)"
+
+  # LLM microservice
+  - package-ecosystem: "pip"
+    directory: "/services/llm"
+    schedule:
+      interval: "monthly"   # llama-cpp-python updates can be breaking
+    labels:
+      - "dependencies"
+      - "llm-service"
+    commit-message:
+      prefix: "build(deps)"
+
+  # Anki microservice
+  - package-ecosystem: "pip"
+    directory: "/services/anki"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    labels:
+      - "dependencies"
+      - "anki-service"
+    commit-message:
+      prefix: "build(deps)"
+
+  # Audio/TTS microservice
+  - package-ecosystem: "pip"
+    directory: "/services/audio"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    labels:
+      - "dependencies"
+      - "audio-service"
+    commit-message:
+      prefix: "build(deps)"

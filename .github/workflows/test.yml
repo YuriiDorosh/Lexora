@@ -1,0 +1,127 @@
+name: Tests
+
+on:
+  push:
+    branches: ["main", "m*", "feat/*", "fix/*"]
+  pull_request:
+    branches: ["main"]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # FastAPI service unit tests (no Odoo needed)
+  # ---------------------------------------------------------------------------
+  service-tests:
+    name: FastAPI service tests
+    runs-on: ubuntu-24.04
+
+    strategy:
+      matrix:
+        service: [translation, anki, audio]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install service deps
+        run: |
+          pip install pytest pytest-cov
+          pip install -r services/${{ matrix.service }}/requirements.txt
+
+      - name: Run service tests
+        run: |
+          pytest services/${{ matrix.service }}/ \
+            --cov=services/${{ matrix.service }} \
+            --cov-report=term-missing \
+            -v
+        continue-on-error: true   # service tests are best-effort without RabbitMQ
+
+  # ---------------------------------------------------------------------------
+  # Odoo module tests (requires running Postgres + Odoo)
+  # ---------------------------------------------------------------------------
+  odoo-tests:
+    name: Odoo module tests
+    runs-on: ubuntu-24.04
+    # Only run on PRs to main or explicit [test] tag — expensive job
+    if: >
+      github.event_name == 'pull_request' ||
+      contains(github.event.head_commit.message, '[test]')
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: odoo
+          POSTGRES_PASSWORD: odoo
+          POSTGRES_DB: lexora_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Odoo image
+        run: |
+          docker build \
+            -f docker_compose/odoo/Dockerfile \
+            -t lexora-odoo:ci \
+            --build-context root=. \
+            .
+
+      - name: Install custom modules
+        run: |
+          docker run --rm \
+            --network host \
+            -e DB_HOST=localhost \
+            -e DB_PORT=5432 \
+            -e DB_USER=odoo \
+            -e DB_PASSWORD=odoo \
+            -v ${{ github.workspace }}/src/addons:/mnt/extra-addons \
+            lexora-odoo:ci \
+            odoo --config /etc/odoo/odoo.conf \
+              -d lexora_test \
+              --init language_security,language_core,language_words,\
+          language_translation,language_enrichment,language_audio,\
+          language_anki_jobs,language_chat,language_dashboard,\
+          language_pvp,language_portal,language_learning \
+              --without-demo all \
+              --stop-after-init \
+              --no-http
+
+      - name: Run Odoo tests
+        run: |
+          docker run --rm \
+            --network host \
+            -e DB_HOST=localhost \
+            -e DB_PORT=5432 \
+            -e DB_USER=odoo \
+            -e DB_PASSWORD=odoo \
+            -v ${{ github.workspace }}/src/addons:/mnt/extra-addons \
+            lexora-odoo:ci \
+            odoo --config /etc/odoo/odoo.conf \
+              -d lexora_test \
+              --test-enable \
+              --no-http \
+              --stop-after-init \
+              -u language_words,language_translation,language_enrichment,\
+          language_audio,language_anki_jobs,language_pvp,language_learning
+
+      - name: Upload test logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: odoo-test-logs
+          path: /var/log/odoo/
+          retention-days: 7

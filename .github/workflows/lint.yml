@@ -1,0 +1,121 @@
+name: Lint & Format
+
+on:
+  push:
+    branches: ["main", "m*", "feat/*", "fix/*", "docs/*", "tooling*"]
+  pull_request:
+    branches: ["main"]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ruff:
+    name: Ruff (lint + format check)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install ruff
+        run: pip install ruff==0.4.4
+
+      - name: Ruff lint
+        run: |
+          ruff check \
+            --exclude src/addons/base_search_fuzzy \
+            --exclude src/addons/password_security \
+            --exclude src/addons/web_notify \
+            --exclude src/addons/website_menu_by_user_status \
+            --exclude src/addons/website_require_login \
+            src/addons services
+
+      - name: Ruff format (check only)
+        run: |
+          ruff format --check \
+            --exclude src/addons/base_search_fuzzy \
+            --exclude src/addons/password_security \
+            --exclude src/addons/web_notify \
+            --exclude src/addons/website_menu_by_user_status \
+            --exclude src/addons/website_require_login \
+            src/addons services
+
+  mypy:
+    name: Mypy (type check — FastAPI services)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install deps
+        run: |
+          pip install mypy==1.10.0 \
+            fastapi>=0.115.5 \
+            pika>=1.3.2 \
+            types-requests \
+            types-pyyaml
+
+      - name: Mypy
+        run: |
+          mypy \
+            services/translation/main.py \
+            services/llm/main.py \
+            services/anki/main.py \
+            services/audio/main.py
+
+  bandit:
+    name: Bandit (security scan — FastAPI services)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install bandit
+        run: pip install bandit[toml]==1.7.8
+
+      - name: Bandit scan
+        run: bandit -c pyproject.toml -ll -r services/
+
+  hadolint:
+    name: Hadolint (Dockerfile lint)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hadolint/hadolint-action@v3.1.0
+        with:
+          recursive: true
+          ignore: "DL3008,DL3013,DL3042,DL3059,SC2046"
+          failure-threshold: warning
+
+  xmllint:
+    name: XML well-formedness (Odoo views)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install xmllint
+        run: sudo apt-get install -y libxml2-utils
+
+      - name: Check Odoo XML files
+        run: |
+          find src/addons -name "*.xml" \
+            -not -path "*/base_search_fuzzy/*" \
+            -not -path "*/password_security/*" \
+            -not -path "*/web_notify/*" \
+            -not -path "*/website_menu_by_user_status/*" \
+            -not -path "*/website_require_login/*" \
+            | xargs xmllint --noout 2>&1
