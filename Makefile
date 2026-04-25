@@ -177,6 +177,40 @@ load-backup:
 	@echo "Restoring backup $(FILE) into database..."
 	docker exec -i $(DB_CONTAINER) pg_restore -U $(POSTGRES_USER) -d $(POSTGRES_DB) "/backups/$(FILE)"
 
+# === Odoo full backups (DB + filestore) ===
+# make backup-odoo
+backup-odoo:
+	@bash scripts/backup_odoo.sh
+
+# make restore-odoo FILE=./backups/odoo_backup_lexora_2026-04-25_03-00-00.tar.gz
+restore-odoo:
+	@bash scripts/restore_odoo.sh "$(FILE)"
+
+# make restore-odoo-force FILE=./backups/odoo_backup_lexora_2026-04-25_03-00-00.tar.gz
+restore-odoo-force:
+	@bash scripts/restore_odoo.sh "$(FILE)" --force
+
+# === Scripts / tooling ===
+health:
+	@bash scripts/health_check.sh
+
+health-json:
+	@bash scripts/health_check.sh --json
+
+odoo-shell:
+	@bash scripts/odoo_shell.sh
+
+db-shell:
+	@bash scripts/db_shell.sh
+
+# make update-module MODULE=language_portal
+update-module:
+	@bash scripts/update_module.sh "$(MODULE)"
+
+# make update-module-test MODULE=language_portal
+update-module-test:
+	@bash scripts/update_module.sh "$(MODULE)" --test
+
 # === Odoo/App ===
 up-odoo:
 	$(DC) -f docker_compose/odoo/docker-compose.yml $(ENV) up -d

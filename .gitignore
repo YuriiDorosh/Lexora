@@ -4,12 +4,14 @@
 logs/*
 logs/nginx/*
 docker_compose/db/backups/*
+backups/*
 
 # Keep directories if needed
 !logs/.gitkeep
 !logs/nginx/.gitkeep
 !docker_compose/db/backups/.gitkeep
 !docker_compose/db/backups/verify_backup.sh
+!backups/.gitkeep
 
 # =========================
 # Environment / secrets
