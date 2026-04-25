@@ -502,10 +502,13 @@ def _fix_library_menu_parents(env):
             ], limit=1)
             if not group:
                 continue
-            # Reparent any website-specific child with a matching URL
+            # Reparent children that belong to this website but point to the
+            # wrong (global) parent — covers both newly created records and
+            # records that were created before the hook ran.
             children = Menu.search([
                 ('url', 'in', child_urls),
                 ('website_id', '=', website.id),
+                ('parent_id', '!=', group.id),
             ])
             if children:
                 children.write({'parent_id': group.id})

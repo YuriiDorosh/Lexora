@@ -2,6 +2,7 @@ import importlib.util
 import logging
 import os
 import random
+import re
 
 from odoo import http
 from odoo.http import request
@@ -44,7 +45,7 @@ class SentenceBuilderPortal(http.Controller):
 
         sentences = []
         for ex in batch_raw:
-            full_sentence = ex["sentence"].replace("_", ex["answer"])
+            full_sentence = re.sub(r'_+', ex["answer"], ex["sentence"])
             tokens = _tokenise(full_sentence)
             shuffled = tokens[:]
             # Ensure shuffle is different from original
