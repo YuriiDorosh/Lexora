@@ -34,6 +34,7 @@
         'views/pdf_gold_vocab.xml',
         'views/pdf_grammar.xml',
         'views/portal_phrasebook.xml',
+        'views/portal_sentence_builder.xml',
     ],
     'assets': {
         'web.assets_frontend': [

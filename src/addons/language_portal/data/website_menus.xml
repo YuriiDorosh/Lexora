@@ -49,6 +49,15 @@
             <field name="user_not_logged">False</field>
         </record>
 
+        <record id="menu_sentence_builder" model="website.menu">
+            <field name="name">Sentence Builder</field>
+            <field name="url">/my/sentence-builder</field>
+            <field name="parent_id" ref="menu_practice_group"/>
+            <field name="sequence">24</field>
+            <field name="user_logged">True</field>
+            <field name="user_not_logged">False</field>
+        </record>
+
         <record id="menu_grammar_pro" model="website.menu">
             <field name="name">Grammar Pro</field>
             <field name="url">/my/grammar-practice</field>
