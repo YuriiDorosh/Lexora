@@ -1,0 +1,36 @@
+# Global owner — required reviewer on all PRs
+* @YuriiDorosh
+
+# CI / tooling
+.github/ @YuriiDorosh
+Makefile @YuriiDorosh
+pyproject.toml @YuriiDorosh
+.pre-commit-config.yaml @YuriiDorosh
+
+# Docker infrastructure
+docker_compose/ @YuriiDorosh
+
+# FastAPI microservices
+services/ @YuriiDorosh
+
+# Odoo core modules
+src/addons/language_security/ @YuriiDorosh
+src/addons/language_core/ @YuriiDorosh
+
+# Domain model
+src/addons/language_words/ @YuriiDorosh
+src/addons/language_translation/ @YuriiDorosh
+src/addons/language_enrichment/ @YuriiDorosh
+src/addons/language_audio/ @YuriiDorosh
+src/addons/language_anki_jobs/ @YuriiDorosh
+
+# PvP / gamification (high-risk, affects XP balances)
+src/addons/language_pvp/ @YuriiDorosh
+src/addons/language_learning/ @YuriiDorosh
+
+# Portal / frontend
+src/addons/language_portal/ @YuriiDorosh
+
+# Documentation
+docs/ @YuriiDorosh
+README.md @YuriiDorosh

@@ -1,0 +1,153 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.backends.legacy:build"
+
+# =============================================================================
+# Ruff — linter + formatter (replaces flake8, isort, pyupgrade, pep8-naming)
+# =============================================================================
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+indent-width = 4
+
+src = ["src/addons", "services"]
+
+exclude = [
+    ".git",
+    ".ruff_cache",
+    ".venv",
+    "__pycache__",
+    "*.egg-info",
+    "build",
+    "dist",
+    # OCA addons — not our code
+    "src/addons/base_search_fuzzy",
+    "src/addons/password_security",
+    "src/addons/web_notify",
+    "src/addons/website_menu_by_user_status",
+    "src/addons/website_require_login",
+    # Large generated data files
+    "src/addons/language_portal/data/seed_vocab.py",
+    "src/addons/language_portal/data/cloze_exercises.py",
+    "src/addons/language_portal/data/idioms_data.py",
+    "src/addons/language_portal/data/phrasebook_data.py",
+]
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "N",   # pep8-naming
+    "UP",  # pyupgrade
+    "B",   # flake8-bugbear
+    "C4",  # flake8-comprehensions
+    "SIM", # flake8-simplify
+    "TID", # flake8-tidy-imports
+    "RUF", # ruff-specific rules
+]
+
+ignore = [
+    "E501",   # line too long — handled by formatter
+    "F401",   # imported but unused — Odoo __init__.py pattern
+    "UP007",  # use X | Y for union — we keep Optional for clarity
+    "RUF012", # mutable class attributes — Odoo fields pattern
+    "TID252", # relative imports — Odoo controller imports rely on this
+    "SIM108", # ternary vs if/else — readability preference
+    "B008",   # do not perform function calls in default arguments
+]
+
+[tool.ruff.lint.isort]
+known-first-party = [
+    "odoo",
+    "language_security",
+    "language_core",
+    "language_words",
+    "language_translation",
+    "language_enrichment",
+    "language_audio",
+    "language_anki_jobs",
+    "language_chat",
+    "language_dashboard",
+    "language_pvp",
+    "language_portal",
+    "language_learning",
+]
+force-sort-within-sections = true
+split-on-trailing-comma = true
+
+[tool.ruff.lint.pep8-naming]
+classmethod-decorators = ["classmethod", "api.model", "api.constrains", "api.depends"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "lf"
+
+# =============================================================================
+# Mypy — static type checking (FastAPI services only; Odoo ORM is too dynamic)
+# =============================================================================
+[tool.mypy]
+python_version = "3.11"
+files = [
+    "services/translation/main.py",
+    "services/llm/main.py",
+    "services/anki/main.py",
+    "services/audio/main.py",
+]
+ignore_missing_imports = true
+warn_return_any = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+no_implicit_optional = true
+disallow_untyped_defs = false
+show_error_codes = true
+pretty = true
+
+# =============================================================================
+# Pytest — for FastAPI service unit tests
+# =============================================================================
+[tool.pytest.ini_options]
+minversion = "7.0"
+testpaths = ["services"]
+python_files = ["test_*.py", "*_test.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = ["--strict-markers", "--tb=short", "-q"]
+
+# =============================================================================
+# Coverage
+# =============================================================================
+[tool.coverage.run]
+branch = true
+source = ["services"]
+omit = ["*/tests/*", "*/test_*.py", "*/__init__.py"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
+fail_under = 60
+
+[tool.coverage.html]
+directory = ".coverage_html"
+
+# =============================================================================
+# Bandit — security linter
+# =============================================================================
+[tool.bandit]
+exclude_dirs = [
+    "src/addons/base_search_fuzzy",
+    "src/addons/password_security",
+    "src/addons/web_notify",
+    "src/addons/website_menu_by_user_status",
+    "src/addons/website_require_login",
+    ".venv",
+    "build",
+]
+skips = [
+    "B101",  # assert used — acceptable in tests
+    "B106",  # hardcoded_password_funcarg — false positives on Odoo fixtures
+]
+severity = "medium"     # report MEDIUM and HIGH only

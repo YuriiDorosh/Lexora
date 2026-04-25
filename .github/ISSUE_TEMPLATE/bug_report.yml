@@ -1,0 +1,96 @@
+name: Bug Report
+description: Something is broken in Lexora
+labels: ["bug", "triage"]
+assignees: ["YuriiDorosh"]
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for filing a bug report. Please fill in as much detail as possible.
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      description: Which part of the system is affected?
+      options:
+        - Odoo portal (frontend)
+        - language_words / vocabulary
+        - language_translation
+        - language_enrichment / LLM
+        - language_audio / TTS
+        - language_anki_jobs / import
+        - language_chat / DMs
+        - language_pvp / arena
+        - language_portal (grammar, idioms, phrasebook, roleplay, sentence builder)
+        - language_learning / SRS / XP
+        - Docker Compose / infrastructure
+        - Translation microservice (FastAPI)
+        - LLM microservice (FastAPI)
+        - Anki microservice (FastAPI)
+        - Audio/TTS microservice (FastAPI)
+        - RabbitMQ / async pipeline
+        - Nginx / networking
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Bug description
+      description: Clear description of what went wrong.
+      placeholder: "When I click 'Enrich with AI' on a Ukrainian entry, the page returns HTTP 500..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      value: |
+        1.
+        2.
+        3.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behaviour
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behaviour
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: "`make logs-odoo` / `make logs-translation` / `make logs-llm` output"
+      render: text
+
+  - type: input
+    id: branch
+    attributes:
+      label: Branch / commit
+      placeholder: "main @ abc1234"
+
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Severity
+      options:
+        - Critical (data loss / security)
+        - High (feature completely broken)
+        - Medium (workaround exists)
+        - Low (cosmetic / minor)
+    validations:
+      required: true

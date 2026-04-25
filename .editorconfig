@@ -1,0 +1,33 @@
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 4
+
+[*.{yaml,yml,json,toml}]
+indent_size = 2
+
+[*.xml]
+indent_size = 4
+# Odoo XML templates can have trailing whitespace inside attributes
+trim_trailing_whitespace = false
+
+[*.{md,rst}]
+trim_trailing_whitespace = false
+max_line_length = off
+
+[Makefile]
+indent_style = tab
+
+[*.{sh,bash}]
+indent_size = 2
+
+[*.{js,ts,css,scss}]
+indent_size = 2
+
+[*.{Dockerfile,dockerfile}]
+indent_size = 4
