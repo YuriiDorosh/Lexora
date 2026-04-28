@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Lexora</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      width: 340px;
+      min-height: 220px;
+      font-family: 'Inter', 'Segoe UI', system-ui, sans-serif;
+      background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%);
+      color: #f1f5f9;
+      padding: 16px;
+    }
+
+    .lx-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 16px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid rgba(255,255,255,0.1);
+    }
+
+    .lx-logo {
+      font-size: 20px;
+      font-weight: 800;
+      background: linear-gradient(90deg, #818cf8, #a78bfa);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .lx-logo-sub {
+      font-size: 11px;
+      color: rgba(255,255,255,0.45);
+      margin-top: 1px;
+    }
+
+    .lx-card {
+      background: rgba(255,255,255,0.06);
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 12px;
+      padding: 14px;
+      backdrop-filter: blur(8px);
+    }
+
+    label {
+      display: block;
+      font-size: 11px;
+      font-weight: 600;
+      color: rgba(255,255,255,0.55);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 5px;
+    }
+
+    input[type="text"], select, textarea {
+      width: 100%;
+      background: rgba(255,255,255,0.08);
+      border: 1px solid rgba(255,255,255,0.15);
+      border-radius: 8px;
+      color: #f1f5f9;
+      font-size: 13px;
+      padding: 8px 10px;
+      margin-bottom: 10px;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+
+    input[type="text"]:focus, select:focus, textarea:focus {
+      border-color: #818cf8;
+    }
+
+    textarea { resize: vertical; min-height: 52px; }
+
+    select option { background: #1e1b4b; }
+
+    .lx-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+
+    .lx-btn {
+      width: 100%;
+      padding: 9px 14px;
+      border: none;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity 0.2s, transform 0.1s;
+    }
+
+    .lx-btn:active { transform: scale(0.98); }
+    .lx-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+    .lx-btn-primary {
+      background: linear-gradient(90deg, #4f46e5, #7c3aed);
+      color: #fff;
+      margin-top: 4px;
+    }
+
+    .lx-status {
+      font-size: 12px;
+      text-align: center;
+      margin-top: 10px;
+      min-height: 18px;
+      border-radius: 6px;
+      padding: 4px 8px;
+    }
+
+    .lx-status.ok { color: #4ade80; }
+    .lx-status.dup { color: #facc15; }
+    .lx-status.err { color: #f87171; }
+    .lx-status.info { color: #94a3b8; }
+
+    #lx-not-logged-in {
+      text-align: center;
+      padding: 20px 10px;
+    }
+
+    #lx-not-logged-in p {
+      font-size: 13px;
+      color: rgba(255,255,255,0.6);
+      margin-bottom: 12px;
+      line-height: 1.5;
+    }
+
+    #lx-not-logged-in a {
+      color: #818cf8;
+      text-decoration: none;
+      font-weight: 600;
+    }
+
+    .lx-settings-link {
+      display: block;
+      font-size: 10px;
+      color: rgba(255,255,255,0.3);
+      text-align: right;
+      margin-top: 8px;
+      cursor: pointer;
+      text-decoration: underline;
+    }
+
+    .lx-settings-link:hover { color: rgba(255,255,255,0.6); }
+  </style>
+</head>
+<body>
+  <div class="lx-header">
+    <div>
+      <div class="lx-logo">Lexora</div>
+      <div class="lx-logo-sub">by Avantgarde Systems</div>
+    </div>
+  </div>
+
+  <!-- Not logged in state -->
+  <div id="lx-not-logged-in" style="display:none">
+    <p>You need to be logged in to Lexora to save words.</p>
+    <p id="lx-login-link-wrap"></p>
+  </div>
+
+  <!-- Main form -->
+  <div id="lx-form-wrap">
+    <div class="lx-card">
+      <label for="lx-word">Word or phrase</label>
+      <input type="text" id="lx-word" placeholder="e.g. serendipity" autocomplete="off">
+
+      <div class="lx-row">
+        <div>
+          <label for="lx-lang">Language</label>
+          <select id="lx-lang">
+            <option value="">Auto-detect</option>
+            <option value="en">English</option>
+            <option value="uk">Ukrainian</option>
+            <option value="el">Greek</option>
+          </select>
+        </div>
+        <div>
+          <label for="lx-translation">Translation (opt.)</label>
+          <input type="text" id="lx-translation" placeholder="optional">
+        </div>
+      </div>
+
+      <label for="lx-context">Context sentence (opt.)</label>
+      <textarea id="lx-context" placeholder="Sentence where you found this word..."></textarea>
+
+      <button class="lx-btn lx-btn-primary" id="lx-save-btn">Save to Vocabulary</button>
+      <div class="lx-status info" id="lx-status"></div>
+    </div>
+  </div>
+
+  <span class="lx-settings-link" id="lx-open-options">⚙ Settings (Lexora URL)</span>
+
+  <script src="popup.js"></script>
+</body>
+</html>
