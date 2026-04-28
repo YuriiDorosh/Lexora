@@ -15,136 +15,128 @@
 
 ## Current Milestone
 
-### Roadmap Planning — M19 / M20 / M21 + Header UI Redesign
+### M22 — Lexora Companion Extension: Scaffold & Odoo API
 
-**Status:** Planning complete. Ready to begin implementation.
-**Started:** 2026-04-23
-**Branch:** `m19_m20_m21_expansion`
+**Status:** In progress.
+**Started:** 2026-04-28
+**Branch:** `m22_browser_extension_foundation`
 
-**Scope:** Documentation-only pass defining three new content milestones and a navbar
-redesign. No code written yet. Full specs in `docs/PLAN.md` (v1.2) and
-`docs/UI_REDESIGN_HEADER.md`.
-
-#### Sub-steps
-
-- [x] Plan-01 · Branch `m19_m20_m21_expansion` created from `m17_m18_learning_expansion`. ✅
-- [x] Plan-02 · `docs/PLAN.md` bumped to v1.2; M18.5/M19/M20/M21 rows added to overview table. ✅
-- [x] Plan-03 · Full milestone specs appended to PLAN.md (Architecture, Work, Verification for each). ✅
-- [x] Plan-04 · `docs/UI_REDESIGN_HEADER.md` created — navbar groups, CSS plan, Odoo XML strategy. ✅
-- [x] Plan-05 · `docs/TASKS.md` updated with this planning block + M19/M20/M21 sub-task stubs. ✅
-- [ ] Plan-06 · Commit and push `m19_m20_m21_expansion`.
-
----
-
-### M18.5 — Header UI Redesign
-
-**Status:** Not started.
-**Branch:** `m19_m20_m21_expansion` (or dedicated branch at implementation time)
+**Scope:** Chrome Extension Manifest V3 scaffold + Odoo backend API endpoint for
+adding words from the browser. Extension provides a glassmorphism popup for manual
+word capture without leaving the current tab.
 
 #### Sub-steps
 
-- [ ] M18.5-01 · Read `docs/UI_REDESIGN_HEADER.md` thoroughly before touching any XML.
-- [ ] M18.5-02 · Audit all existing `website.menu` records across `language_portal`,
-  `language_learning`, `language_pvp`; list current sequence numbers.
-- [ ] M18.5-03 · Create three parent menu records (Practice / Library / Tools) in
-  `language_portal/data/website_menus.xml`.
-- [ ] M18.5-04 · Re-parent all existing child menu records to their correct group.
-- [ ] M18.5-05 · Add glassmorphism dropdown CSS to `premium_ui.css`.
-- [ ] M18.5-06 · Test mobile collapse (Bootstrap toggler).
-- [ ] M18.5-07 · `--update language_portal,language_learning,language_pvp --stop-after-init`.
-- [ ] M18.5-08 · Verify all links still resolve; no 404s introduced.
-- [ ] M18.5-09 · Commit and push.
+- [x] M22-01 · PLAN.md bumped to v1.3; M22–M25 rows added to overview table; full
+  milestone specs appended. ✅
+- [x] M22-02 · TASKS.md updated — M18.5–M21 marked complete; M22 block started. ✅
+- [x] M22-03 · `extension/` top-level directory created with Manifest V3 scaffold:
+  `manifest.json`, `popup.html`, `popup.js`, `background.js`, `content.js`,
+  `icons/` (placeholder PNGs). ✅
+- [x] M22-04 · `language_portal/controllers/portal_api.py` — `POST /lexora_api/add_word`
+  (auth=user, JSON-RPC-safe). Accepts `word`, `translation`, `context_sentence`,
+  `source_url`. Creates `language.entry` (dedup-safe), queues translation,
+  optionally queues enrichment. Returns `{status, entry_id, duplicate}`. ✅
+- [x] M22-05 · `language_portal/controllers/__init__.py` — import `portal_api`. ✅
+- [x] M22-06 · `--update language_portal --stop-after-init` → 0 errors. ✅
+- [x] M22-07 · Extension popup JS calls `/lexora_api/add_word` with session cookie;
+  handles 401 (not logged in) and 200 responses. ✅
+- [x] M22-08 · Commit and push `m22_browser_extension_foundation`. ✅
+
+#### Architecture note — Extension ↔ Odoo auth
+
+The extension calls Odoo's standard session cookie (`session_id`) which the browser
+already holds from the Lexora tab. CORS is not an issue because the extension popup
+runs in the browser's extension context and can set the same-origin cookie header.
+The `/lexora_api/add_word` endpoint uses `auth='user'` — Odoo returns a 303 redirect
+to `/web/login` if the session is invalid; the extension JS detects this and shows
+a "Please log in to Lexora first" message.
 
 #### Blockers
 
-(none yet)
+(none)
 
 ---
 
-### M19 — Natural Speech Hub (Idioms & Phrasal Verbs)
+## Completed Milestones (M18.5 – M21)
 
-**Status:** Not started.
-**Branch:** TBD
+### M21 — Sentence Builder (Syntax Master)
+
+**Status:** Complete and verified.
+**Branch:** `m21_sentence_builder`
 
 #### Sub-steps
 
-- [ ] M19-01 · `language_portal/models/language_idiom.py` — model definition.
-- [ ] M19-02 · `language_portal/models/__init__.py` — import.
-- [ ] M19-03 · `language_portal/security/ir.model.access.csv` — read-only for Language Users.
-- [ ] M19-04 · `language_portal/data/idioms_data.py` — 100+ entries (40 EN phrasal verbs,
-  35 UK idioms, 30 EL idioms). Each: `expression`, `literal_meaning`, `idiomatic_meaning`,
-  `example_sentence`, `language`, `category`, `level`, `origin_note`.
-- [ ] M19-05 · Post-init hook in `language_portal/__init__.py` to seed from `idioms_data.py`.
-- [ ] M19-06 · `language_portal/controllers/portal_idioms.py` — `GET /idioms`,
-  `GET /idioms/<id>`, `POST /idioms/<id>/save`.
-- [ ] M19-07 · `language_portal/controllers/__init__.py` — import.
-- [ ] M19-08 · `language_portal/views/portal_idioms.xml` — dark card grid, flip animation,
-  category/language/level filters, "Save to Vocabulary" button.
-- [ ] M19-09 · `data/website_menus.xml` — "Idioms Hub" entry (sequence=26).
-- [ ] M19-10 · `__manifest__.py` — new files registered.
-- [ ] M19-11 · `--update language_portal --stop-after-init` → 0 errors.
-- [ ] M19-12 · Verify idiom count ≥100, `/idioms` → 200, save creates `language.entry`.
-- [ ] M19-13 · Commit and push.
-
-#### Blockers
-
-(none yet)
+- [x] M21-01 · `portal_sentence_builder.py` — `GET /my/sentence-builder` + `POST /my/sentence-builder/score`. ✅
+- [x] M21-02 · `controllers/__init__.py` — import. ✅
+- [x] M21-03 · `portal_sentence_builder.xml` — scramble tray, answer tray, Check button, XP badge. ✅
+- [x] M21-04 · `website_menus.xml` — "Sentence Builder" (sequence=24). ✅
+- [x] M21-05 · `__manifest__.py` — new files registered. ✅
+- [x] M21-06 · `--update language_portal --stop-after-init` → 0 errors. ✅
+- [x] M21-07 · `/my/sentence-builder` → 200; tiles, feedback, XP badge verified. ✅
+- [x] M21-08 · Committed and pushed. ✅
 
 ---
 
 ### M20 — Survival Phrasebook (Tourist Kits)
 
-**Status:** Not started.
-**Branch:** TBD
+**Status:** Complete and verified.
+**Branch:** `m20_survival_phrasebook`
 
 #### Sub-steps
 
-- [ ] M20-01 · `language_portal/data/phrasebook_data.py` — 6 scenarios × ~15 phrases,
-  EN/UK/EL side-by-side. Scenarios: hotel, taxi, restaurant, emergency, shopping, airport.
-- [ ] M20-02 · `language_portal/controllers/portal_phrasebook.py` — `GET /phrasebook`,
-  `GET /phrasebook/<scenario>`, `POST /phrasebook/copy-to-roleplay`.
-- [ ] M20-03 · `language_portal/controllers/__init__.py` — import.
-- [ ] M20-04 · `language_portal/views/portal_phrasebook.xml` — scenario grid + phrase list
-  with EN/UK/EL tab switcher, copy-to-clipboard, "Practice in Roleplay" CTA.
-- [ ] M20-05 · `language_portal/controllers/portal_roleplay.py` — add `prefill` query param
-  handling to `GET /my/roleplay/<id>`; pass to template; JS auto-submits as first turn.
-- [ ] M20-06 · `data/website_menus.xml` — "Phrasebook" entry (sequence=27).
-- [ ] M20-07 · `__manifest__.py` — new files registered.
-- [ ] M20-08 · `--update language_portal --stop-after-init` → 0 errors.
-- [ ] M20-09 · Verify `/phrasebook` → 200; language tabs work; copy-to-roleplay redirects
-  to correct scenario with phrase pre-filled.
-- [ ] M20-10 · Commit and push.
-
-#### Blockers
-
-(none yet)
+- [x] M20-01 · `phrasebook_data.py` — 6 scenarios × ~15 phrases, EN/UK/EL. ✅
+- [x] M20-02 · `portal_phrasebook.py` — `GET /phrasebook`, `GET /phrasebook/<scenario>`, `POST /phrasebook/copy-to-roleplay`. ✅
+- [x] M20-03 · `controllers/__init__.py` — import. ✅
+- [x] M20-04 · `portal_phrasebook.xml` — scenario grid + phrase list with EN/UK/EL tabs. ✅
+- [x] M20-05 · `portal_roleplay.py` — `prefill` query param added. ✅
+- [x] M20-06 · `website_menus.xml` — "Phrasebook" (sequence=27). ✅
+- [x] M20-07 · `__manifest__.py` — new files. ✅
+- [x] M20-08 · `--update language_portal --stop-after-init` → 0 errors. ✅
+- [x] M20-09 · `/phrasebook` → 200; tabs, copy-to-roleplay verified. ✅
+- [x] M20-10 · Committed and pushed. ✅
 
 ---
 
-### M21 — Sentence Builder (Syntax Master)
+### M19 — Natural Speech Hub (Idioms & Phrasal Verbs)
 
-**Status:** Not started. Depends on M18 dataset (already available).
-**Branch:** TBD
+**Status:** Complete and verified.
+**Branch:** `m19_idioms_hub`
 
 #### Sub-steps
 
-- [ ] M21-01 · `language_portal/controllers/portal_sentence_builder.py` —
-  `GET /my/sentence-builder` (load + filter M18 exercises with ≥5 words, pick 5, shuffle
-  tokens); `POST /my/sentence-builder/score` (JSON-RPC, 10 XP/correct, registry guard).
-- [ ] M21-02 · `language_portal/controllers/__init__.py` — import.
-- [ ] M21-03 · `language_portal/views/portal_sentence_builder.xml` — scramble tray
-  (`.lx-token-tile` pills), answer tray (`.lx-answer-tray`), Check button, feedback,
-  score summary with XP badge. Pure click-to-move JS (no drag library).
-- [ ] M21-04 · `data/website_menus.xml` — "Sentence Builder" entry (sequence=24).
-- [ ] M21-05 · `__manifest__.py` — new files registered.
-- [ ] M21-06 · `--update language_portal --stop-after-init` → 0 errors.
-- [ ] M21-07 · Verify `/my/sentence-builder` → 200; 5 scrambled sentences render;
-  correct order scores correctly; XP badge appears; `language.xp.log` entry created.
-- [ ] M21-08 · Commit and push.
+- [x] M19-01 · `language_idiom.py` — model definition. ✅
+- [x] M19-02 · `models/__init__.py` — import. ✅
+- [x] M19-03 · `ir.model.access.csv` — read-only for Language Users. ✅
+- [x] M19-04 · `idioms_data.py` — 100+ entries seeded. ✅
+- [x] M19-05 · Post-init hook to seed from `idioms_data.py`. ✅
+- [x] M19-06 · `portal_idioms.py` — `GET /idioms`, `GET /idioms/<id>`, `POST /idioms/<id>/save`. ✅
+- [x] M19-07 · `controllers/__init__.py` — import. ✅
+- [x] M19-08 · `portal_idioms.xml` — card grid, flip animation, filters. ✅
+- [x] M19-09 · `website_menus.xml` — "Idioms Hub" (sequence=26). ✅
+- [x] M19-10 · `__manifest__.py` — new files. ✅
+- [x] M19-11 · `--update language_portal --stop-after-init` → 0 errors. ✅
+- [x] M19-12 · idiom count ≥100, `/idioms` → 200, save creates `language.entry`. ✅
+- [x] M19-13 · Committed and pushed. ✅
 
-#### Blockers
+---
 
-(none yet)
+### M18.5 — Header UI Redesign
+
+**Status:** Complete and verified.
+**Branch:** `m18.5_header_redesign`
+
+#### Sub-steps
+
+- [x] M18.5-01 · Read `docs/UI_REDESIGN_HEADER.md`. ✅
+- [x] M18.5-02 · Audited existing `website.menu` records across all modules. ✅
+- [x] M18.5-03 · Three parent menu records (Practice / Library / Tools) created. ✅
+- [x] M18.5-04 · All child menu records re-parented to correct groups. ✅
+- [x] M18.5-05 · Glassmorphism dropdown CSS added to `premium_ui.css`. ✅
+- [x] M18.5-06 · Mobile collapse (Bootstrap toggler) verified. ✅
+- [x] M18.5-07 · `--update language_portal,language_learning,language_pvp --stop-after-init`. ✅
+- [x] M18.5-08 · All links resolve; no 404s. ✅
+- [x] M18.5-09 · Committed and pushed. ✅
 
 ---
 

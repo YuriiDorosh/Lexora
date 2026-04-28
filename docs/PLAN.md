@@ -1,8 +1,8 @@
 # Lexora — Implementation Plan (MVP)
 
-> Version: 1.2 (M19–M21 roadmap + Header UI redesign plan)
-> Last updated: 2026-04-23
-> Status: M0–M18 complete; M19–M21 planned
+> Version: 1.3 (M22–M25 Lexora Browser Ecosystem roadmap)
+> Last updated: 2026-04-28
+> Status: M0–M21 complete; M22–M25 planned
 
 ---
 
@@ -45,10 +45,14 @@
 | M16 | Legal Protection + Documentation | ✅ Complete | Proprietary LICENSE; professional README overhaul (Avantgarde Systems branding, full feature catalogue, tech stack) |
 | M17 | AI Situational Roleplay | ✅ Complete | 6 AI-powered conversation scenarios; `/my/roleplay` glassmorphism chat UI; LLM `/roleplay` sync endpoint; grammar corrections in-context |
 | M18 | Grammar Pro — Cloze Tests | ✅ Complete | 110 EN+Greek fill-in-the-blank exercises; `/my/grammar-practice`; multiple-choice with instant green/red feedback; CEFR A1–B2 filters |
-| M18.5 | Header UI Redesign | 🗓 Planned | Category dropdown navbar (Practice / Library / Tools); glassmorphism mobile-friendly; see `docs/UI_REDESIGN_HEADER.md` |
-| M19 | Natural Speech Hub — Idioms & Phrasal Verbs | 🗓 Planned | 100+ phrasal verbs (EN) + idioms (EL/UK); interactive expression cards; `/idioms` portal |
-| M20 | Survival Phrasebook — Tourist Kits | 🗓 Planned | Essential phrase sets grouped by scenario; one-click Copy to Roleplay Chat; `/phrasebook` portal |
-| M21 | Sentence Builder — Syntax Master | 🗓 Planned | Word-ordering game using M18 sentence dataset; drag-and-drop / click-to-order mechanics; XP award; `/my/sentence-builder` |
+| M18.5 | Header UI Redesign | ✅ Complete | Category dropdown navbar (Practice / Library / Tools); glassmorphism mobile-friendly |
+| M19 | Natural Speech Hub — Idioms & Phrasal Verbs | ✅ Complete | 100+ phrasal verbs (EN) + idioms (EL/UK); interactive flip-card expression cards; `/idioms` portal |
+| M20 | Survival Phrasebook — Tourist Kits | ✅ Complete | Essential phrase sets grouped by scenario; one-click Copy to Roleplay Chat; `/phrasebook` portal |
+| M21 | Sentence Builder — Syntax Master | ✅ Complete | Word-ordering game using M18 sentence dataset; click-to-order mechanics; XP award; `/my/sentence-builder` |
+| M22 | Browser Extension — Scaffold & Odoo API | 🔄 In progress | Chrome Extension MV3 scaffold; `/lexora_api/add_word` Odoo endpoint; glassmorphism popup |
+| M23 | Browser Extension — Contextual Capture | 🗓 Planned | Right-click "Add to Lexora" context menu; surrounding sentence capture for Sentence Builder |
+| M24 | Browser Extension — Media & Subtitles | 🗓 Planned | YouTube/Netflix subtitle overlay; click-word mini-popup with definition + Add to List |
+| M25 | Browser Extension — Mini-Practice New Tab | 🗓 Planned | New Tab override with Idiom card or Sentence Builder exercise; Quick Explain via `/enrich` |
 
 ---
 
@@ -1054,3 +1058,223 @@ M0 → M1 → M2 → M3
 M19, M20, M21 can be developed in parallel after M18 is stable.
 M18.5 (Header) is a pure UI refactor — safe to interleave with any of M19–M21.
 M21 has a hard dependency on M18's `cloze_exercises.py` dataset.
+M22–M25 form the **Browser Ecosystem** track, parallel to the portal track.
+M23 depends on M22 (extension scaffold). M24 and M25 each depend on M22.
+
+---
+
+## M22 — Browser Extension: Scaffold & Odoo API
+
+**Goal:** A working Chrome Extension (Manifest V3) that can authenticate against a
+running Lexora instance and add words to the user's vocabulary without leaving the
+current browser tab.
+
+**Architecture:**
+
+```
+Chrome Extension popup
+    ↓ fetch POST (same-origin session cookie)
+Odoo: POST /lexora_api/add_word  (auth='user', JSON)
+    ↓
+language.entry.create()  ← dedup-safe (existing normalize + UNIQUE constraint)
+    ↓
+translation auto-queued (same as manual entry save in M3)
+    ↓
+{"status":"ok","entry_id":N,"duplicate":false}
+```
+
+**Work:**
+
+1. `extension/manifest.json` — MV3 manifest: `name`, `version`, `manifest_version:3`,
+   `action` (popup), `permissions` (`storage`, `activeTab`, `contextMenus`),
+   `host_permissions` (user-configurable Lexora URL), `content_scripts` entry for `content.js`.
+2. `extension/popup.html` — glassmorphism popup UI: Lexora logo, word input, language
+   select (en/uk/el), optional translation field, optional context input, Submit button,
+   status banner (success / error / not-logged-in).
+3. `extension/popup.js` — reads `lexora_url` from `chrome.storage.sync`; POSTs to
+   `/lexora_api/add_word` with credentials; handles 200 (show entry ID), redirect-to-login
+   (show "Please log in to Lexora first"), and network errors.
+4. `extension/content.js` — stub for M23; currently just logs "Lexora content script loaded".
+5. `extension/background.js` — stub service worker for M23 context menu registration.
+6. `extension/options.html` + `extension/options.js` — single text field for Lexora base URL
+   (default `http://localhost:5433`); saved to `chrome.storage.sync`.
+7. `extension/icons/` — 16×16, 48×48, 128×128 placeholder PNG icons (simple "L" on dark gradient).
+8. `language_portal/controllers/portal_api.py`:
+   - `POST /lexora_api/add_word` — `auth='user'`, `type='json'`, `csrf=False` (extension
+     cannot get a CSRF token; we rely on `SameSite` cookie + `auth='user'` session guard instead).
+   - Validates `word` (required, ≤500 chars). `translation`, `context_sentence`, `source_url`
+     are optional.
+   - Calls `env['language.entry'].sudo(env.user).create(...)` — dedup raises `ValidationError`,
+     caught and returned as `{"status":"duplicate","entry_id":existing_id}`.
+   - If `translation` is provided: creates `language.translation` directly with
+     `status='completed'` (bypasses async queue for user-supplied translations).
+   - Always enqueues RabbitMQ translation jobs for the user's remaining learning languages.
+   - Returns `{"status":"ok","entry_id":N,"duplicate":false}`.
+9. `language_portal/controllers/__init__.py` — import `portal_api`.
+10. `language_portal/__manifest__.py` — no data change needed (controller auto-loaded).
+
+**CORS note:** Browser extensions running `fetch` from an `moz-extension://` or
+`chrome-extension://` context are treated as cross-origin by Odoo's default CORS policy.
+Add `Access-Control-Allow-Origin: *` response header only on `/lexora_api/*` routes, plus
+`Access-Control-Allow-Headers: Content-Type` and a preflight `OPTIONS` handler.
+
+**Verification:**
+
+```bash
+# 1. Update language_portal
+docker exec odoo odoo --config /etc/odoo/odoo.conf \
+  -d lexora --update language_portal --stop-after-init --no-http
+
+# 2. Test endpoint with curl (simulate extension call, requires valid session cookie)
+curl -X POST http://localhost:5433/lexora_api/add_word \
+  -H "Content-Type: application/json" \
+  -H "Cookie: session_id=<your_session>" \
+  -d '{"word":"ephemeral","source_language":"en","context_sentence":"The ephemeral nature of clouds."}'
+# → {"status":"ok","entry_id":N,"duplicate":false}
+
+# 3. Duplicate detection
+# → {"status":"duplicate","entry_id":N}
+
+# 4. Load extension in Chrome: chrome://extensions → Load unpacked → select extension/
+# 5. Open Options, set URL to http://localhost:5433
+# 6. Navigate to any page, click the extension icon, type a word, click Add
+# 7. Verify entry appears at http://localhost:5433/my/vocabulary
+```
+
+---
+
+## M23 — Browser Extension: Contextual Capture & Smart Selection
+
+**Goal:** Right-clicking selected text on any page shows "Add to Lexora" in the context
+menu. The surrounding sentence is automatically captured as `context_sentence`.
+
+**Work:**
+
+1. `extension/background.js` — `chrome.runtime.onInstalled` creates a context menu item
+   (`id: "add-to-lexora"`, contexts: `["selection"]`). `chrome.contextMenus.onClicked`
+   listener calls `chrome.tabs.sendMessage` to the active tab's content script.
+2. `extension/content.js` — listens for `{action:"capture"}` message; finds the surrounding
+   sentence by walking the DOM text node containing the selection and splitting on `.!?`
+   boundaries. Sends `{word: selectedText, context_sentence: surrounding}` back to background,
+   which calls the Odoo API directly via `fetch` (background scripts can make cross-origin
+   requests without CORS restrictions).
+3. `extension/popup.js` — pre-fills the word input when the popup is opened immediately
+   after a context-menu action (passes data via `chrome.storage.session`).
+
+**Verification:**
+
+```bash
+# 1. Reload extension after manifest change
+# 2. Select "ephemeral" on any webpage → right-click → "Add to Lexora"
+# 3. Verify entry created with context_sentence populated
+# 4. Open popup immediately → word field pre-filled from context menu selection
+```
+
+---
+
+## M24 — Browser Extension: Media & Subtitles Integration
+
+**Goal:** On YouTube and Netflix, clicking a word in the subtitle track opens a
+mini-overlay inside the page with the word's translation/definition and an "Add to List"
+button. The source link includes a timestamp.
+
+**Architecture:**
+
+```
+YouTube/Netflix page
+    content.js injects MutationObserver on subtitle DOM
+    → subtitle text node changed → wrap each word in <span class="lx-word">
+    → user clicks span → overlay rendered adjacent to span
+    overlay: word | fetched definition (GET /lexora_api/define?word=X&lang=Y)
+             "Add to List" button → POST /lexora_api/add_word with source_url=<tab_url+timestamp>
+```
+
+**Work:**
+
+1. `extension/content.js` — YouTube/Netflix URL detection; `MutationObserver` watching
+   `.ytp-caption-segment` (YouTube) and `[data-uia="player-timedtext-text-container"]`
+   (Netflix). Each text node split into clickable `<span class="lx-word">` elements.
+2. `extension/overlay.js` + `extension/overlay.css` — floating glassmorphism card
+   positioned at the clicked word; shows definition from `/lexora_api/define` if available
+   (falls back to translation service result); "Add to List" button.
+3. `language_portal/controllers/portal_api.py` — add `GET /lexora_api/define`:
+   looks up `language.translation` records for the given word and returns the best match;
+   falls back to empty result (extension shows "No definition yet — save to enrich").
+4. `extension/manifest.json` — add `https://www.youtube.com/*` and `https://www.netflix.com/*`
+   to `host_permissions` and `content_scripts` matches.
+
+**Verification:**
+
+```bash
+# 1. Open YouTube with subtitles enabled
+# 2. Click a subtitle word → overlay appears with definition (or "save to enrich" prompt)
+# 3. Click "Add to List" → entry created with source_url containing timestamp
+# 4. Verify entry at /my/vocabulary has source_url set
+```
+
+---
+
+## M25 — Browser Extension: Mini-Practice (New Tab)
+
+**Goal:** Optional New Tab override showing one Idiom card (M19 data) or one Sentence
+Builder exercise (M21 data) each time a new tab is opened. Extension popup also offers
+"Quick Explain" via the `/enrich` or `/roleplay` endpoint.
+
+**Work:**
+
+1. `extension/newtab.html` + `extension/newtab.js` — fetches one random idiom from
+   `GET /lexora_api/daily_card` (new endpoint) and renders a glassmorphism flip card.
+   Falls back to a Sentence Builder exercise if no idiom is available.
+2. `language_portal/controllers/portal_api.py` — `GET /lexora_api/daily_card`:
+   returns a random published `language.idiom` record as JSON; or a random sentence
+   exercise from the cloze dataset.
+3. `extension/manifest.json` — add `"chrome_url_overrides": {"newtab": "newtab.html"}`;
+   add a toggle in Options to enable/disable the override.
+4. `extension/popup.js` — "Quick Explain" button sends the currently selected text on
+   the active tab to `POST /lexora_api/quick_explain`, which proxies to the LLM service's
+   `/enrich` endpoint and returns synonyms + explanation; rendered inline in the popup.
+5. `language_portal/controllers/portal_api.py` — `POST /lexora_api/quick_explain`:
+   looks up or creates a `language.enrichment` job; if already completed, returns cached
+   result immediately; otherwise triggers the async job and returns `{"status":"pending"}`.
+
+**Verification:**
+
+```bash
+# 1. Enable New Tab override in extension Options
+# 2. Open new tab → idiom card renders with flip animation
+# 3. Flip card → idiomatic meaning revealed
+# 4. Select text on any page → open extension popup → click "Quick Explain"
+#    → synonyms and explanation appear within the popup
+```
+
+---
+
+## Dependency Graph (updated)
+
+```
+M0 → M1 → M2 → M3
+               ↓
+               M4 → M4b → M4c
+               ↓
+          M5   M6
+          ↓    ↓
+          M7 ←→ M8
+          ↓
+          M9 → M10 → M11 → M12 → M13 → M14 → M15 → M16 → M17 → M18
+                                                                    ↓
+                                                              M18.5 (Header)
+                                                                    ↓
+                                                  M19 ←──────── parallel ──────→ M20
+                                                                    ↓
+                                                                   M21
+                                                                    ↓
+                                            M22 (Extension scaffold + Odoo API)
+                                                 ↓              ↓           ↓
+                                               M23          M24           M25
+                                          (Contextual)   (Subtitles)  (New Tab)
+```
+
+M22 is the foundation for M23–M25; all three extension milestones can be developed
+in parallel once M22's extension scaffold and Odoo API are stable.
+M24 has no dependency on M19–M21 but benefits from M19 idiom data for M25.
+M25 requires M19 (`language.idiom` model) and M21 (`cloze_exercises.py` dataset).
