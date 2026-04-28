@@ -14,10 +14,16 @@ _MAX_URL_LEN = 2048
 
 
 def _cors_headers():
+    # When credentials are included, Access-Control-Allow-Origin must be the
+    # specific request origin — browsers reject the wildcard + credentials combo.
+    # We reflect the request Origin back; security is enforced by auth='user'.
+    origin = request.httprequest.headers.get('Origin', '')
+    allowed_origin = origin if origin else '*'
     return {
-        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Origin': allowed_origin,
         'Access-Control-Allow-Headers': 'Content-Type, Cookie',
         'Access-Control-Allow-Credentials': 'true',
+        'Vary': 'Origin',
     }
 
 
@@ -38,6 +44,21 @@ class LexoraApiController(http.Controller):
             ('Access-Control-Allow-Methods', 'GET, POST, OPTIONS'),
         ]
         return request.make_response('', headers=headers, status=204)
+
+    # ------------------------------------------------------------------
+    # GET /lexora_api/whoami  — lightweight auth probe for the extension
+    # ------------------------------------------------------------------
+    @http.route('/lexora_api/whoami', type='http', auth='user',
+                methods=['GET'], csrf=False)
+    def whoami(self, **kw):
+        """Return minimal user info so the popup can confirm the session is valid."""
+        user = request.env.user
+        return _json_response({
+            'status': 'ok',
+            'uid': user.id,
+            'name': user.name,
+            'login': user.login,
+        })
 
     # ------------------------------------------------------------------
     # POST /lexora_api/add_word

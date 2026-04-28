@@ -14,23 +14,18 @@ async function getBaseUrl() {
 }
 
 async function checkLoggedIn(baseUrl) {
+  // Use the dedicated whoami endpoint: it returns JSON on success,
+  // and Odoo redirects to /web/login (non-JSON) when unauthenticated.
   try {
-    const resp = await fetch(`${baseUrl}/lexora_api/add_word`, {
-      method: 'OPTIONS',
+    const resp = await fetch(`${baseUrl}/lexora_api/whoami`, {
+      method: 'GET',
       credentials: 'include',
     });
-    // If OPTIONS succeeds at all (204 or any 2xx/3xx), the server is reachable.
-    // We confirm auth by sending a GET to /web/session/get_session_info style check
-    // instead, use a HEAD to a known auth-required route.
-    const check = await fetch(`${baseUrl}/my/vocabulary`, {
-      method: 'HEAD',
-      credentials: 'include',
-      redirect: 'manual',
-    });
-    // If redirected to /web/login, user is not authenticated
-    if (check.type === 'opaqueredirect' || check.status === 0) return false;
-    if (check.status >= 300 && check.status < 400) return false;
-    return check.ok || check.status === 200 || check.status === 404;
+    if (!resp.ok) return false;
+    const ct = resp.headers.get('Content-Type') || '';
+    if (!ct.includes('application/json')) return false;
+    const data = await resp.json();
+    return data.status === 'ok';
   } catch {
     return false;
   }
