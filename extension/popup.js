@@ -14,13 +14,15 @@ async function getBaseUrl() {
 }
 
 async function checkLoggedIn(baseUrl) {
-  // Use the dedicated whoami endpoint: it returns JSON on success,
-  // and Odoo redirects to /web/login (non-JSON) when unauthenticated.
+  // whoami returns 200 JSON on valid session, 401 JSON when not logged in.
+  // auth='none' on the route prevents Odoo from issuing a 303 redirect that
+  // would load the HTML login page inside the popup.
   try {
     const resp = await fetch(`${baseUrl}/lexora_api/whoami`, {
       method: 'GET',
       credentials: 'include',
     });
+    if (resp.status === 401) return false;
     if (!resp.ok) return false;
     const ct = resp.headers.get('Content-Type') || '';
     if (!ct.includes('application/json')) return false;
@@ -108,16 +110,7 @@ async function init() {
         body: JSON.stringify(body),
       });
 
-      // If we got redirected to login page (fetch follows redirects — check URL)
-      if (!resp.ok && resp.status === 0) {
-        setStatus('Not logged in. Please log in to Lexora first.', 'err');
-        btn.disabled = false;
-        return;
-      }
-
-      // Odoo returns 303 on auth failure; fetch follows it but lands on HTML
-      const ct = resp.headers.get('Content-Type') || '';
-      if (!ct.includes('application/json')) {
+      if (resp.status === 401) {
         setStatus('Session expired. Please log in to Lexora.', 'err');
         btn.disabled = false;
         return;
