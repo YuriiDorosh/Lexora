@@ -13,14 +13,33 @@ async function getBaseUrl() {
   });
 }
 
+// ---------------------------------------------------------------------------
+// Session bridge: Chrome blocks SameSite=Lax cookies on cross-origin fetches
+// from extension → HTTP localhost.  We read the cookie explicitly via the
+// chrome.cookies API (requires "cookies" permission + host_permissions) and
+// forward it as a custom header X-Lexora-Session-Id.  Odoo reads that header
+// and loads the session from its store, bypassing the SameSite restriction.
+// ---------------------------------------------------------------------------
+async function getSessionHeader(baseUrl) {
+  return new Promise(resolve => {
+    // chrome.cookies.get needs the exact URL and cookie name
+    chrome.cookies.get({ url: baseUrl, name: 'session_id' }, cookie => {
+      if (chrome.runtime.lastError || !cookie) {
+        resolve({});
+        return;
+      }
+      resolve({ 'X-Lexora-Session-Id': cookie.value });
+    });
+  });
+}
+
 async function checkLoggedIn(baseUrl) {
-  // whoami returns 200 JSON on valid session, 401 JSON when not logged in.
-  // auth='none' on the route prevents Odoo from issuing a 303 redirect that
-  // would load the HTML login page inside the popup.
   try {
+    const sessionHeaders = await getSessionHeader(baseUrl);
     const resp = await fetch(`${baseUrl}/lexora_api/whoami`, {
       method: 'GET',
       credentials: 'include',
+      headers: sessionHeaders,
     });
     if (resp.status === 401) return false;
     if (!resp.ok) return false;
@@ -46,7 +65,7 @@ async function prefillFromSelection() {
       $('lx-word').value = sel;
     }
   } catch {
-    // scripting may be denied on chrome:// pages — silently ignore
+    // Denied on chrome:// pages — silently ignore
   }
 }
 
@@ -74,6 +93,10 @@ async function init() {
     $('lx-not-logged-in').style.display = 'block';
     const linkWrap = $('lx-login-link-wrap');
     linkWrap.innerHTML = `<a href="${baseUrl}/web/login" target="_blank">Log in to Lexora →</a>`;
+
+    // Surface the localhost vs 127.0.0.1 tip
+    const tip = document.getElementById('lx-url-tip');
+    if (tip) tip.style.display = 'block';
     return;
   }
 
@@ -99,14 +122,15 @@ async function init() {
       source_url: await getPageUrl() || undefined,
     };
 
-    // Remove undefined keys
     Object.keys(body).forEach(k => body[k] === undefined && delete body[k]);
+
+    const sessionHeaders = await getSessionHeader(baseUrl);
 
     try {
       const resp = await fetch(`${baseUrl}${ADD_WORD_PATH}`, {
         method: 'POST',
         credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...sessionHeaders },
         body: JSON.stringify(body),
       });
 
@@ -137,6 +161,13 @@ async function init() {
 
 $('lx-open-options').addEventListener('click', () => {
   chrome.runtime.openOptionsPage();
+});
+
+// Tip link inside "not logged in" panel
+document.addEventListener('click', e => {
+  if (e.target && e.target.id === 'lx-tip-open-opts') {
+    chrome.runtime.openOptionsPage();
+  }
 });
 
 init();

@@ -15,11 +15,11 @@ _MAX_URL_LEN = 2048
 def _cors_headers():
     # Reflect the request Origin back — required when credentials are included.
     # Browsers reject the wildcard + credentials combination (CORS spec §7.1.5).
-    # Security is enforced by the manual session check in each handler.
+    # X-Lexora-Session-Id is the custom header used for the manual session bridge.
     origin = request.httprequest.headers.get('Origin', '')
     return {
         'Access-Control-Allow-Origin': origin or '*',
-        'Access-Control-Allow-Headers': 'Content-Type, Cookie',
+        'Access-Control-Allow-Headers': 'Content-Type, Cookie, X-Lexora-Session-Id',
         'Access-Control-Allow-Credentials': 'true',
         'Vary': 'Origin',
     }
@@ -30,17 +30,38 @@ def _json_response(data, status=200):
     return request.make_response(json.dumps(data), headers=headers, status=status)
 
 
-def _require_session():
-    """Return a 401 JSON response if no valid session, else None.
+def _resolve_uid():
+    """Return the authenticated uid, trying two paths:
 
-    Using auth='none' on all /lexora_api/ routes prevents Odoo from issuing a
-    303 redirect to /web/login when the session is missing or expired.  A browser
-    extension cannot follow that redirect gracefully — it would load the HTML
-    login page inside the popup.  Returning a plain 401 JSON lets the extension
-    detect auth failure and show its own "Please log in" message.
+    1. Standard session cookie (works when SameSite allows it).
+    2. X-Lexora-Session-Id header (manual bridge for Chrome extensions where
+       SameSite=Lax blocks the cookie on cross-origin HTTP requests).
+
+    The header value is the raw Odoo session_id cookie value read by the
+    extension via chrome.cookies API and forwarded as a custom header,
+    bypassing SameSite restrictions entirely.
     """
+    # Path 1 — cookie arrived normally
     uid = request.session.uid
-    if not uid:
+    if uid:
+        return uid
+
+    # Path 2 — custom header bridge
+    sid = request.httprequest.headers.get('X-Lexora-Session-Id', '').strip()
+    if sid:
+        try:
+            session = http.root.session_store.get(sid)
+            if session and session.get('uid'):
+                return session['uid']
+        except Exception:
+            _logger.debug('X-Lexora-Session-Id lookup failed for sid=%r', sid[:8])
+
+    return None
+
+
+def _require_session():
+    """Return a 401 JSON response if no valid uid can be resolved, else None."""
+    if not _resolve_uid():
         return _json_response(
             {'status': 'unauthorized', 'message': 'Session expired. Please log in to Lexora.'},
             status=401,
@@ -71,7 +92,7 @@ class LexoraApiController(http.Controller):
         err = _require_session()
         if err:
             return err
-        user = request.env['res.users'].sudo().browse(request.session.uid)
+        user = request.env['res.users'].sudo().browse(_resolve_uid())
         return _json_response({
             'status': 'ok',
             'uid': user.id,
@@ -130,7 +151,7 @@ class LexoraApiController(http.Controller):
         context_sentence = (data.get('context_sentence') or '').strip()[:_MAX_CONTEXT_LEN] or None
         source_url = (data.get('source_url') or '').strip()[:_MAX_URL_LEN] or None
 
-        uid = request.session.uid
+        uid = _resolve_uid()
         env = request.env(user=uid)
         user = env['res.users'].browse(uid)
 
@@ -259,7 +280,7 @@ class LexoraApiController(http.Controller):
         if 'language.enrichment' not in request.env.registry:
             return _json_response({'status': 'unavailable'})
 
-        uid = request.session.uid
+        uid = _resolve_uid()
         from odoo.addons.language_words.models.language_entry import normalize
         normalized = normalize(word)
         entry = request.env['language.entry'].sudo().search([
