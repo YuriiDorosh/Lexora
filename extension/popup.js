@@ -56,13 +56,28 @@ async function prefillFromSelection() {
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     if (!tab || !tab.id) return;
+
+    // Try the rich capture function injected by content.js first
     const results = await chrome.scripting.executeScript({
       target: { tabId: tab.id },
-      func: () => window.getSelection()?.toString().trim() || '',
+      func: () => {
+        if (typeof window.__lexoraCaptureSelection === 'function') {
+          return window.__lexoraCaptureSelection();
+        }
+        // Fallback: plain selection only
+        return { word: window.getSelection()?.toString().trim() || '', context_sentence: '' };
+      },
     });
-    const sel = results?.[0]?.result || '';
-    if (sel && sel.length <= 500) {
-      $('lx-word').value = sel;
+
+    const captured = results?.[0]?.result || {};
+    const word = (captured.word || '').trim();
+    const ctx = (captured.context_sentence || '').trim();
+
+    if (word && word.length <= 500) {
+      $('lx-word').value = word;
+    }
+    if (ctx && ctx.length <= 500) {
+      $('lx-context').value = ctx;
     }
   } catch {
     // Denied on chrome:// pages — silently ignore
