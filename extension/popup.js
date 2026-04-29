@@ -52,6 +52,25 @@ async function checkLoggedIn(baseUrl) {
   }
 }
 
+async function prefillFromPendingCapture() {
+  try {
+    const result = await chrome.storage.session.get(['lexoraPendingCapture']);
+    const capture = result.lexoraPendingCapture;
+    if (!capture) return false;
+    // Stale if >30s old — user probably isn't acting on that context-menu click
+    if (Date.now() - capture.ts > 30000) {
+      await chrome.storage.session.remove(['lexoraPendingCapture']);
+      return false;
+    }
+    if (capture.word) $('lx-word').value = capture.word;
+    if (capture.context_sentence) $('lx-context').value = capture.context_sentence;
+    await chrome.storage.session.remove(['lexoraPendingCapture']);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function prefillFromSelection() {
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -115,7 +134,10 @@ async function init() {
     return;
   }
 
-  await prefillFromSelection();
+  const filledFromCapture = await prefillFromPendingCapture();
+  if (!filledFromCapture) {
+    await prefillFromSelection();
+  }
 
   $('lx-save-btn').addEventListener('click', async () => {
     const word = $('lx-word').value.trim();

@@ -15,10 +15,66 @@
 
 ## Current Milestone
 
-### M22 — Lexora Companion Extension: Scaffold & Odoo API
+### M23 — Browser Extension: Contextual Capture & Smart Selection
 
 **Status:** In progress.
+**Started:** 2026-04-29
+**Branch:** `m23_contextual_capture`
+
+**Scope:** Right-clicking selected text on any page shows "Add to Lexora" in the
+browser context menu. The surrounding sentence is automatically captured as
+`context_sentence`. The background service worker saves the word directly to Odoo
+and gives badge feedback. Opening the popup within 30 s pre-fills both fields from
+`chrome.storage.session`.
+
+#### Sub-steps
+
+- [x] M23-01 · Branch `m23_contextual_capture` created from `m22_browser_extension_foundation`. ✅
+- [x] M23-02 · TASKS.md updated — M22 archived, M23 block started. ✅
+- [x] M23-03 · `extension/background.js` — full implementation:
+  - `chrome.runtime.onInstalled` creates context menu item (`id: "add-to-lexora"`, `contexts: ["selection"]`).
+  - Click handler: reads `info.selectionText`, calls `getContextSentence(tabId)` via `executeScript`, stores `{word, context_sentence, ts}` in `chrome.storage.session`, POSTs to `/lexora_api/add_word` with `X-Lexora-Session-Id` header.
+  - Badge feedback: `…` (saving) → `✓` green (ok) | `=` amber (duplicate) | `!` red (error/401). Badge auto-clears after 3 s. ✅
+- [x] M23-04 · `extension/popup.js` — `prefillFromPendingCapture()` reads `chrome.storage.session.lexoraPendingCapture`; pre-fills `lx-word` + `lx-context`; clears after read; ignored if >30 s old. Called in `init()` before `prefillFromSelection()`; short-circuits live selection if pending capture is found. ✅
+- [x] M23-05 · Toast notifications implemented: `content.js` injects glassmorphism toast div with slide-in/progress-bar/fade-out animation; `background.js` sends `{action:'show-toast', status, word}` after every API response branch (ok / duplicate / unauthorized / error). ✅
+- [ ] M23-06 · Reload extension in Chrome → verify context menu appears on selected text.
+- [ ] M23-06 · End-to-end: select a word on any page → right-click → "Add to Lexora" → badge shows `✓` → entry appears in `/my/vocabulary`.
+- [ ] M23-07 · Duplicate test: repeat same word → badge shows `=`.
+- [ ] M23-08 · Not-logged-in test: log out of Lexora → badge shows `!`.
+- [ ] M23-09 · Popup pre-fill: right-click word → immediately open popup (within 30 s) → both word and context fields pre-filled.
+- [ ] M23-10 · Commit and push `m23_contextual_capture`.
+
+#### Architecture notes
+
+**Context menu → background → direct API call:** Background service workers can
+make cross-origin `fetch` requests without CORS restrictions (no browser CORS
+enforcement for background scripts). The same `X-Lexora-Session-Id` header bridge
+used by the popup is reused here.
+
+**`chrome.storage.session`:** Cleared on browser restart; not persisted. Available
+since Chrome 102. Used to pass capture data from the context-menu action to the
+popup without requiring the popup to re-execute a content script.
+
+**`getContextSentence` via `executeScript`:** The background script calls
+`window.__lexoraCaptureSelection()` injected by `content.js`. Falls back to empty
+string on `chrome://` pages or pages where the content script was blocked.
+
+**Badge character set:** `✓` (U+2713), `=` (plain equals), `!` (exclamation),
+`…` (U+2026 ellipsis). All render in the small badge area across platforms.
+
+#### Blockers
+
+(none)
+
+---
+
+## Completed Milestones (M22)
+
+### M22 — Lexora Companion Extension: Scaffold & Odoo API
+
+**Status:** Complete and verified.
 **Started:** 2026-04-28
+**Completed:** 2026-04-29
 **Branch:** `m22_browser_extension_foundation`
 
 **Scope:** Chrome Extension Manifest V3 scaffold + Odoo backend API endpoint for
@@ -27,34 +83,25 @@ word capture without leaving the current tab.
 
 #### Sub-steps
 
-- [x] M22-01 · PLAN.md bumped to v1.3; M22–M25 rows added to overview table; full
-  milestone specs appended. ✅
+- [x] M22-01 · PLAN.md bumped to v1.3; M22–M25 rows added to overview table; full milestone specs appended. ✅
 - [x] M22-02 · TASKS.md updated — M18.5–M21 marked complete; M22 block started. ✅
-- [x] M22-03 · `extension/` top-level directory created with Manifest V3 scaffold:
-  `manifest.json`, `popup.html`, `popup.js`, `background.js`, `content.js`,
-  `icons/` (placeholder PNGs). ✅
-- [x] M22-04 · `language_portal/controllers/portal_api.py` — `POST /lexora_api/add_word`
-  (auth=user, JSON-RPC-safe). Accepts `word`, `translation`, `context_sentence`,
-  `source_url`. Creates `language.entry` (dedup-safe), queues translation,
-  optionally queues enrichment. Returns `{status, entry_id, duplicate}`. ✅
+- [x] M22-03 · `extension/` scaffold: `manifest.json`, `popup.html`, `popup.js`, `background.js`, `content.js`, `icons/`. ✅
+- [x] M22-04 · `language_portal/controllers/portal_api.py` — 5 routes: `OPTIONS` preflight, `GET /whoami`, `POST /add_word`, `GET /daily_card`, `GET /define`, `POST /quick_explain`. All `auth='none'` + manual `_require_session()` returning 401 JSON. CORS headers reflect request Origin. ✅
 - [x] M22-05 · `language_portal/controllers/__init__.py` — import `portal_api`. ✅
 - [x] M22-06 · `--update language_portal --stop-after-init` → 0 errors. ✅
-- [x] M22-07 · Extension popup JS calls `/lexora_api/add_word` with session cookie;
-  handles 401 (not logged in) and 200 responses. ✅
-- [x] M22-08 · Commit and push `m22_browser_extension_foundation`. ✅
+- [x] M22-07 · Popup JS: `checkLoggedIn` via `GET /whoami`; `getSessionHeader` via `chrome.cookies.get` → `X-Lexora-Session-Id` header; save handler with 401 handling. ✅
+- [x] M22-08 · `content.js` M23 prep: `getSurroundingSentence()` + `window.__lexoraCaptureSelection`. `prefillFromSelection()` in popup fills both `lx-word` and `lx-context`. ✅
+- [x] M22-09 · `language.entry.note` (Text) field added to model; `--update language_words`; vocab detail page shows editable context section with inline form. ✅
+- [x] M22-10 · Committed and pushed all M22 work on `m22_browser_extension_foundation`. ✅
 
-#### Architecture note — Extension ↔ Odoo auth
+#### Architecture notes (M22)
 
-The extension calls Odoo's standard session cookie (`session_id`) which the browser
-already holds from the Lexora tab. CORS is not an issue because the extension popup
-runs in the browser's extension context and can set the same-origin cookie header.
-The `/lexora_api/add_word` endpoint uses `auth='user'` — Odoo returns a 303 redirect
-to `/web/login` if the session is invalid; the extension JS detects this and shows
-a "Please log in to Lexora first" message.
-
-#### Blockers
-
-(none)
+- `auth='none'` + `_require_session()` + `_resolve_uid()`: avoids Odoo's 303 redirect-to-login
+  that broke the popup. Returns 401 JSON instead.
+- SameSite=Lax workaround: `chrome.cookies.get` reads the session cookie explicitly;
+  forwarded as `X-Lexora-Session-Id`; Odoo reads it via `http.root.session_store.get(sid)`.
+- CORS: `Access-Control-Allow-Origin` reflects the request `Origin` (not `*`) because
+  `Access-Control-Allow-Credentials: true` + wildcard origin is rejected by browsers.
 
 ---
 
