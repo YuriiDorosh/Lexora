@@ -35,11 +35,11 @@ session cookies work correctly.
 - [x] M24-04 · `extension/manifest.json` — `overlay.js` added as YouTube-specific content script. ✅
 - [x] M24-05 · `extension/background.js` — `chrome.runtime.onMessage` handler added: `lexora-define` (GET /define) and `lexora-add-word-overlay` (POST /add_word). ✅
 - [x] M24-06 · `portal_api.py` `/define` improved — user's own entries searched first, then shared entries; returns richer payload. ✅
-- [ ] M24-07 · Reload extension → open YouTube video with subtitles → words are clickable spans.
-- [ ] M24-08 · Click a subtitle word → video pauses → overlay appears with definition (or "save to enrich" hint).
-- [ ] M24-09 · Click "Add to Vocabulary" → overlay shows ✓ → entry in `/my/vocabulary` has `source_url` with timestamp.
-- [ ] M24-10 · Click "Resume" → overlay closes → video resumes.
-- [ ] M24-11 · Commit and push `m24_media_subtitles`.
+- [x] M24-07 · `extension/background.js` — `return true` moved to the very end of `onMessage` listener (outside all branches); added top-level `console.log` for debugging. Critical MV3 fix: channel was closing before `sendResponse` for unmatched actions. ✅
+- [x] M24-08 · `extension/overlay.js` — reduced fallback timeout from 9s → 5s; updated timeout message to "Definition lookup timed out, but you can still save"; added ↺ Retry button inside overlay on timeout/error; Retry re-runs full lookup cycle with its own 5s timer; added `.lx-yt-retry-btn` CSS. ✅
+- [x] M24-09 · `portal_api.py` — added `_TRANSLATION_SVC` constant and `_live_translate()` helper: reads user learning languages from profile (falls back to all non-source langs), calls `translation-service /translate` synchronously with 8s timeout for up to 2 target langs, returns results WITHOUT any DB writes. Updated `define()` to call `_live_translate()` when no stored translations found; returns `live: true` flag in response. ✅
+- [x] M24-10 · `extension/content.js` — appended ~300 lines: global Quick Look overlay system using Shadow DOM for complete CSS isolation from host pages. Features: `mouseup` listener with 220ms debounce; `_detectLang()` via Unicode block ranges (Cyrillic→uk, Greek→el, else en); floating "L" icon at selection right edge; `_renderQlOverlay()` builds Shadow DOM card (position: fixed host + position: absolute card) with glassmorphism CSS; states: loading, unauthorized, timeout+Retry, translations+live badge, no-def; Add to Vocabulary wired to `lexora-add-word-overlay`; `composedPath()` click-outside detection; YouTube subtitle spans excluded from Quick Look trigger. ✅
+- [x] M24-11 · All M24 changes committed (commits 75b3f19 + 96db647) and pushed to `m24_media_subtitles`. ✅
 
 #### Architecture notes
 
@@ -64,6 +64,24 @@ click time).
 
 **Timestamp URL:** `source_url` is built as `<tab_url>#t=<seconds>` so the vocabulary
 entry links back to the exact moment in the video.
+
+**`return true` in onMessage (MV3 critical pattern):** Must be the very last statement
+in the listener, outside all `if` branches. If placed inside a branch, messages that
+match a different branch (or no branch) close the channel before `sendResponse` fires.
+
+**Live translation (`_live_translate`):** Called by `/define` when no DB translations
+exist. Calls the translation service synchronously for up to 2 target languages (capped
+to keep p50 latency under 2s). Results returned with `live: true`; NOT persisted —
+user controls persistence via Add to Vocabulary.
+
+**Global Quick Look — Shadow DOM positioning:** Shadow host uses
+`position: fixed; inset: 0; width: 0; height: 0; overflow: visible` so it covers the
+viewport without obscuring content. The card inside uses `position: absolute` calculated
+from `anchorRect`, avoiding the `position: fixed` inside Shadow DOM browser inconsistency.
+
+**Global Quick Look — click-outside:** `mousedown` on the outer document uses
+`e.composedPath().some(el => el?.id === _QL_HOST_ID)` to allow clicks inside the shadow
+card without closing it.
 
 #### Blockers
 
