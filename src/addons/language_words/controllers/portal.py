@@ -302,6 +302,15 @@ class VocabularyPortal(CustomerPortal):
     # Toggle sharing  POST /my/vocabulary/<id>/share
     # ------------------------------------------------------------------
 
+    @http.route('/my/vocabulary/<int:entry_id>/update_note', type='http', auth='user',
+                website=True, methods=['POST'])
+    def vocabulary_update_note(self, entry_id, **post):
+        entry = request.env['language.entry'].browse(entry_id)
+        if not entry.exists() or entry.owner_id.id != request.env.user.id:
+            return request.not_found()
+        entry.note = (post.get('note') or '').strip() or False
+        return request.redirect('/my/vocabulary/%d' % entry_id)
+
     @http.route('/my/vocabulary/<int:entry_id>/share', type='http', auth='user',
                 website=True, methods=['POST'])
     def vocabulary_share(self, entry_id, **post):
