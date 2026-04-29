@@ -70,20 +70,38 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 });
 
 async function handleDefine({ word, lang }) {
+  console.log('[Lexora BG] handleDefine start — word:', word, 'lang:', lang);
   if (!word) return { status: 'error', message: 'word required' };
+
   const baseUrl = await getBaseUrl();
   const sessionHeaders = await getSessionHeader(baseUrl);
+  console.log('[Lexora BG] session headers present:', Object.keys(sessionHeaders).length > 0);
+
+  const controller = new AbortController();
+  const abortTimer = setTimeout(() => {
+    console.warn('[Lexora BG] fetch timeout — aborting define request');
+    controller.abort();
+  }, 8000);
+
   try {
     const url = `${baseUrl}/lexora_api/define?word=${encodeURIComponent(word)}&lang=${encodeURIComponent(lang || 'en')}`;
+    console.log('[Lexora BG] fetching:', url);
     const resp = await fetch(url, {
       method: 'GET',
       credentials: 'include',
       headers: sessionHeaders,
+      signal: controller.signal,
     });
+    clearTimeout(abortTimer);
+    console.log('[Lexora BG] define HTTP status:', resp.status);
     if (resp.status === 401) return { status: 'unauthorized' };
     if (!resp.ok) return { status: 'error', message: `HTTP ${resp.status}` };
-    return await resp.json();
+    const data = await resp.json();
+    console.log('[Lexora BG] define data:', data);
+    return data;
   } catch (err) {
+    clearTimeout(abortTimer);
+    console.warn('[Lexora BG] handleDefine error:', err.name, err.message);
     return { status: 'error', message: err.message };
   }
 }

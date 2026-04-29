@@ -307,15 +307,26 @@ function _onWordClick(e) {
 
   _showOverlay(word, wasPaused, timestamp, lang, video, null);
 
+  // Client-side fallback: if the background script doesn't reply within 9s
+  // (e.g. service worker sleeping, Odoo slow, fetch timed out) show the
+  // "No definition" state anyway so the Add-to-Vocabulary button appears.
+  const _fallbackTimer = setTimeout(() => {
+    console.warn('[Lexora] define response timeout — showing actions without definition');
+    _showOverlay(word, wasPaused, timestamp, lang, video, { status: 'timeout', translations: [] });
+  }, 9000);
+
   chrome.runtime.sendMessage(
     { action: 'lexora-define', word, lang },
     (response) => {
+      clearTimeout(_fallbackTimer);
       if (chrome.runtime.lastError) {
-        console.warn('[Lexora] define error:', chrome.runtime.lastError.message);
-        _showOverlay(word, wasPaused, timestamp, lang, video, { status: 'error' });
-      } else {
-        _showOverlay(word, wasPaused, timestamp, lang, video, response);
+        console.warn('[Lexora] define lastError:', chrome.runtime.lastError.message);
+        _showOverlay(word, wasPaused, timestamp, lang, video, { status: 'error', translations: [] });
+        return;
       }
+      console.log('[Lexora] define response received:', response);
+      // Guard against undefined (can happen if handler returns without calling sendResponse)
+      _showOverlay(word, wasPaused, timestamp, lang, video, response || { status: 'empty', translations: [] });
     }
   );
 }
@@ -328,7 +339,10 @@ function _showOverlay(word, wasPaused, timestamp, lang, video, response) {
 
   let bodyHtml;
   if (response === null) {
+    // Loading state — waiting for background to reply
     bodyHtml = `<div class="lx-yt-loading">Looking up definition…</div>`;
+  } else if (response && response.status === 'unauthorized') {
+    bodyHtml = `<div class="lx-yt-no-def">Sign in to Lexora to look up definitions</div>`;
   } else if (
     response && response.status === 'ok' &&
     response.translations && response.translations.length
@@ -340,9 +354,11 @@ function _showOverlay(word, wasPaused, timestamp, lang, video, response) {
       </div>`).join('');
     bodyHtml = `<div class="lx-yt-translations">${rows}</div>`;
   } else {
+    // ok-but-no-translations, error, timeout, empty — show neutral hint
     bodyHtml = `<div class="lx-yt-no-def">No definition yet — save to enrich</div>`;
   }
 
+  // Show action buttons for every state except the initial loading spinner
   const showActions = response !== null;
 
   const overlay = document.createElement('div');

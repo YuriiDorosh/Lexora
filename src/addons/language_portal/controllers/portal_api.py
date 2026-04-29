@@ -228,15 +228,20 @@ class LexoraApiController(http.Controller):
         """Return the best stored translations for a word (M24 subtitle overlay).
 
         Search priority:
-          1. Caller's own vocabulary entries (exact match on normalized text)
-          2. Shared/public vocabulary entries from other users
-        Deduplicates by target_language, keeping the first result found.
+          1. Caller's own vocabulary entries matching the subtitle language
+          2. Shared entries from other users matching the subtitle language
+          3. Fallback: caller's own entries regardless of source_language
+             (handles cases where the subtitle lang tag doesn't match how
+              the word was stored, e.g. auto-detected vs. manually set)
+
+        Always returns {"status": "ok", "translations": [...]} — never an error
+        for a missing word, so the overlay always shows the Add-to-Vocabulary button.
         """
         err = _require_session()
         if err:
             return err
 
-        word = word.strip()
+        word = (word or '').strip()
         if not word:
             return _json_response({'status': 'error', 'message': 'word required'}, 400)
 
@@ -244,18 +249,26 @@ class LexoraApiController(http.Controller):
             return _json_response({'status': 'ok', 'word': word, 'translations': []})
 
         uid = _resolve_uid()
-        from odoo.addons.language_words.models.language_entry import normalize
-        normalized = normalize(word)
+        lang = (lang or 'en').strip().lower()
+        if lang not in ('en', 'uk', 'el'):
+            lang = 'en'
+
+        try:
+            from odoo.addons.language_words.models.language_entry import normalize
+            normalized = normalize(word)
+        except Exception:
+            normalized = word.strip().lower()
+
         Entry = request.env['language.entry'].sudo()
 
-        # Priority 1: caller's own entries
+        # Priority 1 — caller's own entries matching subtitle language
         own_entries = Entry.search([
             ('normalized_text', '=', normalized),
             ('source_language', '=', lang),
             ('owner_id', '=', uid),
         ], limit=3)
 
-        # Priority 2: shared entries from other users
+        # Priority 2 — shared entries matching subtitle language
         shared_entries = Entry.search([
             ('normalized_text', '=', normalized),
             ('source_language', '=', lang),
@@ -263,9 +276,20 @@ class LexoraApiController(http.Controller):
             ('owner_id', '!=', uid),
         ], limit=3)
 
+        all_entries = own_entries + shared_entries
+
+        # Priority 3 — caller's own entries regardless of source_language.
+        # Catches words stored under a different lang code than the subtitle
+        # (e.g. word stored as 'en' but subtitle lang reported as 'uk').
+        if not all_entries:
+            all_entries = Entry.search([
+                ('normalized_text', '=', normalized),
+                ('owner_id', '=', uid),
+            ], limit=3)
+
         seen_langs = set()
         translations = []
-        for entry in (own_entries + shared_entries):
+        for entry in all_entries:
             for tr in entry.translation_ids.filtered(lambda t: t.status == 'completed'):
                 if tr.target_language not in seen_langs:
                     seen_langs.add(tr.target_language)
@@ -274,6 +298,7 @@ class LexoraApiController(http.Controller):
                         'translated_text': tr.translated_text,
                     })
 
+        _logger.debug('define word=%r lang=%s uid=%s → %d translation(s)', word, lang, uid, len(translations))
         return _json_response({'status': 'ok', 'word': word, 'translations': translations})
 
     # ------------------------------------------------------------------
