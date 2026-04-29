@@ -59,14 +59,13 @@ function setBadge(tabId, text, color) {
 // ── Message handlers (from content scripts / overlay) ─────────────────────
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  console.log('[Lexora BG] message received:', msg.action);
   if (msg.action === 'lexora-define') {
     handleDefine(msg).then(sendResponse).catch(() => sendResponse({ status: 'error' }));
-    return true; // keep channel open for async response
-  }
-  if (msg.action === 'lexora-add-word-overlay') {
+  } else if (msg.action === 'lexora-add-word-overlay') {
     handleAddWordOverlay(msg).then(sendResponse).catch(() => sendResponse({ status: 'error' }));
-    return true;
   }
+  return true; // MUST be at the very end — keeps channel open for all async handlers
 });
 
 async function handleDefine({ word, lang }) {

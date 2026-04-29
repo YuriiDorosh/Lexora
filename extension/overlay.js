@@ -172,6 +172,18 @@ const _OVERLAY_CSS = `
   }
   .lx-yt-resume-btn:hover { background:rgba(255,255,255,0.14); }
 
+  .lx-yt-retry-btn {
+    display:block; margin:8px auto 0;
+    padding:6px 16px;
+    background: rgba(99,102,241,0.2);
+    border: 1px solid rgba(99,102,241,0.45);
+    border-radius:9px; color:rgba(255,255,255,0.85);
+    font-size:12px; font-weight:600;
+    cursor: pointer !important; pointer-events: auto !important;
+    transition: background 0.15s;
+  }
+  .lx-yt-retry-btn:hover { background:rgba(99,102,241,0.35); }
+
   .lx-yt-status {
     margin-top:7px; font-size:11px; font-weight:600;
     min-height:16px; text-align:center; color:rgba(255,255,255,0.55);
@@ -342,13 +354,13 @@ function _onWordClick(e) {
 
   _showOverlay(word, wasPaused, timestamp, lang, video, null);
 
-  // Client-side fallback: if the background script doesn't reply within 9s
+  // Client-side fallback: if the background script doesn't reply within 5s
   // (e.g. service worker sleeping, Odoo slow, fetch timed out) show the
-  // "No definition" state anyway so the Add-to-Vocabulary button appears.
+  // "timed out" state so the Add-to-Vocabulary button appears.
   const _fallbackTimer = setTimeout(() => {
     console.warn('[Lexora] define response timeout — showing actions without definition');
     _showOverlay(word, wasPaused, timestamp, lang, video, { status: 'timeout', translations: [] });
-  }, 9000);
+  }, 5000);
 
   _sendMessage(
     { action: 'lexora-define', word, lang },
@@ -393,8 +405,12 @@ function _showOverlay(word, wasPaused, timestamp, lang, video, response) {
         <span class="lx-yt-trans-text">${_escHtml(t.translated_text)}</span>
       </div>`).join('');
     bodyHtml = `<div class="lx-yt-translations">${rows}</div>`;
+  } else if (response && (response.status === 'timeout' || response.status === 'error')) {
+    bodyHtml = `
+      <div class="lx-yt-no-def">Definition lookup timed out, but you can still save</div>
+      <button class="lx-yt-retry-btn" id="lx-yt-retry">↺ Retry</button>`;
   } else {
-    // ok-but-no-translations, error, timeout, empty — show neutral hint
+    // ok-but-no-translations, empty — show neutral hint
     bodyHtml = `<div class="lx-yt-no-def">No definition yet — save to enrich</div>`;
   }
 
@@ -434,6 +450,23 @@ function _showOverlay(word, wasPaused, timestamp, lang, video, response) {
     e.stopPropagation();
     _removeOverlay();
     if (video && !wasPaused) video.play();
+  });
+
+  overlay.querySelector('#lx-yt-retry')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    // Re-run the full lookup from scratch
+    _removeOverlay();
+    _showOverlay(word, wasPaused, timestamp, lang, video, null);
+    const retryTimer = setTimeout(() => {
+      _showOverlay(word, wasPaused, timestamp, lang, video, { status: 'timeout', translations: [] });
+    }, 5000);
+    _sendMessage(
+      { action: 'lexora-define', word, lang },
+      (response) => {
+        clearTimeout(retryTimer);
+        _showOverlay(word, wasPaused, timestamp, lang, video, response || { status: 'empty', translations: [] });
+      }
+    );
   });
 
   const addBtn = overlay.querySelector('#lx-yt-add');
