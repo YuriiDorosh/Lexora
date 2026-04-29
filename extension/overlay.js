@@ -1,57 +1,92 @@
 'use strict';
 
 // ---------------------------------------------------------------------------
-// M24 — YouTube Subtitle Overlay
+// M24 — YouTube Subtitle Overlay (fixed)
 //
-// MutationObserver wraps each word in .ytp-caption-segment with a clickable
-// span. On click: pauses the video, fetches a definition from Lexora via the
-// background service worker, shows a glassmorphism overlay card next to the
-// subtitle bar. "Add to Vocabulary" saves the word with a timestamp URL.
+// Root-cause of the original failure:
+//   YouTube sets pointer-events:none on .ytp-caption-window-container and
+//   its children so that clicks pass through to the video player beneath.
+//   This script forces pointer-events:auto back on the container + segments,
+//   then wraps each whitespace-delimited token in a clickable <span>.
+//
+// SPA navigation: YouTube fires 'yt-navigate-finish' when moving between
+//   videos. We reconnect the caption observer on each navigation event.
 // ---------------------------------------------------------------------------
 
-const _OVERLAY_ID = 'lx-yt-overlay';
-const _WORD_CLASS = 'lx-sub-word';
-const _STYLES_ID = 'lx-overlay-styles';
+const _OVERLAY_ID   = 'lx-yt-overlay';
+const _WORD_CLASS   = 'lx-sub-word';
+const _STYLES_ID    = 'lx-overlay-styles';
+
+// Container selectors — tried in order; first match wins.
+// YouTube changes these periodically; multiple fallbacks give robustness.
+const _CONTAINER_SELECTORS = [
+  '.ytp-caption-window-container',
+  '.ytp-captions-container',
+  '.captions-text',
+];
+
+// Broad player anchor — always present once the player renders.
+// Used to attach the outer document observer early.
+const _PLAYER_SELECTORS = [
+  '#movie_player',
+  'ytd-player',
+  '.html5-video-player',
+  '#player-container',
+];
 
 const _OVERLAY_CSS = `
-  .${_WORD_CLASS} {
-    cursor: pointer;
-    border-radius: 3px;
-    transition: background 0.15s;
-    padding: 1px 0;
-  }
-  .${_WORD_CLASS}:hover {
-    background: rgba(99, 102, 241, 0.45);
-    outline: 1px solid rgba(99, 102, 241, 0.7);
+  /* ── Force click-through fix ──────────────────────────── */
+  .ytp-caption-window-container,
+  .ytp-captions-container,
+  .ytp-caption-segment,
+  .captions-text {
+    pointer-events: auto !important;
   }
 
+  /* ── Interactive word spans ───────────────────────────── */
+  .${_WORD_CLASS} {
+    cursor: pointer !important;
+    border-radius: 3px;
+    border-bottom: 1px dashed rgba(129, 140, 248, 0.6) !important;
+    transition: background 0.2s, color 0.2s;
+    padding: 1px 1px;
+    pointer-events: auto !important;
+  }
+  .${_WORD_CLASS}:hover {
+    background: rgba(129, 140, 248, 0.25) !important;
+    color: #818cf8 !important;
+    outline: 1px solid rgba(129, 140, 248, 0.5);
+  }
+
+  /* ── Overlay card ─────────────────────────────────────── */
   #${_OVERLAY_ID} {
     position: fixed;
-    bottom: 120px;
+    bottom: 130px;
     left: 50%;
     transform: translateX(-50%);
     z-index: 9999999;
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
     animation: lx-yt-fadein 0.25s ease;
+    pointer-events: auto !important;
   }
 
   @keyframes lx-yt-fadein {
-    from { opacity: 0; transform: translateX(-50%) translateY(12px); }
+    from { opacity: 0; transform: translateX(-50%) translateY(14px); }
     to   { opacity: 1; transform: translateX(-50%) translateY(0); }
   }
 
   .lx-yt-card {
     min-width: 280px;
-    max-width: 380px;
-    background: rgba(10, 15, 30, 0.92);
+    max-width: 400px;
+    background: rgba(10, 15, 30, 0.93);
     backdrop-filter: blur(20px) saturate(180%);
     -webkit-backdrop-filter: blur(20px) saturate(180%);
     border: 1px solid rgba(255, 255, 255, 0.13);
     border-radius: 16px;
     box-shadow:
-      0 12px 40px rgba(0, 0, 0, 0.6),
-      0 2px 8px rgba(0, 0, 0, 0.4),
-      inset 0 1px 0 rgba(255, 255, 255, 0.08);
+      0 16px 48px rgba(0,0,0,0.65),
+      0 3px 10px rgba(0,0,0,0.45),
+      inset 0 1px 0 rgba(255,255,255,0.08);
     overflow: hidden;
   }
 
@@ -60,137 +95,90 @@ const _OVERLAY_CSS = `
     align-items: center;
     gap: 10px;
     padding: 12px 14px 10px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+    border-bottom: 1px solid rgba(255,255,255,0.07);
   }
 
   .lx-yt-logo {
     flex-shrink: 0;
-    width: 28px;
-    height: 28px;
+    width: 28px; height: 28px;
     border-radius: 7px;
     background: linear-gradient(135deg, #4f46e5, #7c3aed);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 13px;
-    font-weight: 800;
-    color: #fff;
-    letter-spacing: -0.5px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 13px; font-weight: 800; color: #fff; letter-spacing: -0.5px;
   }
 
   .lx-yt-word {
     flex: 1;
-    font-size: 15px;
-    font-weight: 700;
-    color: #e0e7ff;
-    letter-spacing: 0.2px;
+    font-size: 15px; font-weight: 700;
+    color: #e0e7ff; letter-spacing: 0.2px;
   }
 
   .lx-yt-close {
-    background: none;
-    border: none;
-    color: rgba(255, 255, 255, 0.45);
-    font-size: 18px;
-    cursor: pointer;
-    padding: 2px 6px;
-    border-radius: 6px;
-    line-height: 1;
+    background: none; border: none;
+    color: rgba(255,255,255,0.4); font-size: 18px;
+    cursor: pointer !important; padding: 2px 6px;
+    border-radius: 6px; line-height: 1;
     transition: color 0.15s, background 0.15s;
+    pointer-events: auto !important;
   }
-  .lx-yt-close:hover { color: #fff; background: rgba(255,255,255,0.1); }
+  .lx-yt-close:hover { color:#fff; background: rgba(255,255,255,0.1); }
 
-  .lx-yt-body {
-    padding: 10px 14px 12px;
-  }
+  .lx-yt-body { padding: 10px 14px 12px; }
 
   .lx-yt-loading {
-    color: rgba(255, 255, 255, 0.45);
-    font-size: 13px;
-    text-align: center;
-    padding: 8px 0;
+    color: rgba(255,255,255,0.4); font-size: 13px;
+    text-align: center; padding: 8px 0;
   }
 
-  .lx-yt-translations {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    margin-bottom: 10px;
-  }
+  .lx-yt-translations { display:flex; flex-direction:column; gap:6px; margin-bottom:10px; }
 
-  .lx-yt-translation {
-    display: flex;
-    align-items: baseline;
-    gap: 8px;
-  }
+  .lx-yt-translation { display:flex; align-items:baseline; gap:8px; }
 
   .lx-yt-lang-label {
-    font-size: 10px;
-    font-weight: 700;
-    text-transform: uppercase;
-    color: rgba(165, 180, 252, 0.8);
-    letter-spacing: 0.5px;
-    flex-shrink: 0;
-    min-width: 58px;
+    font-size: 10px; font-weight: 700; text-transform: uppercase;
+    color: rgba(165,180,252,0.8); letter-spacing: 0.5px;
+    flex-shrink: 0; min-width: 62px;
   }
 
-  .lx-yt-trans-text {
-    font-size: 14px;
-    font-weight: 500;
-    color: #f0f4ff;
-    line-height: 1.4;
-  }
+  .lx-yt-trans-text { font-size:14px; font-weight:500; color:#f0f4ff; line-height:1.4; }
 
   .lx-yt-no-def {
-    font-size: 12px;
-    color: rgba(255, 255, 255, 0.4);
-    font-style: italic;
-    padding: 4px 0 8px;
+    font-size: 12px; color: rgba(255,255,255,0.38);
+    font-style: italic; padding: 4px 0 8px;
   }
 
-  .lx-yt-actions {
-    display: flex;
-    gap: 8px;
-    margin-top: 4px;
-  }
+  .lx-yt-actions { display:flex; gap:8px; margin-top:4px; }
 
   .lx-yt-add-btn {
-    flex: 1;
-    padding: 7px 12px;
-    background: linear-gradient(135deg, #4f46e5, #7c3aed);
-    border: none;
-    border-radius: 9px;
-    color: #fff;
-    font-size: 12px;
-    font-weight: 600;
-    cursor: pointer;
+    flex:1; padding:7px 12px;
+    background: linear-gradient(135deg,#4f46e5,#7c3aed);
+    border:none; border-radius:9px;
+    color:#fff; font-size:12px; font-weight:600;
+    cursor: pointer !important; pointer-events: auto !important;
     transition: opacity 0.15s, transform 0.1s;
   }
-  .lx-yt-add-btn:hover { opacity: 0.88; }
-  .lx-yt-add-btn:active { transform: scale(0.97); }
-  .lx-yt-add-btn:disabled { opacity: 0.4; cursor: default; }
+  .lx-yt-add-btn:hover { opacity:0.88; }
+  .lx-yt-add-btn:active { transform:scale(0.97); }
+  .lx-yt-add-btn:disabled { opacity:0.4; cursor:default !important; }
 
   .lx-yt-resume-btn {
-    padding: 7px 14px;
+    padding:7px 14px;
     background: rgba(255,255,255,0.08);
     border: 1px solid rgba(255,255,255,0.15);
-    border-radius: 9px;
-    color: rgba(255,255,255,0.75);
-    font-size: 12px;
-    font-weight: 600;
-    cursor: pointer;
+    border-radius:9px; color:rgba(255,255,255,0.75);
+    font-size:12px; font-weight:600;
+    cursor: pointer !important; pointer-events: auto !important;
     transition: background 0.15s;
   }
-  .lx-yt-resume-btn:hover { background: rgba(255,255,255,0.14); }
+  .lx-yt-resume-btn:hover { background:rgba(255,255,255,0.14); }
 
   .lx-yt-status {
-    margin-top: 7px;
-    font-size: 11px;
-    font-weight: 600;
-    min-height: 16px;
-    text-align: center;
-    color: rgba(255,255,255,0.6);
+    margin-top:7px; font-size:11px; font-weight:600;
+    min-height:16px; text-align:center; color:rgba(255,255,255,0.55);
   }
 `;
+
+// ── Utilities ──────────────────────────────────────────────────────────────
 
 function _injectStyles() {
   if (document.getElementById(_STYLES_ID)) return;
@@ -198,17 +186,15 @@ function _injectStyles() {
   style.id = _STYLES_ID;
   style.textContent = _OVERLAY_CSS;
   (document.head || document.documentElement).appendChild(style);
+  console.log('[Lexora] Overlay styles injected');
 }
 
 function _escHtml(str) {
   return String(str)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
-// Detect the language of the active subtitle track
 function _getSubtitleLanguage() {
   const video = document.querySelector('video');
   if (!video) return 'en';
@@ -220,42 +206,97 @@ function _getSubtitleLanguage() {
   return 'en';
 }
 
-// Tokenise and wrap a subtitle segment element
-function _wrapSegment(el) {
-  if (el.querySelector('.' + _WORD_CLASS)) return; // already wrapped
-  const text = el.textContent;
-  if (!text.trim()) return;
+// ── Word wrapping ──────────────────────────────────────────────────────────
+//
+// Root cause of prior failure: _wrapSegment() bailed if the target element
+// had ANY child elements, but YouTube nests <span> tags inside caption
+// segments for styling/timing. Switching to a TreeWalker that operates on
+// raw TEXT NODES avoids the element-structure assumption entirely.
 
-  const parts = text.split(/(\s+)/);
-  const frag = document.createDocumentFragment();
-  for (const part of parts) {
-    if (!part) continue;
-    if (/^\s+$/.test(part)) {
-      frag.appendChild(document.createTextNode(part));
-    } else {
-      const span = document.createElement('span');
-      span.className = _WORD_CLASS;
-      span.textContent = part;
-      span.addEventListener('click', _onWordClick);
-      frag.appendChild(span);
+function _wrapTextNodes(root) {
+  if (!root) return 0;
+
+  // Collect text nodes that still need wrapping (snapshot before we mutate)
+  const textNodes = [];
+  const walker = document.createTreeWalker(
+    root,
+    NodeFilter.SHOW_TEXT,
+    {
+      acceptNode(node) {
+        const parent = node.parentElement;
+        if (!parent) return NodeFilter.FILTER_REJECT;
+        // Already wrapped — skip
+        if (parent.classList.contains(_WORD_CLASS)) return NodeFilter.FILTER_REJECT;
+        // Inside our own overlay — skip
+        if (parent.closest('#' + _OVERLAY_ID)) return NodeFilter.FILTER_REJECT;
+        // Empty text — skip
+        if (!node.textContent.trim()) return NodeFilter.FILTER_REJECT;
+        return NodeFilter.FILTER_ACCEPT;
+      },
+    }
+  );
+
+  let n;
+  while ((n = walker.nextNode())) textNodes.push(n);
+
+  let count = 0;
+  for (const textNode of textNodes) {
+    const text = textNode.textContent;
+    if (!text.trim()) continue;
+
+    const parts = text.split(/(\s+)/);
+    const frag = document.createDocumentFragment();
+    let hasWord = false;
+
+    for (const part of parts) {
+      if (!part) continue;
+      if (/^\s+$/.test(part)) {
+        frag.appendChild(document.createTextNode(part));
+      } else {
+        hasWord = true;
+        const span = document.createElement('span');
+        span.className = _WORD_CLASS;
+        span.textContent = part;
+        span.addEventListener('click', _onWordClick, { capture: true });
+        frag.appendChild(span);
+        count++;
+      }
+    }
+
+    if (hasWord && textNode.parentNode) {
+      textNode.parentNode.replaceChild(frag, textNode);
     }
   }
-  el.textContent = '';
-  el.appendChild(frag);
+
+  return count;
 }
+
+function _processAllCaptionElements() {
+  const container = _getContainer();
+  if (!container) return;
+
+  const count = _wrapTextNodes(container);
+  if (count > 0) {
+    console.log(`[Lexora] Wrapped ${count} subtitle word(s) into clickable spans`);
+  }
+}
+
+// ── Overlay rendering ──────────────────────────────────────────────────────
 
 function _removeOverlay() {
   document.getElementById(_OVERLAY_ID)?.remove();
 }
 
-// Handle word click: pause video, show loading overlay, fetch definition
 function _onWordClick(e) {
   e.stopPropagation();
+  e.preventDefault();
 
-  // Strip leading/trailing punctuation for clean lookup
   const raw = e.target.textContent || '';
-  const word = raw.replace(/^[.,!?;:'"()\[\]{}\-–—]+|[.,!?;:'"()\[\]{}\-–—]+$/g, '').trim();
+  // Strip leading/trailing punctuation for cleaner lookup
+  const word = raw.replace(/^[\s.,!?;:'"()\[\]{}\-–—]+|[\s.,!?;:'"()\[\]{}\-–—]+$/g, '').trim();
   if (!word) return;
+
+  console.log('[Lexora] Word clicked:', word);
 
   const video = document.querySelector('video');
   const wasPaused = video ? video.paused : true;
@@ -270,6 +311,7 @@ function _onWordClick(e) {
     { action: 'lexora-define', word, lang },
     (response) => {
       if (chrome.runtime.lastError) {
+        console.warn('[Lexora] define error:', chrome.runtime.lastError.message);
         _showOverlay(word, wasPaused, timestamp, lang, video, { status: 'error' });
       } else {
         _showOverlay(word, wasPaused, timestamp, lang, video, response);
@@ -286,9 +328,11 @@ function _showOverlay(word, wasPaused, timestamp, lang, video, response) {
 
   let bodyHtml;
   if (response === null) {
-    // Loading state
     bodyHtml = `<div class="lx-yt-loading">Looking up definition…</div>`;
-  } else if (response && response.status === 'ok' && response.translations && response.translations.length) {
+  } else if (
+    response && response.status === 'ok' &&
+    response.translations && response.translations.length
+  ) {
     const rows = response.translations.map(t => `
       <div class="lx-yt-translation">
         <span class="lx-yt-lang-label">${_escHtml(_LANG_NAMES[t.target_language] || t.target_language)}</span>
@@ -298,6 +342,8 @@ function _showOverlay(word, wasPaused, timestamp, lang, video, response) {
   } else {
     bodyHtml = `<div class="lx-yt-no-def">No definition yet — save to enrich</div>`;
   }
+
+  const showActions = response !== null;
 
   const overlay = document.createElement('div');
   overlay.id = _OVERLAY_ID;
@@ -310,7 +356,7 @@ function _showOverlay(word, wasPaused, timestamp, lang, video, response) {
       </div>
       <div class="lx-yt-body">
         ${bodyHtml}
-        ${response !== null ? `
+        ${showActions ? `
         <div class="lx-yt-actions">
           <button class="lx-yt-add-btn" id="lx-yt-add">➕ Add to Vocabulary</button>
           <button class="lx-yt-resume-btn" id="lx-yt-resume">▶ Resume</button>
@@ -322,24 +368,29 @@ function _showOverlay(word, wasPaused, timestamp, lang, video, response) {
 
   document.body.appendChild(overlay);
 
-  overlay.querySelector('#lx-yt-close')?.addEventListener('click', () => {
+  overlay.querySelector('#lx-yt-close')?.addEventListener('click', (e) => {
+    e.stopPropagation();
     _removeOverlay();
     if (video && !wasPaused) video.play();
   });
 
-  overlay.querySelector('#lx-yt-resume')?.addEventListener('click', () => {
+  overlay.querySelector('#lx-yt-resume')?.addEventListener('click', (e) => {
+    e.stopPropagation();
     _removeOverlay();
     if (video && !wasPaused) video.play();
   });
 
   const addBtn = overlay.querySelector('#lx-yt-add');
   if (addBtn) {
-    addBtn.addEventListener('click', () => {
+    addBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
       addBtn.disabled = true;
       const statusEl = overlay.querySelector('#lx-yt-status');
       if (statusEl) statusEl.textContent = 'Saving…';
 
-      const sourceUrl = `${location.href.split('#')[0]}${timestamp ? '#t=' + timestamp : ''}`;
+      const sourceUrl =
+        `${location.href.split('#')[0]}${timestamp ? '#t=' + timestamp : ''}`;
+
       chrome.runtime.sendMessage(
         { action: 'lexora-add-word-overlay', word, source_language: lang, source_url: sourceUrl },
         (resp) => {
@@ -353,7 +404,10 @@ function _showOverlay(word, wasPaused, timestamp, lang, video, response) {
           if (resp.status === 'ok') {
             statusEl.style.color = '#4ade80';
             statusEl.textContent = '✓ Saved to your vocabulary!';
-            setTimeout(() => { _removeOverlay(); if (video && !wasPaused) video.play(); }, 1400);
+            setTimeout(() => {
+              _removeOverlay();
+              if (video && !wasPaused) video.play();
+            }, 1400);
           } else if (resp.status === 'duplicate') {
             statusEl.style.color = '#fbbf24';
             statusEl.textContent = 'Already in your vocabulary';
@@ -373,45 +427,107 @@ function _showOverlay(word, wasPaused, timestamp, lang, video, response) {
   }
 }
 
-// ── YouTube subtitle observer ──────────────────────────────────────────────
-
-function _processSegments() {
-  document.querySelectorAll('.ytp-caption-segment').forEach(_wrapSegment);
-}
+// ── MutationObserver ───────────────────────────────────────────────────────
 
 let _captionObserver = null;
 
-function _attachCaptionObserver() {
-  const container = document.querySelector('.ytp-caption-window-container');
-  if (!container || _captionObserver) return;
-
-  _captionObserver = new MutationObserver(() => _processSegments());
-  _captionObserver.observe(container, { childList: true, subtree: true });
-  _processSegments();
+function _getContainer() {
+  for (const sel of _CONTAINER_SELECTORS) {
+    const el = document.querySelector(sel);
+    if (el) return el;
+  }
+  return null;
 }
 
-// YouTube is a SPA — caption container may not exist on load
-const _bodyObserver = new MutationObserver(() => {
-  if (document.querySelector('.ytp-caption-window-container')) {
+function _getPlayerAnchor() {
+  for (const sel of _PLAYER_SELECTORS) {
+    const el = document.querySelector(sel);
+    if (el) return el;
+  }
+  return null;
+}
+
+function _attachCaptionObserver() {
+  if (_captionObserver) {
+    _captionObserver.disconnect();
+    _captionObserver = null;
+  }
+
+  const container = _getContainer();
+  if (container) {
+    console.log('[Lexora] Subtitle container found:', container.className || container.tagName);
+    _captionObserver = new MutationObserver(() => _processAllCaptionElements());
+    _captionObserver.observe(container, { childList: true, subtree: true, characterData: true });
+    _processAllCaptionElements();
+    return true;
+  }
+
+  console.log('[Lexora] Subtitle container not found yet — will retry via docObserver');
+  return false;
+}
+
+// Observe the player anchor (always present) for caption container appearance.
+// Falls back to document.body when the player hasn't rendered yet.
+const _docObserver = new MutationObserver(() => {
+  if (_captionObserver) {
+    // Container already attached — just re-wrap new text that appeared
+    _processAllCaptionElements();
+    return;
+  }
+  if (_getContainer()) {
     _attachCaptionObserver();
-    // keep observing — navigating to a new video recreates the container
   }
 });
 
-// Close overlay when clicking outside
+// ── Close-overlay helpers ──────────────────────────────────────────────────
+
 document.addEventListener('click', (e) => {
   const overlay = document.getElementById(_OVERLAY_ID);
-  if (overlay && !overlay.contains(e.target) && !e.target.classList.contains(_WORD_CLASS)) {
+  if (
+    overlay &&
+    !overlay.contains(e.target) &&
+    !e.target.classList.contains(_WORD_CLASS)
+  ) {
     _removeOverlay();
   }
 }, true);
 
-// Keyboard dismiss
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') _removeOverlay();
 }, true);
 
-if (location.hostname === 'www.youtube.com') {
-  _bodyObserver.observe(document.body, { childList: true, subtree: true });
+// ── Entry point ────────────────────────────────────────────────────────────
+
+function _init() {
+  console.log('[Lexora] overlay.js initialised on', location.href);
+  _injectStyles();
+
+  // YouTube SPA navigation event — fires between video navigations
+  window.addEventListener('yt-navigate-finish', () => {
+    console.log('[Lexora] yt-navigate-finish — reconnecting caption observer');
+    if (_captionObserver) { _captionObserver.disconnect(); _captionObserver = null; }
+    _removeOverlay();
+    // Brief delay: player re-renders after navigation event
+    setTimeout(() => {
+      if (!_attachCaptionObserver()) {
+        // Container not ready; docObserver will pick it up when it appears
+      }
+    }, 900);
+  });
+
+  // Observe the player element if available, otherwise document root
+  const observeRoot = _getPlayerAnchor() || document.body || document.documentElement;
+  console.log('[Lexora] Attaching docObserver to:', observeRoot.tagName, observeRoot.id || observeRoot.className.slice(0, 30));
+  _docObserver.observe(observeRoot, { childList: true, subtree: true });
+
   _attachCaptionObserver();
+}
+
+if (location.hostname === 'www.youtube.com') {
+  // Run immediately if DOM is ready, otherwise wait
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', _init);
+  } else {
+    _init();
+  }
 }
