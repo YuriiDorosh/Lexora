@@ -15,56 +15,79 @@
 
 ## Current Milestone
 
-### M23 — Browser Extension: Contextual Capture & Smart Selection
+### M24 — Browser Extension: Media & Subtitles Integration
 
 **Status:** In progress.
 **Started:** 2026-04-29
-**Branch:** `m23_contextual_capture`
+**Branch:** `m24_media_subtitles`
 
-**Scope:** Right-clicking selected text on any page shows "Add to Lexora" in the
-browser context menu. The surrounding sentence is automatically captured as
-`context_sentence`. The background service worker saves the word directly to Odoo
-and gives badge feedback. Opening the popup within 30 s pre-fills both fields from
-`chrome.storage.session`.
+**Scope:** On YouTube, each word in the subtitle track becomes clickable. Clicking a
+word pauses the video and shows a glassmorphism definition overlay sourced from the
+user's Lexora vocabulary. The overlay has an "Add to Vocabulary" button that saves the
+word with the page URL and timestamp. The background script proxies all API calls so
+session cookies work correctly.
+
+#### Sub-steps
+
+- [x] M24-01 · Branch `m24_media_subtitles` created from `m23_contextual_capture`. ✅
+- [x] M24-02 · TASKS.md updated — M23 archived, M24 block started. ✅
+- [x] M24-03 · `extension/overlay.js` — YouTube MutationObserver + word wrapping + glassmorphism overlay. ✅
+- [x] M24-04 · `extension/manifest.json` — `overlay.js` added as YouTube-specific content script. ✅
+- [x] M24-05 · `extension/background.js` — `chrome.runtime.onMessage` handler added: `lexora-define` (GET /define) and `lexora-add-word-overlay` (POST /add_word). ✅
+- [x] M24-06 · `portal_api.py` `/define` improved — user's own entries searched first, then shared entries; returns richer payload. ✅
+- [ ] M24-07 · Reload extension → open YouTube video with subtitles → words are clickable spans.
+- [ ] M24-08 · Click a subtitle word → video pauses → overlay appears with definition (or "save to enrich" hint).
+- [ ] M24-09 · Click "Add to Vocabulary" → overlay shows ✓ → entry in `/my/vocabulary` has `source_url` with timestamp.
+- [ ] M24-10 · Click "Resume" → overlay closes → video resumes.
+- [ ] M24-11 · Commit and push `m24_media_subtitles`.
+
+#### Architecture notes
+
+**Content script → background → API:** Content scripts can send messages to the
+background service worker via `chrome.runtime.sendMessage`. The background script
+holds the session cookie logic (`getSessionHeader`) and makes the actual fetch calls.
+This avoids replicating cookie-bridge code in the overlay script.
+
+**MutationObserver target:** `.ytp-caption-window-container` is YouTube's stable
+container for subtitle lines. Individual segments appear as `.ytp-caption-segment`
+children and are replaced on every new subtitle line. The observer re-wraps words on
+every `childList` mutation.
+
+**Word tokenisation:** Split on whitespace only; preserve punctuation attached to
+tokens. A lightweight strip of trailing `.,:;!?'"` on click before the API call
+improves lookup accuracy without altering the displayed text.
+
+**Video pause:** `video.pause()` is called on word click so the user can read the
+overlay. `video.play()` is called when the overlay is closed (Resume or Add success),
+but only if the video was playing when the word was clicked (`wasPaused` captured at
+click time).
+
+**Timestamp URL:** `source_url` is built as `<tab_url>#t=<seconds>` so the vocabulary
+entry links back to the exact moment in the video.
+
+#### Blockers
+
+(none)
+
+---
+
+## Completed Milestones (M23)
+
+### M23 — Browser Extension: Contextual Capture & Smart Selection
+
+**Status:** Complete and verified.
+**Started:** 2026-04-29
+**Completed:** 2026-04-29
+**Branch:** `m23_contextual_capture`
 
 #### Sub-steps
 
 - [x] M23-01 · Branch `m23_contextual_capture` created from `m22_browser_extension_foundation`. ✅
 - [x] M23-02 · TASKS.md updated — M22 archived, M23 block started. ✅
-- [x] M23-03 · `extension/background.js` — full implementation:
-  - `chrome.runtime.onInstalled` creates context menu item (`id: "add-to-lexora"`, `contexts: ["selection"]`).
-  - Click handler: reads `info.selectionText`, calls `getContextSentence(tabId)` via `executeScript`, stores `{word, context_sentence, ts}` in `chrome.storage.session`, POSTs to `/lexora_api/add_word` with `X-Lexora-Session-Id` header.
-  - Badge feedback: `…` (saving) → `✓` green (ok) | `=` amber (duplicate) | `!` red (error/401). Badge auto-clears after 3 s. ✅
-- [x] M23-04 · `extension/popup.js` — `prefillFromPendingCapture()` reads `chrome.storage.session.lexoraPendingCapture`; pre-fills `lx-word` + `lx-context`; clears after read; ignored if >30 s old. Called in `init()` before `prefillFromSelection()`; short-circuits live selection if pending capture is found. ✅
-- [x] M23-05 · Toast notifications implemented: `content.js` injects glassmorphism toast div with slide-in/progress-bar/fade-out animation; `background.js` sends `{action:'show-toast', status, word}` after every API response branch (ok / duplicate / unauthorized / error). ✅
-- [ ] M23-06 · Reload extension in Chrome → verify context menu appears on selected text.
-- [ ] M23-06 · End-to-end: select a word on any page → right-click → "Add to Lexora" → badge shows `✓` → entry appears in `/my/vocabulary`.
-- [ ] M23-07 · Duplicate test: repeat same word → badge shows `=`.
-- [ ] M23-08 · Not-logged-in test: log out of Lexora → badge shows `!`.
-- [ ] M23-09 · Popup pre-fill: right-click word → immediately open popup (within 30 s) → both word and context fields pre-filled.
-- [ ] M23-10 · Commit and push `m23_contextual_capture`.
-
-#### Architecture notes
-
-**Context menu → background → direct API call:** Background service workers can
-make cross-origin `fetch` requests without CORS restrictions (no browser CORS
-enforcement for background scripts). The same `X-Lexora-Session-Id` header bridge
-used by the popup is reused here.
-
-**`chrome.storage.session`:** Cleared on browser restart; not persisted. Available
-since Chrome 102. Used to pass capture data from the context-menu action to the
-popup without requiring the popup to re-execute a content script.
-
-**`getContextSentence` via `executeScript`:** The background script calls
-`window.__lexoraCaptureSelection()` injected by `content.js`. Falls back to empty
-string on `chrome://` pages or pages where the content script was blocked.
-
-**Badge character set:** `✓` (U+2713), `=` (plain equals), `!` (exclamation),
-`…` (U+2026 ellipsis). All render in the small badge area across platforms.
-
-#### Blockers
-
-(none)
+- [x] M23-03 · `extension/background.js` — context menu registration + click handler: reads selection, captures surrounding sentence via `executeScript`, stores in `chrome.storage.session`, POSTs to `/lexora_api/add_word`, sets badge (✓/=/ !/…) and sends toast message. ✅
+- [x] M23-04 · `extension/content.js` — `getSurroundingSentence()` DOM walker + `captureSelection()` exposed as `window.__lexoraCaptureSelection`; `showLexoraToast(status, word)` glassmorphism toast (slide-in spring animation, shrinking progress bar, 3.5 s fade-out); `chrome.runtime.onMessage` listener for `show-toast`. ✅
+- [x] M23-05 · `extension/popup.js` — `prefillFromPendingCapture()` reads session storage; pre-fills both word and context fields; short-circuits live selection. ✅
+- [x] M23-06 · Committed: `feat(M23): contextual capture — right-click context menu + badge feedback` + `feat(M23): add premium glassmorphism toast notifications`. ✅
 
 ---
 

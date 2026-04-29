@@ -225,7 +225,13 @@ class LexoraApiController(http.Controller):
     @http.route('/lexora_api/define', type='http', auth='none',
                 methods=['GET'], csrf=False)
     def define(self, word='', lang='en', **kw):
-        """Return the best stored translation for a word (M24 subtitle overlay)."""
+        """Return the best stored translations for a word (M24 subtitle overlay).
+
+        Search priority:
+          1. Caller's own vocabulary entries (exact match on normalized text)
+          2. Shared/public vocabulary entries from other users
+        Deduplicates by target_language, keeping the first result found.
+        """
         err = _require_session()
         if err:
             return err
@@ -235,22 +241,39 @@ class LexoraApiController(http.Controller):
             return _json_response({'status': 'error', 'message': 'word required'}, 400)
 
         if 'language.translation' not in request.env.registry:
-            return _json_response({'status': 'ok', 'definition': None})
+            return _json_response({'status': 'ok', 'word': word, 'translations': []})
 
+        uid = _resolve_uid()
         from odoo.addons.language_words.models.language_entry import normalize
         normalized = normalize(word)
-        entries = request.env['language.entry'].sudo().search([
+        Entry = request.env['language.entry'].sudo()
+
+        # Priority 1: caller's own entries
+        own_entries = Entry.search([
             ('normalized_text', '=', normalized),
             ('source_language', '=', lang),
-        ], limit=5)
+            ('owner_id', '=', uid),
+        ], limit=3)
 
+        # Priority 2: shared entries from other users
+        shared_entries = Entry.search([
+            ('normalized_text', '=', normalized),
+            ('source_language', '=', lang),
+            ('is_shared', '=', True),
+            ('owner_id', '!=', uid),
+        ], limit=3)
+
+        seen_langs = set()
         translations = []
-        for entry in entries:
+        for entry in (own_entries + shared_entries):
             for tr in entry.translation_ids.filtered(lambda t: t.status == 'completed'):
-                translations.append({
-                    'target_language': tr.target_language,
-                    'translated_text': tr.translated_text,
-                })
+                if tr.target_language not in seen_langs:
+                    seen_langs.add(tr.target_language)
+                    translations.append({
+                        'target_language': tr.target_language,
+                        'translated_text': tr.translated_text,
+                    })
+
         return _json_response({'status': 'ok', 'word': word, 'translations': translations})
 
     # ------------------------------------------------------------------

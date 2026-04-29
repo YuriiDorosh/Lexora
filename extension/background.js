@@ -56,6 +56,60 @@ function setBadge(tabId, text, color) {
   }
 }
 
+// ── Message handlers (from content scripts / overlay) ─────────────────────
+
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  if (msg.action === 'lexora-define') {
+    handleDefine(msg).then(sendResponse).catch(() => sendResponse({ status: 'error' }));
+    return true; // keep channel open for async response
+  }
+  if (msg.action === 'lexora-add-word-overlay') {
+    handleAddWordOverlay(msg).then(sendResponse).catch(() => sendResponse({ status: 'error' }));
+    return true;
+  }
+});
+
+async function handleDefine({ word, lang }) {
+  if (!word) return { status: 'error', message: 'word required' };
+  const baseUrl = await getBaseUrl();
+  const sessionHeaders = await getSessionHeader(baseUrl);
+  try {
+    const url = `${baseUrl}/lexora_api/define?word=${encodeURIComponent(word)}&lang=${encodeURIComponent(lang || 'en')}`;
+    const resp = await fetch(url, {
+      method: 'GET',
+      credentials: 'include',
+      headers: sessionHeaders,
+    });
+    if (resp.status === 401) return { status: 'unauthorized' };
+    if (!resp.ok) return { status: 'error', message: `HTTP ${resp.status}` };
+    return await resp.json();
+  } catch (err) {
+    return { status: 'error', message: err.message };
+  }
+}
+
+async function handleAddWordOverlay({ word, source_language, source_url }) {
+  if (!word) return { status: 'error', message: 'word required' };
+  const baseUrl = await getBaseUrl();
+  const sessionHeaders = await getSessionHeader(baseUrl);
+  const body = { word };
+  if (source_language) body.source_language = source_language;
+  if (source_url) body.source_url = source_url;
+  try {
+    const resp = await fetch(`${baseUrl}${ADD_WORD_PATH}`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json', ...sessionHeaders },
+      body: JSON.stringify(body),
+    });
+    if (resp.status === 401) return { status: 'unauthorized' };
+    if (!resp.ok) return { status: 'error', message: `HTTP ${resp.status}` };
+    return await resp.json();
+  } catch (err) {
+    return { status: 'error', message: err.message };
+  }
+}
+
 // ── Context menu registration ──────────────────────────────────────────────
 
 chrome.runtime.onInstalled.addListener(() => {
