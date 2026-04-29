@@ -1,5 +1,6 @@
 import json
 import logging
+import os
 
 from odoo import http
 from odoo.http import request
@@ -10,6 +11,7 @@ _ALLOWED_LANGUAGES = ('en', 'uk', 'el')
 _MAX_WORD_LEN = 500
 _MAX_CONTEXT_LEN = 2000
 _MAX_URL_LEN = 2048
+_TRANSLATION_SVC = os.environ.get('TRANSLATION_SERVICE_URL', 'http://translation-service:8000')
 
 
 def _cors_headers():
@@ -298,8 +300,16 @@ class LexoraApiController(http.Controller):
                         'translated_text': tr.translated_text,
                     })
 
-        _logger.debug('define word=%r lang=%s uid=%s → %d translation(s)', word, lang, uid, len(translations))
-        return _json_response({'status': 'ok', 'word': word, 'translations': translations})
+        live = False
+        if not translations:
+            live_results = _live_translate(word, lang, uid, request.env)
+            if live_results:
+                translations = live_results
+                live = True
+
+        _logger.debug('define word=%r lang=%s uid=%s → %d translation(s) live=%s',
+                      word, lang, uid, len(translations), live)
+        return _json_response({'status': 'ok', 'word': word, 'translations': translations, 'live': live})
 
     # ------------------------------------------------------------------
     # POST /lexora_api/quick_explain  (M25 — Quick Explain popup)
@@ -387,6 +397,49 @@ def _detect_language(word, user):
     if profile and profile.default_source_language:
         return profile.default_source_language
     return 'en'
+
+
+def _live_translate(word, source_lang, uid, env):
+    """Call the translation service synchronously for up to 2 target languages.
+
+    Returns a list of {target_language, translated_text} dicts.
+    Results are NOT stored in the DB — the caller receives them as ephemeral
+    "live" translations and the user can persist them via Add to Vocabulary.
+    """
+    import requests as _req
+
+    # Determine target languages from user profile; fall back to all non-source
+    target_langs = []
+    try:
+        profile = env['language.user.profile'].sudo().search(
+            [('user_id', '=', uid)], limit=1)
+        if profile and profile.learning_languages:
+            target_langs = [l.code for l in profile.learning_languages
+                            if l.code != source_lang]
+    except Exception:
+        pass
+
+    if not target_langs:
+        target_langs = [l for l in _ALLOWED_LANGUAGES if l != source_lang]
+
+    results = []
+    for tgt in target_langs[:2]:  # cap at 2 to keep p50 latency under 2 s
+        try:
+            resp = _req.post(
+                f'{_TRANSLATION_SVC}/translate',
+                json={'text': word, 'source': source_lang, 'target': tgt},
+                timeout=8,
+            )
+            data = resp.json()
+            if data.get('status') == 'ok' and data.get('result'):
+                results.append({
+                    'target_language': tgt,
+                    'translated_text': data['result'],
+                })
+        except Exception as exc:
+            _logger.debug('_live_translate %s→%s failed: %s', source_lang, tgt, exc)
+
+    return results
 
 
 def _store_supplied_translation(env, entry, translation_text, source_language):
