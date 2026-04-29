@@ -56,6 +56,77 @@ function setBadge(tabId, text, color) {
   }
 }
 
+// ── Message handlers (from content scripts / overlay) ─────────────────────
+
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  console.log('[Lexora BG] message received:', msg.action);
+  if (msg.action === 'lexora-define') {
+    handleDefine(msg).then(sendResponse).catch(() => sendResponse({ status: 'error' }));
+  } else if (msg.action === 'lexora-add-word-overlay') {
+    handleAddWordOverlay(msg).then(sendResponse).catch(() => sendResponse({ status: 'error' }));
+  }
+  return true; // MUST be at the very end — keeps channel open for all async handlers
+});
+
+async function handleDefine({ word, lang }) {
+  console.log('[Lexora BG] handleDefine start — word:', word, 'lang:', lang);
+  if (!word) return { status: 'error', message: 'word required' };
+
+  const baseUrl = await getBaseUrl();
+  const sessionHeaders = await getSessionHeader(baseUrl);
+  console.log('[Lexora BG] session headers present:', Object.keys(sessionHeaders).length > 0);
+
+  const controller = new AbortController();
+  const abortTimer = setTimeout(() => {
+    console.warn('[Lexora BG] fetch timeout — aborting define request');
+    controller.abort();
+  }, 8000);
+
+  try {
+    const url = `${baseUrl}/lexora_api/define?word=${encodeURIComponent(word)}&lang=${encodeURIComponent(lang || 'en')}`;
+    console.log('[Lexora BG] fetching:', url);
+    const resp = await fetch(url, {
+      method: 'GET',
+      credentials: 'include',
+      headers: sessionHeaders,
+      signal: controller.signal,
+    });
+    clearTimeout(abortTimer);
+    console.log('[Lexora BG] define HTTP status:', resp.status);
+    if (resp.status === 401) return { status: 'unauthorized' };
+    if (!resp.ok) return { status: 'error', message: `HTTP ${resp.status}` };
+    const data = await resp.json();
+    console.log('[Lexora BG] define data:', data);
+    return data;
+  } catch (err) {
+    clearTimeout(abortTimer);
+    console.warn('[Lexora BG] handleDefine error:', err.name, err.message);
+    return { status: 'error', message: err.message };
+  }
+}
+
+async function handleAddWordOverlay({ word, source_language, source_url }) {
+  if (!word) return { status: 'error', message: 'word required' };
+  const baseUrl = await getBaseUrl();
+  const sessionHeaders = await getSessionHeader(baseUrl);
+  const body = { word };
+  if (source_language) body.source_language = source_language;
+  if (source_url) body.source_url = source_url;
+  try {
+    const resp = await fetch(`${baseUrl}${ADD_WORD_PATH}`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json', ...sessionHeaders },
+      body: JSON.stringify(body),
+    });
+    if (resp.status === 401) return { status: 'unauthorized' };
+    if (!resp.ok) return { status: 'error', message: `HTTP ${resp.status}` };
+    return await resp.json();
+  } catch (err) {
+    return { status: 'error', message: err.message };
+  }
+}
+
 // ── Context menu registration ──────────────────────────────────────────────
 
 chrome.runtime.onInstalled.addListener(() => {

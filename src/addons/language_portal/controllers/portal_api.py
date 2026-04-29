@@ -1,5 +1,6 @@
 import json
 import logging
+import os
 
 from odoo import http
 from odoo.http import request
@@ -10,6 +11,7 @@ _ALLOWED_LANGUAGES = ('en', 'uk', 'el')
 _MAX_WORD_LEN = 500
 _MAX_CONTEXT_LEN = 2000
 _MAX_URL_LEN = 2048
+_TRANSLATION_SVC = os.environ.get('TRANSLATION_SERVICE_URL', 'http://translation-service:8000')
 
 
 def _cors_headers():
@@ -225,33 +227,89 @@ class LexoraApiController(http.Controller):
     @http.route('/lexora_api/define', type='http', auth='none',
                 methods=['GET'], csrf=False)
     def define(self, word='', lang='en', **kw):
-        """Return the best stored translation for a word (M24 subtitle overlay)."""
+        """Return the best stored translations for a word (M24 subtitle overlay).
+
+        Search priority:
+          1. Caller's own vocabulary entries matching the subtitle language
+          2. Shared entries from other users matching the subtitle language
+          3. Fallback: caller's own entries regardless of source_language
+             (handles cases where the subtitle lang tag doesn't match how
+              the word was stored, e.g. auto-detected vs. manually set)
+
+        Always returns {"status": "ok", "translations": [...]} — never an error
+        for a missing word, so the overlay always shows the Add-to-Vocabulary button.
+        """
         err = _require_session()
         if err:
             return err
 
-        word = word.strip()
+        word = (word or '').strip()
         if not word:
             return _json_response({'status': 'error', 'message': 'word required'}, 400)
 
         if 'language.translation' not in request.env.registry:
-            return _json_response({'status': 'ok', 'definition': None})
+            return _json_response({'status': 'ok', 'word': word, 'translations': []})
 
-        from odoo.addons.language_words.models.language_entry import normalize
-        normalized = normalize(word)
-        entries = request.env['language.entry'].sudo().search([
+        uid = _resolve_uid()
+        lang = (lang or 'en').strip().lower()
+        if lang not in ('en', 'uk', 'el'):
+            lang = 'en'
+
+        try:
+            from odoo.addons.language_words.models.language_entry import normalize
+            normalized = normalize(word)
+        except Exception:
+            normalized = word.strip().lower()
+
+        Entry = request.env['language.entry'].sudo()
+
+        # Priority 1 — caller's own entries matching subtitle language
+        own_entries = Entry.search([
             ('normalized_text', '=', normalized),
             ('source_language', '=', lang),
-        ], limit=5)
+            ('owner_id', '=', uid),
+        ], limit=3)
 
+        # Priority 2 — shared entries matching subtitle language
+        shared_entries = Entry.search([
+            ('normalized_text', '=', normalized),
+            ('source_language', '=', lang),
+            ('is_shared', '=', True),
+            ('owner_id', '!=', uid),
+        ], limit=3)
+
+        all_entries = own_entries + shared_entries
+
+        # Priority 3 — caller's own entries regardless of source_language.
+        # Catches words stored under a different lang code than the subtitle
+        # (e.g. word stored as 'en' but subtitle lang reported as 'uk').
+        if not all_entries:
+            all_entries = Entry.search([
+                ('normalized_text', '=', normalized),
+                ('owner_id', '=', uid),
+            ], limit=3)
+
+        seen_langs = set()
         translations = []
-        for entry in entries:
+        for entry in all_entries:
             for tr in entry.translation_ids.filtered(lambda t: t.status == 'completed'):
-                translations.append({
-                    'target_language': tr.target_language,
-                    'translated_text': tr.translated_text,
-                })
-        return _json_response({'status': 'ok', 'word': word, 'translations': translations})
+                if tr.target_language not in seen_langs:
+                    seen_langs.add(tr.target_language)
+                    translations.append({
+                        'target_language': tr.target_language,
+                        'translated_text': tr.translated_text,
+                    })
+
+        live = False
+        if not translations:
+            live_results = _live_translate(word, lang, uid, request.env)
+            if live_results:
+                translations = live_results
+                live = True
+
+        _logger.debug('define word=%r lang=%s uid=%s → %d translation(s) live=%s',
+                      word, lang, uid, len(translations), live)
+        return _json_response({'status': 'ok', 'word': word, 'translations': translations, 'live': live})
 
     # ------------------------------------------------------------------
     # POST /lexora_api/quick_explain  (M25 — Quick Explain popup)
@@ -339,6 +397,49 @@ def _detect_language(word, user):
     if profile and profile.default_source_language:
         return profile.default_source_language
     return 'en'
+
+
+def _live_translate(word, source_lang, uid, env):
+    """Call the translation service synchronously for up to 2 target languages.
+
+    Returns a list of {target_language, translated_text} dicts.
+    Results are NOT stored in the DB — the caller receives them as ephemeral
+    "live" translations and the user can persist them via Add to Vocabulary.
+    """
+    import requests as _req
+
+    # Determine target languages from user profile; fall back to all non-source
+    target_langs = []
+    try:
+        profile = env['language.user.profile'].sudo().search(
+            [('user_id', '=', uid)], limit=1)
+        if profile and profile.learning_languages:
+            target_langs = [l.code for l in profile.learning_languages
+                            if l.code != source_lang]
+    except Exception:
+        pass
+
+    if not target_langs:
+        target_langs = [l for l in _ALLOWED_LANGUAGES if l != source_lang]
+
+    results = []
+    for tgt in target_langs[:2]:  # cap at 2 to keep p50 latency under 2 s
+        try:
+            resp = _req.post(
+                f'{_TRANSLATION_SVC}/translate',
+                json={'text': word, 'source': source_lang, 'target': tgt},
+                timeout=8,
+            )
+            data = resp.json()
+            if data.get('status') == 'ok' and data.get('result'):
+                results.append({
+                    'target_language': tgt,
+                    'translated_text': data['result'],
+                })
+        except Exception as exc:
+            _logger.debug('_live_translate %s→%s failed: %s', source_lang, tgt, exc)
+
+    return results
 
 
 def _store_supplied_translation(env, entry, translation_text, source_language):
