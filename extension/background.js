@@ -105,18 +105,23 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
 
     if (resp.status === 401) {
       setBadge(tab.id, '!', '#ef4444');
+      chrome.tabs.sendMessage(tab.id, { action: 'show-toast', status: 'unauthorized', word });
       return;
     }
 
     const data = await resp.json();
     if (data.status === 'ok') {
       setBadge(tab.id, '✓', '#22c55e');
+      chrome.tabs.sendMessage(tab.id, { action: 'show-toast', status: 'ok', word });
     } else if (data.status === 'duplicate') {
       setBadge(tab.id, '=', '#f59e0b');
+      chrome.tabs.sendMessage(tab.id, { action: 'show-toast', status: 'duplicate', word });
     } else {
       setBadge(tab.id, '!', '#ef4444');
+      chrome.tabs.sendMessage(tab.id, { action: 'show-toast', status: 'error', word });
     }
   } catch {
     setBadge(tab.id, '!', '#ef4444');
+    chrome.tabs.sendMessage(tab.id, { action: 'show-toast', status: 'error', word }).catch(() => {});
   }
 });

@@ -36,7 +36,8 @@ and gives badge feedback. Opening the popup within 30 s pre-fills both fields fr
   - Click handler: reads `info.selectionText`, calls `getContextSentence(tabId)` via `executeScript`, stores `{word, context_sentence, ts}` in `chrome.storage.session`, POSTs to `/lexora_api/add_word` with `X-Lexora-Session-Id` header.
   - Badge feedback: `…` (saving) → `✓` green (ok) | `=` amber (duplicate) | `!` red (error/401). Badge auto-clears after 3 s. ✅
 - [x] M23-04 · `extension/popup.js` — `prefillFromPendingCapture()` reads `chrome.storage.session.lexoraPendingCapture`; pre-fills `lx-word` + `lx-context`; clears after read; ignored if >30 s old. Called in `init()` before `prefillFromSelection()`; short-circuits live selection if pending capture is found. ✅
-- [ ] M23-05 · Reload extension in Chrome → verify context menu appears on selected text.
+- [x] M23-05 · Toast notifications implemented: `content.js` injects glassmorphism toast div with slide-in/progress-bar/fade-out animation; `background.js` sends `{action:'show-toast', status, word}` after every API response branch (ok / duplicate / unauthorized / error). ✅
+- [ ] M23-06 · Reload extension in Chrome → verify context menu appears on selected text.
 - [ ] M23-06 · End-to-end: select a word on any page → right-click → "Add to Lexora" → badge shows `✓` → entry appears in `/my/vocabulary`.
 - [ ] M23-07 · Duplicate test: repeat same word → badge shows `=`.
 - [ ] M23-08 · Not-logged-in test: log out of Lexora → badge shows `!`.
