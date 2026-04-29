@@ -122,6 +122,10 @@ class LanguageEntry(models.Model):
         inverse_name='entry_id',
         string='Media Links',
     )
+    note = fields.Text(
+        string='Context Sentence',
+        help='Sentence where this word/phrase was found; used for Sentence Builder.',
+    )
 
     # translations  — added in M3 (language.translation)
     # enrichments   — added in M4 (language.enrichment)

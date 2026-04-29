@@ -398,6 +398,37 @@
 
                         <hr class="my-3"/>
 
+                        <!-- ── Context sentence ── -->
+                        <div class="lx-context-card mb-3" id="lx-context-section">
+                            <div class="lx-context-label" style="display:flex;align-items:center;justify-content:space-between;">
+                                <span>
+                                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:5px;vertical-align:-2px"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+                                    Context Sentence
+                                </span>
+                                <button type="button" class="lx-context-edit-toggle" onclick="document.getElementById('lx-context-form').style.display=document.getElementById('lx-context-form').style.display==='none'?'block':'none'">
+                                    <t t-if="entry.note">Edit</t><t t-else="">+ Add</t>
+                                </button>
+                            </div>
+
+                            <t t-if="entry.note">
+                                <p class="lx-context-text mb-1" t-esc="entry.note"/>
+                            </t>
+                            <t t-else="">
+                                <p class="lx-context-text mb-1" style="color:#9ca3af;font-style:normal;">No context sentence yet. Add one to remember where you found this word.</p>
+                            </t>
+
+                            <div id="lx-context-form" style="display:none;">
+                                <form t-attf-action="/my/vocabulary/#{entry.id}/update_note" method="post" class="lx-context-form">
+                                    <input type="hidden" name="csrf_token" t-att-value="request.csrf_token()"/>
+                                    <textarea name="note" rows="3" placeholder="e.g. She had an ephemeral feeling of joy when she heard the news."><t t-esc="entry.note or ''"/></textarea>
+                                    <div class="mt-2 d-flex gap-2">
+                                        <button type="submit" class="btn btn-sm btn-primary">Save</button>
+                                        <button type="button" class="btn btn-sm btn-outline-secondary" onclick="document.getElementById('lx-context-form').style.display='none'">Cancel</button>
+                                    </div>
+                                </form>
+                            </div>
+                        </div>
+
                         <!-- ── Enrichment section injected here by language_enrichment module ── -->
                         <!-- (portal_enrichment.xml targets the media_links block below) -->
 

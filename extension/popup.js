@@ -13,24 +13,40 @@ async function getBaseUrl() {
   });
 }
 
+// ---------------------------------------------------------------------------
+// Session bridge: Chrome blocks SameSite=Lax cookies on cross-origin fetches
+// from extension → HTTP localhost.  We read the cookie explicitly via the
+// chrome.cookies API (requires "cookies" permission + host_permissions) and
+// forward it as a custom header X-Lexora-Session-Id.  Odoo reads that header
+// and loads the session from its store, bypassing the SameSite restriction.
+// ---------------------------------------------------------------------------
+async function getSessionHeader(baseUrl) {
+  return new Promise(resolve => {
+    // chrome.cookies.get needs the exact URL and cookie name
+    chrome.cookies.get({ url: baseUrl, name: 'session_id' }, cookie => {
+      if (chrome.runtime.lastError || !cookie) {
+        resolve({});
+        return;
+      }
+      resolve({ 'X-Lexora-Session-Id': cookie.value });
+    });
+  });
+}
+
 async function checkLoggedIn(baseUrl) {
   try {
-    const resp = await fetch(`${baseUrl}/lexora_api/add_word`, {
-      method: 'OPTIONS',
+    const sessionHeaders = await getSessionHeader(baseUrl);
+    const resp = await fetch(`${baseUrl}/lexora_api/whoami`, {
+      method: 'GET',
       credentials: 'include',
+      headers: sessionHeaders,
     });
-    // If OPTIONS succeeds at all (204 or any 2xx/3xx), the server is reachable.
-    // We confirm auth by sending a GET to /web/session/get_session_info style check
-    // instead, use a HEAD to a known auth-required route.
-    const check = await fetch(`${baseUrl}/my/vocabulary`, {
-      method: 'HEAD',
-      credentials: 'include',
-      redirect: 'manual',
-    });
-    // If redirected to /web/login, user is not authenticated
-    if (check.type === 'opaqueredirect' || check.status === 0) return false;
-    if (check.status >= 300 && check.status < 400) return false;
-    return check.ok || check.status === 200 || check.status === 404;
+    if (resp.status === 401) return false;
+    if (!resp.ok) return false;
+    const ct = resp.headers.get('Content-Type') || '';
+    if (!ct.includes('application/json')) return false;
+    const data = await resp.json();
+    return data.status === 'ok';
   } catch {
     return false;
   }
@@ -40,16 +56,31 @@ async function prefillFromSelection() {
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     if (!tab || !tab.id) return;
+
+    // Try the rich capture function injected by content.js first
     const results = await chrome.scripting.executeScript({
       target: { tabId: tab.id },
-      func: () => window.getSelection()?.toString().trim() || '',
+      func: () => {
+        if (typeof window.__lexoraCaptureSelection === 'function') {
+          return window.__lexoraCaptureSelection();
+        }
+        // Fallback: plain selection only
+        return { word: window.getSelection()?.toString().trim() || '', context_sentence: '' };
+      },
     });
-    const sel = results?.[0]?.result || '';
-    if (sel && sel.length <= 500) {
-      $('lx-word').value = sel;
+
+    const captured = results?.[0]?.result || {};
+    const word = (captured.word || '').trim();
+    const ctx = (captured.context_sentence || '').trim();
+
+    if (word && word.length <= 500) {
+      $('lx-word').value = word;
+    }
+    if (ctx && ctx.length <= 500) {
+      $('lx-context').value = ctx;
     }
   } catch {
-    // scripting may be denied on chrome:// pages — silently ignore
+    // Denied on chrome:// pages — silently ignore
   }
 }
 
@@ -77,6 +108,10 @@ async function init() {
     $('lx-not-logged-in').style.display = 'block';
     const linkWrap = $('lx-login-link-wrap');
     linkWrap.innerHTML = `<a href="${baseUrl}/web/login" target="_blank">Log in to Lexora →</a>`;
+
+    // Surface the localhost vs 127.0.0.1 tip
+    const tip = document.getElementById('lx-url-tip');
+    if (tip) tip.style.display = 'block';
     return;
   }
 
@@ -102,27 +137,19 @@ async function init() {
       source_url: await getPageUrl() || undefined,
     };
 
-    // Remove undefined keys
     Object.keys(body).forEach(k => body[k] === undefined && delete body[k]);
+
+    const sessionHeaders = await getSessionHeader(baseUrl);
 
     try {
       const resp = await fetch(`${baseUrl}${ADD_WORD_PATH}`, {
         method: 'POST',
         credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...sessionHeaders },
         body: JSON.stringify(body),
       });
 
-      // If we got redirected to login page (fetch follows redirects — check URL)
-      if (!resp.ok && resp.status === 0) {
-        setStatus('Not logged in. Please log in to Lexora first.', 'err');
-        btn.disabled = false;
-        return;
-      }
-
-      // Odoo returns 303 on auth failure; fetch follows it but lands on HTML
-      const ct = resp.headers.get('Content-Type') || '';
-      if (!ct.includes('application/json')) {
+      if (resp.status === 401) {
         setStatus('Session expired. Please log in to Lexora.', 'err');
         btn.disabled = false;
         return;
@@ -149,6 +176,13 @@ async function init() {
 
 $('lx-open-options').addEventListener('click', () => {
   chrome.runtime.openOptionsPage();
+});
+
+// Tip link inside "not logged in" panel
+document.addEventListener('click', e => {
+  if (e.target && e.target.id === 'lx-tip-open-opts') {
+    chrome.runtime.openOptionsPage();
+  }
 });
 
 init();

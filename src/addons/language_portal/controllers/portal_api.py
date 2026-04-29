@@ -2,7 +2,6 @@ import json
 import logging
 
 from odoo import http
-from odoo.exceptions import ValidationError
 from odoo.http import request
 
 _logger = logging.getLogger(__name__)
@@ -14,16 +13,60 @@ _MAX_URL_LEN = 2048
 
 
 def _cors_headers():
+    # Reflect the request Origin back — required when credentials are included.
+    # Browsers reject the wildcard + credentials combination (CORS spec §7.1.5).
+    # X-Lexora-Session-Id is the custom header used for the manual session bridge.
+    origin = request.httprequest.headers.get('Origin', '')
     return {
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Headers': 'Content-Type, Cookie',
+        'Access-Control-Allow-Origin': origin or '*',
+        'Access-Control-Allow-Headers': 'Content-Type, Cookie, X-Lexora-Session-Id',
         'Access-Control-Allow-Credentials': 'true',
+        'Vary': 'Origin',
     }
 
 
 def _json_response(data, status=200):
     headers = list(_cors_headers().items()) + [('Content-Type', 'application/json')]
     return request.make_response(json.dumps(data), headers=headers, status=status)
+
+
+def _resolve_uid():
+    """Return the authenticated uid, trying two paths:
+
+    1. Standard session cookie (works when SameSite allows it).
+    2. X-Lexora-Session-Id header (manual bridge for Chrome extensions where
+       SameSite=Lax blocks the cookie on cross-origin HTTP requests).
+
+    The header value is the raw Odoo session_id cookie value read by the
+    extension via chrome.cookies API and forwarded as a custom header,
+    bypassing SameSite restrictions entirely.
+    """
+    # Path 1 — cookie arrived normally
+    uid = request.session.uid
+    if uid:
+        return uid
+
+    # Path 2 — custom header bridge
+    sid = request.httprequest.headers.get('X-Lexora-Session-Id', '').strip()
+    if sid:
+        try:
+            session = http.root.session_store.get(sid)
+            if session and session.get('uid'):
+                return session['uid']
+        except Exception:
+            _logger.debug('X-Lexora-Session-Id lookup failed for sid=%r', sid[:8])
+
+    return None
+
+
+def _require_session():
+    """Return a 401 JSON response if no valid uid can be resolved, else None."""
+    if not _resolve_uid():
+        return _json_response(
+            {'status': 'unauthorized', 'message': 'Session expired. Please log in to Lexora.'},
+            status=401,
+        )
+    return None
 
 
 class LexoraApiController(http.Controller):
@@ -40,9 +83,27 @@ class LexoraApiController(http.Controller):
         return request.make_response('', headers=headers, status=204)
 
     # ------------------------------------------------------------------
+    # GET /lexora_api/whoami  — lightweight auth probe for the extension
+    # ------------------------------------------------------------------
+    @http.route('/lexora_api/whoami', type='http', auth='none',
+                methods=['GET'], csrf=False)
+    def whoami(self, **kw):
+        """Return minimal user info so the popup can confirm the session is valid."""
+        err = _require_session()
+        if err:
+            return err
+        user = request.env['res.users'].sudo().browse(_resolve_uid())
+        return _json_response({
+            'status': 'ok',
+            'uid': user.id,
+            'name': user.name,
+            'login': user.login,
+        })
+
+    # ------------------------------------------------------------------
     # POST /lexora_api/add_word
     # ------------------------------------------------------------------
-    @http.route('/lexora_api/add_word', type='http', auth='user',
+    @http.route('/lexora_api/add_word', type='http', auth='none',
                 methods=['POST'], csrf=False)
     def add_word(self, **kw):
         """Add a word to the current user's vocabulary from the browser extension.
@@ -57,8 +118,13 @@ class LexoraApiController(http.Controller):
         Response:
             {"status": "ok",        "entry_id": N, "duplicate": false}
             {"status": "duplicate", "entry_id": N, "duplicate": true}
+            {"status": "unauthorized", "message": "..."}
             {"status": "error",     "message": "..."}
         """
+        err = _require_session()
+        if err:
+            return err
+
         try:
             raw = request.httprequest.get_data(as_text=True)
             data = json.loads(raw) if raw else {}
@@ -85,56 +151,59 @@ class LexoraApiController(http.Controller):
         context_sentence = (data.get('context_sentence') or '').strip()[:_MAX_CONTEXT_LEN] or None
         source_url = (data.get('source_url') or '').strip()[:_MAX_URL_LEN] or None
 
-        # Auto-detect language if not provided
+        uid = _resolve_uid()
+        env = request.env(user=uid)
+        user = env['res.users'].browse(uid)
+
         if not source_language:
-            source_language = _detect_language(word, request.env.user)
+            source_language = _detect_language(word, user)
 
-        user = request.env.user
-
-        # Build entry vals
         vals = {
             'source_text': word,
             'source_language': source_language,
-            'owner_id': user.id,
+            'owner_id': uid,
             'created_from': 'manual',
             'type': 'word',
         }
-        if context_sentence:
-            # Store context in the notes field if present, otherwise ignore gracefully
-            if 'note' in request.env['language.entry']._fields:
-                vals['note'] = context_sentence
+        if context_sentence and 'note' in env['language.entry']._fields:
+            vals['note'] = context_sentence
 
         try:
-            entry = request.env['language.entry'].sudo().with_context(
-                uid=user.id
-            ).create(vals)
-        except ValidationError:
+            entry = env['language.entry'].sudo().create(vals)
+        except Exception as exc:
             # Dedup — find the existing record and return it
-            from odoo.addons.language_words.models.language_entry import normalize
-            normalized = normalize(word)
-            existing = request.env['language.entry'].sudo().search([
-                ('normalized_text', '=', normalized),
-                ('source_language', '=', source_language),
-                ('owner_id', '=', user.id),
-            ], limit=1)
-            entry_id = existing.id if existing else None
-            _logger.info('Extension add_word: duplicate detected for user=%s word=%r', user.login, word)
-            return _json_response({'status': 'duplicate', 'entry_id': entry_id, 'duplicate': True})
+            try:
+                from odoo.addons.language_words.models.language_entry import normalize
+                normalized = normalize(word)
+                existing = env['language.entry'].sudo().search([
+                    ('normalized_text', '=', normalized),
+                    ('source_language', '=', source_language),
+                    ('owner_id', '=', uid),
+                ], limit=1)
+                entry_id = existing.id if existing else None
+                _logger.info('Extension add_word: duplicate for user=%s word=%r', user.login, word)
+                return _json_response({'status': 'duplicate', 'entry_id': entry_id, 'duplicate': True})
+            except Exception:
+                _logger.exception('Extension add_word: unexpected error: %s', exc)
+                return _json_response({'status': 'error', 'message': str(exc)}, 500)
 
-        # Persist a user-supplied translation immediately (bypass async queue)
         if translation and 'language.translation' in request.env.registry:
-            _store_supplied_translation(request.env, entry, translation, source_language)
+            _store_supplied_translation(env, entry, translation, source_language)
 
-        _logger.info('Extension add_word: created entry id=%s word=%r user=%s', entry.id, word, user.login)
+        _logger.info('Extension add_word: created entry id=%s word=%r user=%s',
+                     entry.id, word, user.login)
         return _json_response({'status': 'ok', 'entry_id': entry.id, 'duplicate': False})
 
     # ------------------------------------------------------------------
     # GET /lexora_api/daily_card  (M25 — New Tab)
     # ------------------------------------------------------------------
-    @http.route('/lexora_api/daily_card', type='http', auth='user',
+    @http.route('/lexora_api/daily_card', type='http', auth='none',
                 methods=['GET'], csrf=False)
     def daily_card(self, **kw):
         """Return a random idiom for the New Tab override (M25)."""
+        err = _require_session()
+        if err:
+            return err
         import random
         if 'language.idiom' in request.env.registry:
             idioms = request.env['language.idiom'].sudo().search([], limit=50)
@@ -153,10 +222,14 @@ class LexoraApiController(http.Controller):
     # ------------------------------------------------------------------
     # GET /lexora_api/define  (M24 — Subtitles overlay)
     # ------------------------------------------------------------------
-    @http.route('/lexora_api/define', type='http', auth='user',
+    @http.route('/lexora_api/define', type='http', auth='none',
                 methods=['GET'], csrf=False)
     def define(self, word='', lang='en', **kw):
         """Return the best stored translation for a word (M24 subtitle overlay)."""
+        err = _require_session()
+        if err:
+            return err
+
         word = word.strip()
         if not word:
             return _json_response({'status': 'error', 'message': 'word required'}, 400)
@@ -183,10 +256,14 @@ class LexoraApiController(http.Controller):
     # ------------------------------------------------------------------
     # POST /lexora_api/quick_explain  (M25 — Quick Explain popup)
     # ------------------------------------------------------------------
-    @http.route('/lexora_api/quick_explain', type='http', auth='user',
+    @http.route('/lexora_api/quick_explain', type='http', auth='none',
                 methods=['POST'], csrf=False)
     def quick_explain(self, **kw):
         """Trigger or return cached enrichment for a word (M25 Quick Explain)."""
+        err = _require_session()
+        if err:
+            return err
+
         try:
             raw = request.httprequest.get_data(as_text=True)
             data = json.loads(raw) if raw else {}
@@ -203,12 +280,13 @@ class LexoraApiController(http.Controller):
         if 'language.enrichment' not in request.env.registry:
             return _json_response({'status': 'unavailable'})
 
+        uid = _resolve_uid()
         from odoo.addons.language_words.models.language_entry import normalize
         normalized = normalize(word)
         entry = request.env['language.entry'].sudo().search([
             ('normalized_text', '=', normalized),
             ('source_language', '=', source_language),
-            ('owner_id', '=', request.env.user.id),
+            ('owner_id', '=', uid),
         ], limit=1)
 
         if not entry:
@@ -228,16 +306,12 @@ class LexoraApiController(http.Controller):
                 'explanation': enrichment.explanation,
             })
 
-        # Trigger async enrichment if not already in flight
         if not enrichment or enrichment.status == 'failed':
-            if 'language.enrichment' in request.env.registry:
-                request.env['language.enrichment'].sudo()._enqueue_single(
-                    entry, source_language)
+            request.env['language.enrichment'].sudo()._enqueue_single(entry, source_language)
             return _json_response({'status': 'pending',
                                    'message': 'Enrichment started, check back in ~30s'})
 
-        return _json_response({'status': 'pending',
-                               'message': 'Enrichment in progress'})
+        return _json_response({'status': 'pending', 'message': 'Enrichment in progress'})
 
 
 # -------------------------------------------------------------------------
@@ -248,14 +322,13 @@ def _detect_language(word, user):
     """Try langdetect; fall back to user profile default; final fallback 'en'."""
     profile = None
     try:
-        from odoo.addons.language_words.models.language_user_profile import LanguageUserProfile  # noqa
         profile = user.env['language.user.profile'].sudo().search(
             [('user_id', '=', user.id)], limit=1)
     except Exception:
         pass
 
     try:
-        from langdetect import detect, DetectorFactory, LangDetectException
+        from langdetect import detect, DetectorFactory
         DetectorFactory.seed = 0
         code = detect(word)
         if code in _ALLOWED_LANGUAGES:
@@ -270,8 +343,8 @@ def _detect_language(word, user):
 
 def _store_supplied_translation(env, entry, translation_text, source_language):
     """Create a completed translation record for a user-supplied translation."""
+    import uuid
     Translation = env['language.translation'].sudo()
-    # Pick the first learning language that isn't the source language as target
     profile = env['language.user.profile'].sudo().search(
         [('user_id', '=', entry.owner_id.id)], limit=1)
     if profile and profile.learning_languages:
@@ -282,7 +355,6 @@ def _store_supplied_translation(env, entry, translation_text, source_language):
                     ('target_language', '=', lang.code),
                 ], limit=1)
                 if not existing:
-                    import uuid
                     Translation.create({
                         'entry_id': entry.id,
                         'target_language': lang.code,
