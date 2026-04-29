@@ -281,6 +281,41 @@ function _processAllCaptionElements() {
   }
 }
 
+// ── Extension-context guard ────────────────────────────────────────────────
+//
+// When the extension is reloaded while a YouTube tab remains open, the
+// content script keeps running but chrome.runtime becomes invalid.
+// Any chrome.runtime.sendMessage call then throws:
+//   "Uncaught Error: Extension context invalidated."
+//
+// _sendMessage wraps sendMessage in a try-catch and checks chrome.runtime.id
+// (undefined when context is invalidated) before calling. When invalidated,
+// it invokes the callback with a typed sentinel so callers can show a
+// "please refresh" hint instead of crashing.
+
+function _isContextValid() {
+  try {
+    // chrome.runtime.id is undefined in an invalidated context
+    return typeof chrome !== 'undefined' && !!chrome.runtime?.id;
+  } catch (_) {
+    return false;
+  }
+}
+
+function _sendMessage(msg, callback) {
+  if (!_isContextValid()) {
+    console.warn('[Lexora] Extension context invalidated — refresh the tab to restore subtitle features.');
+    callback && callback({ status: 'context_invalidated' });
+    return;
+  }
+  try {
+    chrome.runtime.sendMessage(msg, callback);
+  } catch (err) {
+    console.warn('[Lexora] sendMessage threw:', err.message);
+    callback && callback({ status: 'context_invalidated' });
+  }
+}
+
 // ── Overlay rendering ──────────────────────────────────────────────────────
 
 function _removeOverlay() {
@@ -315,17 +350,20 @@ function _onWordClick(e) {
     _showOverlay(word, wasPaused, timestamp, lang, video, { status: 'timeout', translations: [] });
   }, 9000);
 
-  chrome.runtime.sendMessage(
+  _sendMessage(
     { action: 'lexora-define', word, lang },
     (response) => {
       clearTimeout(_fallbackTimer);
+      if (response && response.status === 'context_invalidated') {
+        _showOverlay(word, wasPaused, timestamp, lang, video, { status: 'context_invalidated', translations: [] });
+        return;
+      }
       if (chrome.runtime.lastError) {
         console.warn('[Lexora] define lastError:', chrome.runtime.lastError.message);
         _showOverlay(word, wasPaused, timestamp, lang, video, { status: 'error', translations: [] });
         return;
       }
       console.log('[Lexora] define response received:', response);
-      // Guard against undefined (can happen if handler returns without calling sendResponse)
       _showOverlay(word, wasPaused, timestamp, lang, video, response || { status: 'empty', translations: [] });
     }
   );
@@ -341,6 +379,8 @@ function _showOverlay(word, wasPaused, timestamp, lang, video, response) {
   if (response === null) {
     // Loading state — waiting for background to reply
     bodyHtml = `<div class="lx-yt-loading">Looking up definition…</div>`;
+  } else if (response && response.status === 'context_invalidated') {
+    bodyHtml = `<div class="lx-yt-no-def">Lexora was updated — refresh this tab to restore subtitle features</div>`;
   } else if (response && response.status === 'unauthorized') {
     bodyHtml = `<div class="lx-yt-no-def">Sign in to Lexora to look up definitions</div>`;
   } else if (
@@ -407,10 +447,16 @@ function _showOverlay(word, wasPaused, timestamp, lang, video, response) {
       const sourceUrl =
         `${location.href.split('#')[0]}${timestamp ? '#t=' + timestamp : ''}`;
 
-      chrome.runtime.sendMessage(
+      _sendMessage(
         { action: 'lexora-add-word-overlay', word, source_language: lang, source_url: sourceUrl },
         (resp) => {
           if (!statusEl) return;
+          if (resp && resp.status === 'context_invalidated') {
+            statusEl.style.color = '#f87171';
+            statusEl.textContent = 'Extension updated — please refresh the page';
+            addBtn.disabled = false;
+            return;
+          }
           if (chrome.runtime.lastError || !resp) {
             statusEl.style.color = '#f87171';
             statusEl.textContent = 'Error — check connection';
