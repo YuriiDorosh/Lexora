@@ -43,6 +43,7 @@ session cookies work correctly.
 - [x] M24-12 · `extension/background.js` — enhanced debug logging: CANARY log with color styling, verbose baseUrl + session header logging, FETCH TIMEOUT and FETCH FAILED as `console.error` for higher visibility in SW console. ✅
 - [x] M24-13 · `extension/content.js` — `_qlSendMessage()` hardened: explicit `chrome.runtime.lastError` check in sendMessage callback (prevents "Unchecked lastError" warnings); added `console.log` before send and `console.error` on failure; `_renderQlOverlay()` now handles `context_invalidated` state with user-friendly message; error overlays show error detail in message; added `console.log` at render entry point for debugging. ✅
 - [x] M24-14 · `portal_api.py` — promoted all diagnostic logs to `_logger.error` so they are visible regardless of Odoo log level; added CANARY log at the very top of `define()` (before session check) printing `_TRANSLATION_SVC` URL; added CANARY logs at every branch in `define()` and throughout `_live_translate()` to pinpoint exactly where the pipeline stops; added explicit `_logger.error` when `_live_translate` returns nothing. ✅
+- [x] M24-15 · `portal_api.py` + `background.js` — added `/lexora_api/define_v2` as a second route alias on the same method to bypass Odoo bytecode cache; connectivity probe (`GET /health`) run on every define call to confirm translation-service reachability; background.js updated to call `define_v2` and explicitly log `live: true` flag. ✅
 
 #### Architecture notes
 

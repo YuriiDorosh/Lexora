@@ -11,7 +11,7 @@ _ALLOWED_LANGUAGES = ('en', 'uk', 'el')
 _MAX_WORD_LEN = 500
 _MAX_CONTEXT_LEN = 2000
 _MAX_URL_LEN = 2048
-_TRANSLATION_SVC = os.environ.get('TRANSLATION_SERVICE_URL', 'http://translation-service:8000')
+_TRANSLATION_SVC = os.environ.get('TRANSLATION_SERVICE_URL', 'http://translation-service:8000').rstrip('/')
 
 
 def _cors_headers():
@@ -76,7 +76,7 @@ class LexoraApiController(http.Controller):
     # ------------------------------------------------------------------
     # OPTIONS preflight — needed for Chrome Extension cross-origin calls
     # ------------------------------------------------------------------
-    @http.route('/lexora_api/<path:subpath>', type='http', auth='none',
+    @http.route(['/lexora_api/<path:subpath>'], type='http', auth='none',
                 methods=['OPTIONS'], csrf=False)
     def api_preflight(self, subpath, **kw):
         headers = list(_cors_headers().items()) + [
@@ -224,7 +224,7 @@ class LexoraApiController(http.Controller):
     # ------------------------------------------------------------------
     # GET /lexora_api/define  (M24 — Subtitles overlay)
     # ------------------------------------------------------------------
-    @http.route('/lexora_api/define', type='http', auth='none',
+    @http.route(['/lexora_api/define', '/lexora_api/define_v2'], type='http', auth='none',
                 methods=['GET'], csrf=False)
     def define(self, word='', lang='en', **kw):
         """Return the best stored translations for a word (M24 subtitle overlay).
@@ -239,16 +239,26 @@ class LexoraApiController(http.Controller):
         Always returns {"status": "ok", "translations": [...]} — never an error
         for a missing word, so the overlay always shows the Add-to-Vocabulary button.
         """
-        # ── CANARY ── must appear in Odoo logs on every call.
-        # If absent, the module was not reloaded after the last code change —
-        # run: docker exec odoo odoo --config /etc/odoo/odoo.conf \
-        #   -d lexora --update language_portal --stop-after-init
-        _logger.error('CANARY /lexora_api/define CALLED — word=%r lang=%r svc=%s',
-                      word, lang, _TRANSLATION_SVC)
+        # ── CANARY ── must appear in Odoo logs on EVERY call (routes: /define + /define_v2).
+        # If ABSENT after module reload, Odoo is still running old bytecode.
+        # Fix: --update language_portal --stop-after-init && docker restart odoo
+        _logger.error('CANARY define CALLED — word=%r lang=%r svc=%s path=%s',
+                      word, lang, _TRANSLATION_SVC,
+                      request.httprequest.path)
+
+        # Connectivity probe — shows in logs whether the translation service is reachable
+        try:
+            import requests as _req_probe
+            _probe = _req_probe.get(f'{_TRANSLATION_SVC}/health', timeout=3)
+            _logger.error('CANARY translation-svc /health → HTTP %s body=%r',
+                          _probe.status_code, _probe.text[:120])
+        except Exception as _probe_exc:
+            _logger.error('CANARY translation-svc /health UNREACHABLE: %s — svc=%s',
+                          _probe_exc, _TRANSLATION_SVC)
 
         err = _require_session()
         if err:
-            _logger.error('CANARY /define — session check FAILED (unauthorized)')
+            _logger.error('CANARY define — session check FAILED (unauthorized), returning 401')
             return err
 
         word = (word or '').strip()

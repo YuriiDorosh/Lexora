@@ -86,7 +86,9 @@ async function handleDefine({ word, lang }) {
   }, 8000);
 
   try {
-    const finalUrl = `${baseUrl}/lexora_api/define?word=${encodeURIComponent(word)}&lang=${encodeURIComponent(lang || 'en')}`;
+    // Using /define_v2 to bypass any Odoo bytecode cache of the old /define handler.
+    // Both routes are registered on the same method; v2 forces a fresh route match.
+    const finalUrl = `${baseUrl}/lexora_api/define_v2?word=${encodeURIComponent(word)}&lang=${encodeURIComponent(lang || 'en')}`;
     console.log('[Lexora BG] FETCHING URL:', finalUrl);
     const resp = await fetch(finalUrl, {
       method: 'GET',
@@ -99,7 +101,12 @@ async function handleDefine({ word, lang }) {
     if (resp.status === 401) return { status: 'unauthorized' };
     if (!resp.ok) return { status: 'error', message: `HTTP ${resp.status}` };
     const data = await resp.json();
-    console.log('[Lexora BG] define data:', data);
+    console.log('[Lexora BG] define data — translations:', data.translations?.length ?? 0,
+                '| live:', data.live ?? false,
+                '| full:', data);
+    if (data.live) {
+      console.log('[Lexora BG] LIVE TRANSLATION active — results came from translation-service, not DB');
+    }
     return data;
   } catch (err) {
     clearTimeout(abortTimer);
