@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!--
+        The route for the helpdesk ticket form is /helpdesk_ticket (defined by
+        odoo_website_helpdesk/controller/website_ticket.py). The website.menu
+        record below updates the one already created by that addon to guarantee
+        it is wired to the main menu even if the parent module's data was loaded
+        before the website was fully initialised.
+    -->
+    <record id="odoo_website_helpdesk.website_helpdesk" model="website.menu">
+        <field name="name">Support</field>
+        <field name="url">/helpdesk_ticket</field>
+        <field name="parent_id" ref="website.main_menu"/>
+        <field name="sequence" type="int">90</field>
+    </record>
+</odoo>

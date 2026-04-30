@@ -14,6 +14,7 @@
     "depends": ["odoo_website_helpdesk", "mail"],
     "data": [
         "data/ir_config_parameter.xml",
+        "data/website_menu.xml",
     ],
     "installable": True,
     "auto_install": False,

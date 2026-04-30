@@ -104,15 +104,17 @@ class TicketHelpdeskAI(models.Model):
         return desc.strip()[:2000]
 
     def _post_bot_message(self, ticket, body: str):
-        """Post body as a real comment (not a note) so the ticket creator
-        receives an email/notification via Odoo's standard mail.thread flow."""
+        """Post body as a visible comment in the chatter without triggering
+        outbound email notifications to followers."""
         try:
             bot_partner = self.env.ref("base.partner_root")
-            ticket.sudo().message_post(
+            ticket.sudo().with_context(
+                mail_post_autofollow=False,
+                mail_create_nosubscribe=True,
+                mail_notify_force_send=False,
+            ).message_post(
                 body=body,
                 author_id=bot_partner.id,
-                # 'comment' = visible message that triggers follower notifications.
-                # 'note' = internal note visible only to internal users — NOT what we want.
                 message_type="comment",
                 subtype_xmlid="mail.mt_comment",
             )
