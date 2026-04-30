@@ -302,13 +302,18 @@ class LexoraApiController(http.Controller):
 
         live = False
         if not translations:
+            _logger.info('define: no DB translations for word=%r lang=%s uid=%s — attempting live translate',
+                         word, lang, uid)
             live_results = _live_translate(word, lang, uid, request.env)
             if live_results:
                 translations = live_results
                 live = True
+                _logger.info('define: live translate succeeded for word=%r → %d result(s)', word, len(live_results))
+            else:
+                _logger.info('define: live translate returned no results for word=%r lang=%s', word, lang)
 
-        _logger.debug('define word=%r lang=%s uid=%s → %d translation(s) live=%s',
-                      word, lang, uid, len(translations), live)
+        _logger.info('define word=%r lang=%s uid=%s → %d translation(s) live=%s',
+                     word, lang, uid, len(translations), live)
         return _json_response({'status': 'ok', 'word': word, 'translations': translations, 'live': live})
 
     # ------------------------------------------------------------------
@@ -425,19 +430,23 @@ def _live_translate(word, source_lang, uid, env):
     results = []
     for tgt in target_langs[:2]:  # cap at 2 to keep p50 latency under 2 s
         try:
+            _logger.info('_live_translate calling %s/translate — %s→%s word=%r',
+                         _TRANSLATION_SVC, source_lang, tgt, word)
             resp = _req.post(
                 f'{_TRANSLATION_SVC}/translate',
                 json={'text': word, 'source': source_lang, 'target': tgt},
                 timeout=8,
             )
             data = resp.json()
+            _logger.info('_live_translate %s→%s HTTP %s data=%r', source_lang, tgt, resp.status_code, data)
             if data.get('status') == 'ok' and data.get('result'):
                 results.append({
                     'target_language': tgt,
                     'translated_text': data['result'],
                 })
         except Exception as exc:
-            _logger.debug('_live_translate %s→%s failed: %s', source_lang, tgt, exc)
+            _logger.warning('_live_translate %s→%s FAILED (%s: %s) — svc=%s',
+                            source_lang, tgt, type(exc).__name__, exc, _TRANSLATION_SVC)
 
     return results
 
