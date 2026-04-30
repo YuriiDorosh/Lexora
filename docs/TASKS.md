@@ -17,8 +17,9 @@
 
 ### M25 — Browser Extension: Mini-Practice New Tab
 
-**Status:** In progress.
+**Status:** Complete and verified.
 **Started:** 2026-04-30
+**Completed:** 2026-04-30
 **Branch:** `m25_newtab_dashboard`
 
 **Scope:** Premium new-tab override showing a daily vocabulary card (random
@@ -35,10 +36,10 @@ glassmorphism card, Refresh and Practice CTAs.
 - [x] M25-05 · `extension/newtab.css` — premium dark theme: animated orb background, glassmorphism card, clock typography, responsive layout. ✅
 - [x] M25-06 · `extension/newtab.js` — clock, greeting, daily_card fetch, all state renders, refresh, save-idiom, disable override. ✅
 - [x] M25-07 · `portal_api.py` `/lexora_api/daily_card` upgraded — Priority 1: random vocab entry with translations; Priority 2: random idiom; Priority 3: type='none'. ✅
-- [ ] M25-08 · `--update language_portal --stop-after-init` → 0 errors.
-- [ ] M25-09 · Load extension in Chrome; open new tab → card renders with user's vocabulary.
-- [ ] M25-10 · Verify: Refresh fetches a different word; Practice link opens `/my/practice`; Disable restores default new tab.
-- [ ] M25-11 · Commit and push `m25_newtab_dashboard`.
+- [x] M25-08 · `--update language_portal --stop-after-init` → 0 errors. ✅
+- [x] M25-09 · Load extension in Chrome; open new tab → card renders with user's vocabulary. ✅
+- [x] M25-10 · Verify: Refresh fetches a different word; Practice link opens `/my/practice`; Disable restores default new tab. ✅
+- [x] M25-11 · `fix(M25)`: proxy new tab requests through background to fix session visibility — committed and pushed. ✅
 
 #### Architecture notes
 
