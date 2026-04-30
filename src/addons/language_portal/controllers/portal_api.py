@@ -202,13 +202,68 @@ class LexoraApiController(http.Controller):
     @http.route('/lexora_api/daily_card', type='http', auth='none',
                 methods=['GET'], csrf=False)
     def daily_card(self, **kw):
-        """Return a random idiom for the New Tab override (M25)."""
+        """Return a random card for the New Tab override.
+
+        Priority:
+          1. A random vocabulary entry owned by the user that has at least
+             one completed translation (shows real learning progress).
+          2. A random published idiom (M19 model) — fallback when the user
+             has no vocabulary yet.
+          3. Empty response (type='none') when neither is available.
+        """
         err = _require_session()
         if err:
             return err
+
         import random
+        uid = _resolve_uid()
+
+        # ── Priority 1: user's own vocabulary with translations ────────
+        if ('language.entry' in request.env.registry and
+                'language.translation' in request.env.registry):
+            entries = request.env['language.entry'].sudo().search([
+                ('owner_id', '=', uid),
+                ('status', '=', 'active'),
+            ], limit=100)
+
+            eligible = [
+                e for e in entries
+                if any(t.status == 'completed' for t in e.translation_ids)
+            ]
+
+            if eligible:
+                entry = random.choice(eligible)
+                translations = [
+                    {'target_language': t.target_language,
+                     'translated_text': t.translated_text}
+                    for t in entry.translation_ids
+                    if t.status == 'completed'
+                ]
+
+                # Best example sentence from enrichment (if available)
+                example = ''
+                if 'language.enrichment' in request.env.registry:
+                    enrichment = request.env['language.enrichment'].sudo().search([
+                        ('entry_id', '=', entry.id),
+                        ('status', '=', 'completed'),
+                    ], limit=1)
+                    if enrichment:
+                        sentences = enrichment._example_sentences_list()
+                        if sentences:
+                            example = sentences[0]
+
+                return _json_response({
+                    'type': 'vocabulary',
+                    'word': entry.source_text,
+                    'source_language': entry.source_language,
+                    'translations': translations,
+                    'example_sentence': example,
+                    'entry_id': entry.id,
+                })
+
+        # ── Priority 2: random idiom ───────────────────────────────────
         if 'language.idiom' in request.env.registry:
-            idioms = request.env['language.idiom'].sudo().search([], limit=50)
+            idioms = request.env['language.idiom'].sudo().search([], limit=100)
             if idioms:
                 idiom = random.choice(idioms)
                 return _json_response({
@@ -219,6 +274,7 @@ class LexoraApiController(http.Controller):
                     'example_sentence': idiom.example_sentence,
                     'language': idiom.language,
                 })
+
         return _json_response({'type': 'none'})
 
     # ------------------------------------------------------------------

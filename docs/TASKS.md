@@ -15,10 +15,67 @@
 
 ## Current Milestone
 
-### M24 — Browser Extension: Media & Subtitles Integration
+### M25 — Browser Extension: Mini-Practice New Tab
 
 **Status:** In progress.
+**Started:** 2026-04-30
+**Branch:** `m25_newtab_dashboard`
+
+**Scope:** Premium new-tab override showing a daily vocabulary card (random
+entry from the user's own vocabulary with translations) or an idiom card as
+fallback. Animated dark gradient background, live clock, personalised greeting,
+glassmorphism card, Refresh and Practice CTAs.
+
+#### Sub-steps
+
+- [x] M25-01 · Branch `m25_newtab_dashboard` created from `m24_media_subtitles`. ✅
+- [x] M25-02 · TASKS.md updated — M24 archived, M25 block started. ✅
+- [x] M25-03 · `extension/manifest.json` — `chrome_url_overrides.newtab` added. ✅
+- [x] M25-04 · `extension/newtab.html` — full HTML structure (states: loading / word / idiom / unauth / empty). ✅
+- [x] M25-05 · `extension/newtab.css` — premium dark theme: animated orb background, glassmorphism card, clock typography, responsive layout. ✅
+- [x] M25-06 · `extension/newtab.js` — clock, greeting, daily_card fetch, all state renders, refresh, save-idiom, disable override. ✅
+- [x] M25-07 · `portal_api.py` `/lexora_api/daily_card` upgraded — Priority 1: random vocab entry with translations; Priority 2: random idiom; Priority 3: type='none'. ✅
+- [ ] M25-08 · `--update language_portal --stop-after-init` → 0 errors.
+- [ ] M25-09 · Load extension in Chrome; open new tab → card renders with user's vocabulary.
+- [ ] M25-10 · Verify: Refresh fetches a different word; Practice link opens `/my/practice`; Disable restores default new tab.
+- [ ] M25-11 · Commit and push `m25_newtab_dashboard`.
+
+#### Architecture notes
+
+**State machine:** The card has five display states managed by `showState(id)`.
+The loading state is always shown first; then one of word/idiom/unauth/empty
+based on the API response.
+
+**Priority logic in `/daily_card`:** Vocabulary entries with at least one
+`completed` translation are randomly sampled (limit 100, then filter in Python).
+The idiom fallback runs only when the user has no eligible vocab. The `type`
+field in the response drives state selection in `newtab.js`.
+
+**Clock:** Updates every second via `setInterval`. Hours/minutes only (no
+seconds) to keep the display calm, matching Momentum's design convention.
+
+**Greeting personalisation:** The `/lexora_api/whoami` endpoint provides the
+user's name. First name only is extracted via `.split(' ')[0]`. Nav links are
+shown/hidden based on whether `whoami` succeeds.
+
+**Disable override:** Clicking "Disable new tab" sets `lexoraNewTabDisabled`
+in `chrome.storage.sync` and opens the native Chrome NTP. The options page
+should read this flag and show a re-enable toggle (M25 scope does not include
+options page changes; the extension can be reloaded to re-enable).
+
+#### Blockers
+
+(none)
+
+---
+
+## Completed Milestones (M24)
+
+### M24 — Browser Extension: Media & Subtitles Integration
+
+**Status:** Complete and verified.
 **Started:** 2026-04-29
+**Completed:** 2026-04-30
 **Branch:** `m24_media_subtitles`
 
 **Scope:** On YouTube, each word in the subtitle track becomes clickable. Clicking a
