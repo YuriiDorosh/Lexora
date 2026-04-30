@@ -9,17 +9,20 @@ _logger = logging.getLogger(__name__)
 
 _STUB_REPLY = (
     "Thank you for contacting Lexora Support! "
-    "Your ticket has been received and our AI assistant is looking into it. "
+    "Your ticket has been received and our AI is looking into it. "
     "You can also check the Grammar Guide (/grammar) and Vocabulary sections for self-service help. "
     "We'll follow up shortly if further assistance is needed."
 )
 
 
-class HelpdeskTicketAI(models.Model):
-    _inherit = "helpdesk.ticket"
+class TicketHelpdeskAI(models.Model):
+    """Extends odoo_website_helpdesk's ticket.helpdesk to inject an OdooBot
+    auto-reply on every new ticket via the ai_mentor RAG service."""
+
+    _inherit = "ticket.helpdesk"
 
     # ------------------------------------------------------------------
-    # Override create() to fire the AI auto-reply on every new ticket.
+    # Override create() — fire AI auto-reply for every new ticket
     # ------------------------------------------------------------------
 
     def create(self, vals_list):
@@ -33,7 +36,8 @@ class HelpdeskTicketAI(models.Model):
     # ------------------------------------------------------------------
 
     def _ai_auto_reply(self, ticket):
-        """Call ai_mentor /answer and inject the reply as an OdooBot chatter message."""
+        """Call ai_mentor /answer and post the reply as a real OdooBot message
+        (message_type='comment') so the ticket owner receives a notification."""
         ICP = self.env["ir.config_parameter"].sudo()
 
         enabled = ICP.get_param("language.ai_mentor.enabled", "1")
@@ -43,7 +47,9 @@ class HelpdeskTicketAI(models.Model):
         service_url = ICP.get_param("language.ai_mentor.url", "http://ai-mentor-service:8000")
         timeout = int(ICP.get_param("language.ai_mentor.timeout", "35"))
 
-        subject = ticket.name or "No subject"
+        # ticket.helpdesk uses 'subject' for the human-readable title;
+        # 'name' is the auto-generated sequence number (e.g. HD0001).
+        subject = ticket.subject or ticket.name or "No subject"
         description = self._extract_description(ticket)
 
         try:
@@ -68,8 +74,8 @@ class HelpdeskTicketAI(models.Model):
                 reply = _STUB_REPLY
 
             _logger.info(
-                "ai_mentor replied to ticket #%d (rag_used=%s, sources=%d)",
-                ticket.id, rag_used, len(sources),
+                "ai_mentor replied to ticket #%d subject=%r (rag_used=%s, sources=%d)",
+                ticket.id, subject[:60], rag_used, len(sources),
             )
         except requests.exceptions.Timeout:
             _logger.warning(
@@ -95,17 +101,22 @@ class HelpdeskTicketAI(models.Model):
                 desc = lxml_html.fromstring(desc).text_content()
             except Exception:
                 pass
-        return desc.strip()[:2000]  # cap to avoid LLM context overflow
+        return desc.strip()[:2000]
 
     def _post_bot_message(self, ticket, body: str):
-        """Inject body into the ticket chatter as an OdooBot message."""
+        """Post body as a real comment (not a note) so the ticket creator
+        receives an email/notification via Odoo's standard mail.thread flow."""
         try:
             bot_partner = self.env.ref("base.partner_root")
             ticket.sudo().message_post(
                 body=body,
                 author_id=bot_partner.id,
+                # 'comment' = visible message that triggers follower notifications.
+                # 'note' = internal note visible only to internal users — NOT what we want.
                 message_type="comment",
                 subtype_xmlid="mail.mt_comment",
             )
         except Exception as exc:
-            _logger.error("Failed to post OdooBot reply to ticket #%d: %s", ticket.id, exc)
+            _logger.error(
+                "Failed to post OdooBot reply to ticket #%d: %s", ticket.id, exc
+            )
