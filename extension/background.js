@@ -69,23 +69,28 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 });
 
 async function handleDefine({ word, lang }) {
-  console.log('[Lexora BG] handleDefine start — word:', word, 'lang:', lang);
+  // ── CANARY ── if this line never appears in the SW console, the message
+  // never reached the background. Open chrome://extensions → Lexora → SW → Inspect.
+  console.log('%c[Lexora BG] handleDefine CALLED', 'color:#4ade80;font-weight:bold', '— word:', word, '| lang:', lang);
   if (!word) return { status: 'error', message: 'word required' };
 
   const baseUrl = await getBaseUrl();
+  console.log('[Lexora BG] baseUrl from storage:', baseUrl, '(must be http://localhost:5433 or your Lexora URL)');
   const sessionHeaders = await getSessionHeader(baseUrl);
-  console.log('[Lexora BG] session headers present:', Object.keys(sessionHeaders).length > 0);
+  console.log('[Lexora BG] session headers:', sessionHeaders);
 
   const controller = new AbortController();
   const abortTimer = setTimeout(() => {
-    console.warn('[Lexora BG] fetch timeout — aborting define request');
+    console.error('[Lexora BG] FETCH TIMEOUT — aborting define request after 8s');
     controller.abort();
   }, 8000);
 
   try {
-    const url = `${baseUrl}/lexora_api/define?word=${encodeURIComponent(word)}&lang=${encodeURIComponent(lang || 'en')}`;
-    console.log('[Lexora BG] fetching:', url);
-    const resp = await fetch(url, {
+    // Using /define_v2 to bypass any Odoo bytecode cache of the old /define handler.
+    // Both routes are registered on the same method; v2 forces a fresh route match.
+    const finalUrl = `${baseUrl}/lexora_api/define_v2?word=${encodeURIComponent(word)}&lang=${encodeURIComponent(lang || 'en')}`;
+    console.log('[Lexora BG] FETCHING URL:', finalUrl);
+    const resp = await fetch(finalUrl, {
       method: 'GET',
       credentials: 'include',
       headers: sessionHeaders,
@@ -96,11 +101,16 @@ async function handleDefine({ word, lang }) {
     if (resp.status === 401) return { status: 'unauthorized' };
     if (!resp.ok) return { status: 'error', message: `HTTP ${resp.status}` };
     const data = await resp.json();
-    console.log('[Lexora BG] define data:', data);
+    console.log('[Lexora BG] define data — translations:', data.translations?.length ?? 0,
+                '| live:', data.live ?? false,
+                '| full:', data);
+    if (data.live) {
+      console.log('[Lexora BG] LIVE TRANSLATION active — results came from translation-service, not DB');
+    }
     return data;
   } catch (err) {
     clearTimeout(abortTimer);
-    console.warn('[Lexora BG] handleDefine error:', err.name, err.message);
+    console.error('[Lexora BG] FETCH FAILED:', err.name, err.message);
     return { status: 'error', message: err.message };
   }
 }
