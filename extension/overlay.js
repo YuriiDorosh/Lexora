@@ -142,6 +142,13 @@ const _OVERLAY_CSS = `
 
   .lx-yt-trans-text { font-size:14px; font-weight:500; color:#f0f4ff; line-height:1.4; }
 
+  .lx-yt-live-badge {
+    font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;
+    color: #34d399; border: 1px solid rgba(52,211,153,0.5);
+    border-radius: 4px; padding: 1px 4px; margin-left: 6px;
+    flex-shrink: 0; align-self: center;
+  }
+
   .lx-yt-no-def {
     font-size: 12px; color: rgba(255,255,255,0.38);
     font-style: italic; padding: 4px 0 8px;
@@ -399,10 +406,12 @@ function _showOverlay(word, wasPaused, timestamp, lang, video, response) {
     response && response.status === 'ok' &&
     response.translations && response.translations.length
   ) {
+    const isLive = !!response.live;
     const rows = response.translations.map(t => `
       <div class="lx-yt-translation">
         <span class="lx-yt-lang-label">${_escHtml(_LANG_NAMES[t.target_language] || t.target_language)}</span>
         <span class="lx-yt-trans-text">${_escHtml(t.translated_text)}</span>
+        ${isLive ? '<span class="lx-yt-live-badge">live</span>' : ''}
       </div>`).join('');
     bodyHtml = `<div class="lx-yt-translations">${rows}</div>`;
   } else if (response && (response.status === 'timeout' || response.status === 'error')) {
