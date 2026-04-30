@@ -390,11 +390,23 @@ function _detectLang(text) {
 function _qlSendMessage(msg, callback) {
   try {
     if (typeof chrome === 'undefined' || !chrome.runtime?.id) {
+      console.warn('[Lexora QL] extension context invalid — cannot send message');
       callback?.({ status: 'context_invalidated' });
       return;
     }
-    chrome.runtime.sendMessage(msg, callback);
+    console.log('[Lexora QL] sending message to background:', msg.action, '| word:', msg.word);
+    chrome.runtime.sendMessage(msg, (response) => {
+      // MUST check lastError here; if the SW didn't respond, response is undefined
+      // and lastError is set. Ignoring it causes Chrome to log "Unchecked lastError".
+      if (chrome.runtime.lastError) {
+        console.error('[Lexora QL] sendMessage lastError:', chrome.runtime.lastError.message);
+        callback?.({ status: 'error', message: chrome.runtime.lastError.message });
+        return;
+      }
+      callback?.(response);
+    });
   } catch (err) {
+    console.error('[Lexora QL] sendMessage threw:', err.message);
     callback?.({ status: 'error', message: err.message });
   }
 }
@@ -467,6 +479,7 @@ function _showQlIcon(word, rect) {
 // ── overlay ────────────────────────────────────────────────────────────────
 
 function _renderQlOverlay(word, anchorRect, response) {
+  console.log('[Lexora QL] renderQlOverlay — word:', word, '| status:', response?.status, '| translations:', response?.translations?.length ?? 'n/a');
   _removeQlOverlay();
 
   const host = document.createElement('div');
@@ -498,9 +511,12 @@ function _renderQlOverlay(word, anchorRect, response) {
     bodyHtml = `<div class="lx-ql-loading">Looking up translation…</div>`;
   } else if (response.status === 'unauthorized') {
     bodyHtml = `<div class="lx-ql-no-def">Sign in to Lexora to look up words</div>`;
+  } else if (response.status === 'context_invalidated') {
+    bodyHtml = `<div class="lx-ql-no-def">Refresh this tab to restore Lexora</div>`;
   } else if (response.status === 'timeout' || response.status === 'error') {
+    const errDetail = response.message ? ` (${response.message})` : '';
     bodyHtml = `
-      <div class="lx-ql-no-def">Lookup timed out — you can still save it</div>
+      <div class="lx-ql-no-def">Lookup failed${errDetail} — you can still save it</div>
       <button class="lx-ql-retry-btn" id="lx-ql-retry">↺ Retry</button>`;
   } else if (response.translations?.length) {
     const rows = response.translations.map(t => `
