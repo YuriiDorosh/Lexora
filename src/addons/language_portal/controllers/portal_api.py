@@ -239,8 +239,16 @@ class LexoraApiController(http.Controller):
         Always returns {"status": "ok", "translations": [...]} — never an error
         for a missing word, so the overlay always shows the Add-to-Vocabulary button.
         """
+        # ── CANARY ── must appear in Odoo logs on every call.
+        # If absent, the module was not reloaded after the last code change —
+        # run: docker exec odoo odoo --config /etc/odoo/odoo.conf \
+        #   -d lexora --update language_portal --stop-after-init
+        _logger.error('CANARY /lexora_api/define CALLED — word=%r lang=%r svc=%s',
+                      word, lang, _TRANSLATION_SVC)
+
         err = _require_session()
         if err:
+            _logger.error('CANARY /define — session check FAILED (unauthorized)')
             return err
 
         word = (word or '').strip()
@@ -301,19 +309,24 @@ class LexoraApiController(http.Controller):
                     })
 
         live = False
+        _logger.error('CANARY /define — DB lookup done: found %d entry(ies), %d translation(s) for word=%r',
+                      len(all_entries), len(translations), word)
+
         if not translations:
-            _logger.info('define: no DB translations for word=%r lang=%s uid=%s — attempting live translate',
-                         word, lang, uid)
+            _logger.error('CANARY /define — NO DB translations for word=%r lang=%s uid=%s'
+                          ' — calling _live_translate now', word, lang, uid)
             live_results = _live_translate(word, lang, uid, request.env)
             if live_results:
                 translations = live_results
                 live = True
-                _logger.info('define: live translate succeeded for word=%r → %d result(s)', word, len(live_results))
+                _logger.error('CANARY /define — live translate SUCCEEDED for word=%r → %d result(s)',
+                               word, len(live_results))
             else:
-                _logger.info('define: live translate returned no results for word=%r lang=%s', word, lang)
+                _logger.error('CANARY /define — live translate returned NOTHING for word=%r lang=%s'
+                               ' svc=%s — check translation-service logs', word, lang, _TRANSLATION_SVC)
 
-        _logger.info('define word=%r lang=%s uid=%s → %d translation(s) live=%s',
-                     word, lang, uid, len(translations), live)
+        _logger.error('CANARY /define DONE — word=%r lang=%s uid=%s → %d translation(s) live=%s',
+                      word, lang, uid, len(translations), live)
         return _json_response({'status': 'ok', 'word': word, 'translations': translations, 'live': live})
 
     # ------------------------------------------------------------------
@@ -413,6 +426,10 @@ def _live_translate(word, source_lang, uid, env):
     """
     import requests as _req
 
+    translate_url = f'{_TRANSLATION_SVC}/translate'
+    _logger.error('_live_translate ENTER — word=%r source=%s uid=%s url=%s',
+                  word, source_lang, uid, translate_url)
+
     # Determine target languages from user profile; fall back to all non-source
     target_langs = []
     try:
@@ -421,33 +438,43 @@ def _live_translate(word, source_lang, uid, env):
         if profile and profile.learning_languages:
             target_langs = [l.code for l in profile.learning_languages
                             if l.code != source_lang]
-    except Exception:
-        pass
+        _logger.error('_live_translate profile target_langs=%r', target_langs)
+    except Exception as exc:
+        _logger.error('_live_translate profile lookup FAILED: %s', exc)
 
     if not target_langs:
         target_langs = [l for l in _ALLOWED_LANGUAGES if l != source_lang]
+        _logger.error('_live_translate fallback target_langs=%r', target_langs)
 
     results = []
     for tgt in target_langs[:2]:  # cap at 2 to keep p50 latency under 2 s
         try:
-            _logger.info('_live_translate calling %s/translate — %s→%s word=%r',
-                         _TRANSLATION_SVC, source_lang, tgt, word)
+            _logger.error('_live_translate POST %s — %s→%s word=%r',
+                          translate_url, source_lang, tgt, word)
             resp = _req.post(
-                f'{_TRANSLATION_SVC}/translate',
+                translate_url,
                 json={'text': word, 'source': source_lang, 'target': tgt},
                 timeout=8,
             )
+            _logger.error('_live_translate %s→%s HTTP %s body=%r',
+                          source_lang, tgt, resp.status_code, resp.text[:200])
             data = resp.json()
-            _logger.info('_live_translate %s→%s HTTP %s data=%r', source_lang, tgt, resp.status_code, data)
             if data.get('status') == 'ok' and data.get('result'):
                 results.append({
                     'target_language': tgt,
                     'translated_text': data['result'],
                 })
+            else:
+                _logger.error('_live_translate %s→%s unexpected response data=%r', source_lang, tgt, data)
         except Exception as exc:
-            _logger.warning('_live_translate %s→%s FAILED (%s: %s) — svc=%s',
-                            source_lang, tgt, type(exc).__name__, exc, _TRANSLATION_SVC)
+            _logger.error('_live_translate %s→%s EXCEPTION %s: %s — url=%s',
+                          source_lang, tgt, type(exc).__name__, exc, translate_url)
 
+    if not results:
+        _logger.error('_live_translate returned NOTHING for word=%r lang=%s — all attempts failed',
+                      word, source_lang)
+
+    _logger.error('_live_translate EXIT — word=%r → %d result(s)', word, len(results))
     return results
 
 
