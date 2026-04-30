@@ -25,40 +25,29 @@ async function getBaseUrl() {
   });
 }
 
-async function getSessionHeader(baseUrl) {
-  return new Promise(resolve => {
-    chrome.cookies.get({ url: baseUrl, name: 'session_id' }, cookie => {
-      if (chrome.runtime.lastError || !cookie) { resolve({}); return; }
-      resolve({ 'X-Lexora-Session-Id': cookie.value });
+/**
+ * Send a message to the background service worker and wait for a response.
+ * All network calls go through the background so the session cookie is
+ * attached correctly (the new-tab page is an extension page and cannot
+ * read or send the Lexora session cookie directly).
+ *
+ * Includes a 5-second failsafe timeout so a dead SW never hangs the page.
+ */
+function sendToBg(action, payload = {}, timeoutMs = 5000) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error(`Background response timed out for action: ${action}`));
+    }, timeoutMs);
+
+    chrome.runtime.sendMessage({ action, ...payload }, response => {
+      clearTimeout(timer);
+      if (chrome.runtime.lastError) {
+        reject(new Error(chrome.runtime.lastError.message));
+        return;
+      }
+      resolve(response || { status: 'error', message: 'No response from background' });
     });
   });
-}
-
-async function apiGet(path) {
-  const baseUrl = await getBaseUrl();
-  const headers = await getSessionHeader(baseUrl);
-  const resp = await fetch(`${baseUrl}${path}`, {
-    method: 'GET',
-    credentials: 'include',
-    headers,
-  });
-  if (resp.status === 401) return { status: 'unauthorized' };
-  if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-  return resp.json();
-}
-
-async function apiPost(path, body) {
-  const baseUrl = await getBaseUrl();
-  const headers = await getSessionHeader(baseUrl);
-  const resp = await fetch(`${baseUrl}${path}`, {
-    method: 'POST',
-    credentials: 'include',
-    headers: { 'Content-Type': 'application/json', ...headers },
-    body: JSON.stringify(body),
-  });
-  if (resp.status === 401) return { status: 'unauthorized' };
-  if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-  return resp.json();
 }
 
 // ── Clock ──────────────────────────────────────────────────────────────────
@@ -183,7 +172,7 @@ async function loadDailyCard(baseUrl) {
   document.getElementById('lxCard').classList.remove('lx-saved-flash');
 
   try {
-    const data = await apiGet('/lexora_api/daily_card');
+    const data = await sendToBg('lexora-get-daily-card');
 
     if (data.status === 'unauthorized') {
       const signinBtn = document.getElementById('lxSigninBtn');
@@ -223,7 +212,7 @@ async function saveIdiom(data) {
   btn.textContent = 'Saving…';
 
   try {
-    const result = await apiPost('/lexora_api/add_word', {
+    const result = await sendToBg('lexora-add-word-overlay', {
       word: data.expression,
       source_language: data.language || 'en',
     });
@@ -269,7 +258,7 @@ function setRefreshSpinning(btnId, spinning) {
 
 async function loadUserGreeting() {
   try {
-    const data = await apiGet('/lexora_api/whoami');
+    const data = await sendToBg('lexora-get-whoami');
     if (data && data.status === 'ok' && data.name) {
       updateGreeting(data.name);
       document.getElementById('lxNav').style.display = 'flex';
