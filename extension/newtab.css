@@ -1,0 +1,518 @@
+/* =========================================================
+   Lexora New Tab — Premium Dark Theme
+   Inspired by Momentum, built on glassmorphism principles
+   ========================================================= */
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --lx-bg:        #070b14;
+  --lx-glass:     rgba(15, 20, 40, 0.55);
+  --lx-glass-b:   rgba(255, 255, 255, 0.07);
+  --lx-border:    rgba(255, 255, 255, 0.10);
+  --lx-text:      #e8edf8;
+  --lx-muted:     rgba(232, 237, 248, 0.50);
+  --lx-accent:    #6366f1;
+  --lx-accent2:   #7c3aed;
+  --lx-green:     #34d399;
+  --lx-amber:     #fbbf24;
+  --lx-orb1:      rgba(99, 102, 241, 0.18);
+  --lx-orb2:      rgba(124, 58, 237, 0.14);
+  --lx-orb3:      rgba(16, 185, 129, 0.10);
+  --lx-radius:    20px;
+  --lx-font:      'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+html, body {
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  background: var(--lx-bg);
+  color: var(--lx-text);
+  font-family: var(--lx-font);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── Background animated orbs ─────────────────────────── */
+
+.lx-bg-orb {
+  position: fixed;
+  border-radius: 50%;
+  filter: blur(90px);
+  pointer-events: none;
+  z-index: 0;
+  animation: lxDrift 18s ease-in-out infinite alternate;
+}
+
+.lx-orb-1 {
+  width: 600px; height: 600px;
+  top: -160px; left: -160px;
+  background: var(--lx-orb1);
+  animation-duration: 20s;
+}
+.lx-orb-2 {
+  width: 500px; height: 500px;
+  bottom: -140px; right: -100px;
+  background: var(--lx-orb2);
+  animation-duration: 25s;
+  animation-delay: -8s;
+}
+.lx-orb-3 {
+  width: 360px; height: 360px;
+  top: 40%; left: 55%;
+  background: var(--lx-orb3);
+  animation-duration: 30s;
+  animation-delay: -14s;
+}
+
+@keyframes lxDrift {
+  0%   { transform: translate(0, 0) scale(1); }
+  33%  { transform: translate(40px, -30px) scale(1.06); }
+  66%  { transform: translate(-20px, 20px) scale(0.96); }
+  100% { transform: translate(30px, 10px) scale(1.04); }
+}
+
+/* ── Header ───────────────────────────────────────────── */
+
+.lx-header {
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 28px;
+}
+
+.lx-logo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  text-decoration: none;
+  user-select: none;
+}
+
+.lx-logo-hex {
+  font-size: 20px;
+  background: linear-gradient(135deg, var(--lx-accent), var(--lx-accent2));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  line-height: 1;
+}
+
+.lx-logo-text {
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--lx-text);
+}
+
+.lx-nav {
+  display: flex;
+  gap: 6px;
+}
+
+.lx-nav-link {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 14px;
+  border-radius: 100px;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--lx-muted);
+  text-decoration: none;
+  background: transparent;
+  border: 1px solid transparent;
+  transition: color 0.2s, background 0.2s, border-color 0.2s;
+}
+
+.lx-nav-link:hover {
+  color: var(--lx-text);
+  background: var(--lx-glass-b);
+  border-color: var(--lx-border);
+}
+
+/* ── Main layout ──────────────────────────────────────── */
+
+.lx-main {
+  position: relative;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 32px;
+  width: 100vw;
+  height: 100vh;
+  padding: 80px 24px;
+}
+
+/* ── Clock & greeting ─────────────────────────────────── */
+
+.lx-time-block {
+  text-align: center;
+  user-select: none;
+}
+
+.lx-clock {
+  font-size: clamp(56px, 8vw, 100px);
+  font-weight: 200;
+  letter-spacing: -0.02em;
+  line-height: 1;
+  color: var(--lx-text);
+  font-variant-numeric: tabular-nums;
+}
+
+.lx-greeting {
+  margin-top: 10px;
+  font-size: clamp(14px, 1.5vw, 18px);
+  font-weight: 400;
+  color: var(--lx-muted);
+  letter-spacing: 0.01em;
+}
+
+/* ── Card ─────────────────────────────────────────────── */
+
+.lx-card {
+  position: relative;
+  width: min(520px, 92vw);
+  background: var(--lx-glass);
+  border: 1px solid var(--lx-border);
+  border-radius: var(--lx-radius);
+  backdrop-filter: blur(24px) saturate(160%);
+  -webkit-backdrop-filter: blur(24px) saturate(160%);
+  padding: 36px 40px;
+  box-shadow:
+    0 0 0 1px rgba(255,255,255,0.04) inset,
+    0 24px 48px rgba(0,0,0,0.4),
+    0 0 80px rgba(99,102,241,0.08);
+  animation: lxCardIn 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes lxCardIn {
+  from { opacity: 0; transform: translateY(16px) scale(0.97); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* ── Card states ──────────────────────────────────────── */
+
+.lx-state { display: flex; flex-direction: column; align-items: center; gap: 0; }
+
+.lx-card-eyebrow {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--lx-accent);
+  margin-bottom: 14px;
+  align-self: flex-start;
+}
+
+.lx-word-row {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  align-self: flex-start;
+  flex-wrap: wrap;
+  width: 100%;
+  margin-bottom: 20px;
+}
+
+.lx-word {
+  font-size: clamp(26px, 4vw, 38px);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--lx-text);
+  line-height: 1.1;
+}
+
+.lx-lang-pill {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+  color: var(--lx-accent);
+  background: rgba(99, 102, 241, 0.15);
+  border: 1px solid rgba(99, 102, 241, 0.30);
+  padding: 3px 9px;
+  border-radius: 100px;
+}
+
+/* ── Translations ─────────────────────────────────────── */
+
+.lx-translations {
+  align-self: flex-start;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 18px;
+}
+
+.lx-translation-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.lx-tr-lang {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+  color: var(--lx-muted);
+  min-width: 24px;
+}
+
+.lx-tr-flag {
+  font-size: 16px;
+}
+
+.lx-tr-text {
+  font-size: 17px;
+  font-weight: 500;
+  color: var(--lx-text);
+}
+
+/* ── Idiom meanings ───────────────────────────────────── */
+
+.lx-idiom-meanings {
+  align-self: flex-start;
+  width: 100%;
+  margin-bottom: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.lx-meaning-row {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.lx-meaning-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+  color: var(--lx-muted);
+  padding-top: 2px;
+  min-width: 48px;
+}
+
+.lx-meaning-val {
+  font-size: 15px;
+  color: rgba(232, 237, 248, 0.75);
+  line-height: 1.5;
+}
+
+.lx-meaning-idiomatic {
+  color: var(--lx-text);
+  font-size: 17px;
+  font-weight: 500;
+}
+
+/* ── Example sentence ─────────────────────────────────── */
+
+.lx-example {
+  align-self: flex-start;
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  margin-bottom: 24px;
+  width: 100%;
+  padding: 12px 14px;
+  background: rgba(255,255,255,0.04);
+  border-left: 2px solid rgba(99, 102, 241, 0.40);
+  border-radius: 0 8px 8px 0;
+}
+
+.lx-example-icon {
+  font-size: 14px;
+  color: var(--lx-accent);
+  opacity: 0.7;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.lx-example span:last-child {
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--lx-muted);
+  font-style: italic;
+}
+
+/* ── Card actions ─────────────────────────────────────── */
+
+.lx-card-actions {
+  display: flex;
+  gap: 10px;
+  align-self: flex-start;
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
+
+.lx-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 9px 18px;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid transparent;
+  text-decoration: none;
+  transition: background 0.2s, border-color 0.2s, transform 0.15s, box-shadow 0.2s;
+  white-space: nowrap;
+}
+
+.lx-btn:active { transform: scale(0.97); }
+
+.lx-btn-primary {
+  background: linear-gradient(135deg, var(--lx-accent), var(--lx-accent2));
+  color: #fff;
+  border-color: transparent;
+  box-shadow: 0 4px 14px rgba(99, 102, 241, 0.35);
+}
+.lx-btn-primary:hover {
+  box-shadow: 0 6px 20px rgba(99, 102, 241, 0.50);
+  filter: brightness(1.08);
+}
+
+.lx-btn-ghost {
+  background: rgba(255,255,255,0.06);
+  color: var(--lx-muted);
+  border-color: var(--lx-border);
+}
+.lx-btn-ghost:hover {
+  background: rgba(255,255,255,0.10);
+  color: var(--lx-text);
+  border-color: rgba(255,255,255,0.18);
+}
+
+/* ── Empty / auth states ─────────────────────────────── */
+
+.lx-state-icon {
+  font-size: 40px;
+  margin-bottom: 12px;
+}
+
+.lx-state-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--lx-text);
+  margin-bottom: 6px;
+  text-align: center;
+}
+
+.lx-state-msg {
+  font-size: 13.5px;
+  color: var(--lx-muted);
+  text-align: center;
+  margin-bottom: 20px;
+  line-height: 1.5;
+}
+
+/* ── Spinner ──────────────────────────────────────────── */
+
+.lx-spinner {
+  width: 32px;
+  height: 32px;
+  border: 2.5px solid rgba(255,255,255,0.10);
+  border-top-color: var(--lx-accent);
+  border-radius: 50%;
+  animation: lxSpin 0.7s linear infinite;
+  margin-bottom: 12px;
+}
+
+@keyframes lxSpin {
+  to { transform: rotate(360deg); }
+}
+
+/* ── Toast (in-card feedback) ─────────────────────────── */
+
+.lx-toast {
+  position: absolute;
+  bottom: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(30, 40, 70, 0.92);
+  border: 1px solid var(--lx-border);
+  border-radius: 8px;
+  padding: 8px 18px;
+  font-size: 12.5px;
+  color: var(--lx-text);
+  white-space: nowrap;
+  backdrop-filter: blur(12px);
+  animation: lxToastIn 0.25s ease;
+  z-index: 20;
+}
+
+@keyframes lxToastIn {
+  from { opacity: 0; transform: translateX(-50%) translateY(6px); }
+  to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+
+/* ── Footer ───────────────────────────────────────────── */
+
+.lx-footer {
+  position: fixed;
+  bottom: 0; left: 0; right: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 28px;
+}
+
+.lx-footer-brand {
+  font-size: 11px;
+  color: rgba(232, 237, 248, 0.25);
+  letter-spacing: 0.05em;
+  user-select: none;
+}
+
+.lx-footer-disable {
+  font-size: 11px;
+  color: rgba(232, 237, 248, 0.25);
+  background: none;
+  border: none;
+  cursor: pointer;
+  letter-spacing: 0.03em;
+  transition: color 0.2s;
+}
+.lx-footer-disable:hover { color: rgba(232, 237, 248, 0.60); }
+
+/* ── Refresh spin animation ───────────────────────────── */
+
+.lx-btn-spinning svg {
+  animation: lxSpin 0.7s linear infinite;
+}
+
+/* ── Idiom language badge ─────────────────────────────── */
+
+.lx-idiom-lang {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.10em;
+  padding: 2px 8px;
+  border-radius: 100px;
+  background: rgba(99, 102, 241, 0.15);
+  border: 1px solid rgba(99, 102, 241, 0.30);
+  color: var(--lx-accent);
+  margin-right: 6px;
+}
+
+/* ── Saved success flash ──────────────────────────────── */
+
+.lx-saved-flash .lx-word,
+.lx-saved-flash .lx-idiom-expr {
+  color: var(--lx-green);
+  transition: color 0.3s;
+}

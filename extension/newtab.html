@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Lexora — New Tab</title>
+  <link rel="stylesheet" href="newtab.css">
+</head>
+<body>
+
+  <!-- Animated background layers -->
+  <div class="lx-bg-orb lx-orb-1"></div>
+  <div class="lx-bg-orb lx-orb-2"></div>
+  <div class="lx-bg-orb lx-orb-3"></div>
+
+  <!-- Top navigation bar -->
+  <header class="lx-header">
+    <div class="lx-logo">
+      <span class="lx-logo-hex">⬡</span>
+      <span class="lx-logo-text">Lexora</span>
+    </div>
+    <nav class="lx-nav" id="lxNav" style="display:none">
+      <a class="lx-nav-link" id="lxVocabLink" href="#" title="My Vocabulary">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+        Vocabulary
+      </a>
+      <a class="lx-nav-link" id="lxPracticeLink" href="#" title="Daily Practice">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+        Practice
+      </a>
+    </nav>
+  </header>
+
+  <!-- Main content -->
+  <main class="lx-main">
+
+    <!-- Clock + greeting block -->
+    <div class="lx-time-block">
+      <div class="lx-clock" id="lxClock">--:--</div>
+      <div class="lx-greeting" id="lxGreeting">Welcome back</div>
+    </div>
+
+    <!-- Word card -->
+    <div class="lx-card" id="lxCard">
+
+      <!-- Loading -->
+      <div class="lx-state" id="lxStateLoading">
+        <div class="lx-spinner"></div>
+        <p class="lx-state-msg">Fetching your word…</p>
+      </div>
+
+      <!-- Word content (vocabulary entry) -->
+      <div class="lx-state" id="lxStateWord" style="display:none">
+        <div class="lx-card-eyebrow" id="lxCardEyebrow">Word of the moment</div>
+        <div class="lx-word-row">
+          <span class="lx-word" id="lxWord"></span>
+          <span class="lx-lang-pill" id="lxLangPill"></span>
+        </div>
+        <div class="lx-translations" id="lxTranslations"></div>
+        <div class="lx-example" id="lxExample" style="display:none">
+          <span class="lx-example-icon">❝</span>
+          <span id="lxExampleText"></span>
+        </div>
+        <div class="lx-card-actions">
+          <a class="lx-btn lx-btn-primary" id="lxPracticeBtn" href="#">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+            Practice
+          </a>
+          <button class="lx-btn lx-btn-ghost" id="lxRefreshBtn">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3.36"/></svg>
+            New word
+          </button>
+        </div>
+      </div>
+
+      <!-- Idiom content -->
+      <div class="lx-state" id="lxStateIdiom" style="display:none">
+        <div class="lx-card-eyebrow">
+          <span id="lxIdiomLangBadge"></span>
+          Expression
+        </div>
+        <div class="lx-word" id="lxIdiomExpr"></div>
+        <div class="lx-idiom-meanings">
+          <div class="lx-meaning-row">
+            <span class="lx-meaning-label">Literal</span>
+            <span class="lx-meaning-val" id="lxIdiomLiteral"></span>
+          </div>
+          <div class="lx-meaning-row">
+            <span class="lx-meaning-label">Means</span>
+            <span class="lx-meaning-val lx-meaning-idiomatic" id="lxIdiomMeaning"></span>
+          </div>
+        </div>
+        <div class="lx-example" id="lxIdiomExample" style="display:none">
+          <span class="lx-example-icon">❝</span>
+          <span id="lxIdiomExampleText"></span>
+        </div>
+        <div class="lx-card-actions">
+          <button class="lx-btn lx-btn-primary" id="lxSaveIdiomBtn">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            Save to vocabulary
+          </button>
+          <button class="lx-btn lx-btn-ghost" id="lxRefreshIdiomsBtn">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3.36"/></svg>
+            New card
+          </button>
+        </div>
+      </div>
+
+      <!-- Unauthorized -->
+      <div class="lx-state" id="lxStateUnauth" style="display:none">
+        <div class="lx-state-icon">🔐</div>
+        <h3 class="lx-state-title">Sign in to Lexora</h3>
+        <p class="lx-state-msg">Your daily vocabulary card is waiting</p>
+        <a class="lx-btn lx-btn-primary" id="lxSigninBtn" href="#">Sign in</a>
+      </div>
+
+      <!-- Empty vocabulary -->
+      <div class="lx-state" id="lxStateEmpty" style="display:none">
+        <div class="lx-state-icon">📚</div>
+        <h3 class="lx-state-title">No words yet</h3>
+        <p class="lx-state-msg">Add vocabulary to start seeing daily cards</p>
+        <a class="lx-btn lx-btn-primary" id="lxAddWordsBtn" href="#">Add your first word</a>
+      </div>
+
+      <!-- Toast inside card -->
+      <div class="lx-toast" id="lxToast" style="display:none"></div>
+
+    </div><!-- /lx-card -->
+
+  </main>
+
+  <!-- Footer -->
+  <footer class="lx-footer">
+    <span class="lx-footer-brand">Lexora · Avantgarde Systems</span>
+    <button class="lx-footer-disable" id="lxDisableBtn" title="Restore default new tab">
+      Disable new tab
+    </button>
+  </footer>
+
+  <script src="newtab.js"></script>
+</body>
+</html>

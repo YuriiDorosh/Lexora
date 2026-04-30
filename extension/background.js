@@ -64,6 +64,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     handleDefine(msg).then(sendResponse).catch(() => sendResponse({ status: 'error' }));
   } else if (msg.action === 'lexora-add-word-overlay') {
     handleAddWordOverlay(msg).then(sendResponse).catch(() => sendResponse({ status: 'error' }));
+  } else if (msg.action === 'lexora-get-daily-card') {
+    handleDailyCard().then(sendResponse).catch(() => sendResponse({ status: 'error' }));
+  } else if (msg.action === 'lexora-get-whoami') {
+    handleWhoami().then(sendResponse).catch(() => sendResponse({ status: 'error' }));
   }
   return true; // MUST be at the very end — keeps channel open for all async handlers
 });
@@ -132,6 +136,42 @@ async function handleAddWordOverlay({ word, source_language, source_url }) {
     if (resp.status === 401) return { status: 'unauthorized' };
     if (!resp.ok) return { status: 'error', message: `HTTP ${resp.status}` };
     return await resp.json();
+  } catch (err) {
+    return { status: 'error', message: err.message };
+  }
+}
+
+// ── New Tab handlers (M25) ─────────────────────────────────────────────────
+
+async function handleDailyCard() {
+  const baseUrl = await getBaseUrl();
+  const sessionHeaders = await getSessionHeader(baseUrl);
+  try {
+    const resp = await fetch(`${baseUrl}/lexora_api/daily_card`, {
+      method: 'GET',
+      credentials: 'include',
+      headers: sessionHeaders,
+    });
+    if (resp.status === 401) return { status: 'unauthorized' };
+    if (!resp.ok) return { status: 'error', message: `HTTP ${resp.status}` };
+    return resp.json();
+  } catch (err) {
+    return { status: 'error', message: err.message };
+  }
+}
+
+async function handleWhoami() {
+  const baseUrl = await getBaseUrl();
+  const sessionHeaders = await getSessionHeader(baseUrl);
+  try {
+    const resp = await fetch(`${baseUrl}/lexora_api/whoami`, {
+      method: 'GET',
+      credentials: 'include',
+      headers: sessionHeaders,
+    });
+    if (resp.status === 401) return { status: 'unauthorized' };
+    if (!resp.ok) return { status: 'error', message: `HTTP ${resp.status}` };
+    return resp.json();
   } catch (err) {
     return { status: 'error', message: err.message };
   }
