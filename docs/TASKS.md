@@ -17,7 +17,7 @@
 
 ### M26 — AI Helpdesk: CPU-Only RAG Auto-Reply
 
-**Status:** In progress — portal history view added; pending final install verification.
+**Status:** In progress — ghost DB cleanup complete, portal 500 fixed; pending E2E browser verification.
 **Started:** 2026-04-30
 **Branch:** `m26_ai_helpdesk`
 
@@ -56,11 +56,15 @@ built from scratch — self-contained, no third-party deps, `lexora.ticket` mode
 - [x] M26-12 · `env.example` — `AI_LLM_*`, `AI_EMBED_*`, `AI_RAG_*` vars documented with upgrade path (Phi-3 Mini). ✅
 - [x] M26-13 · `docs/PLAN.md` — M26 spec updated to reflect `lexora_helpdesk` architecture; removed third-party references. ✅
 - [x] M26-14 · ai_mentor service verified working: `/health` returns `llm_ready:true`; `/answer` returns RAG reply. ✅
-- [ ] M26-15 · Install `lexora_helpdesk`: `docker exec odoo odoo --config /etc/odoo/odoo.conf -d lexora --update lexora_helpdesk --stop-after-init` (use `--update` if already installed, `--init` for first install).
+- [x] M26-15 · `--update lexora_helpdesk --no-http --stop-after-init` → 0 errors; both portal templates registered in `ir_ui_view`. ✅
+- [x] M26-15b · Ghost DB cleanup: deleted 5 ghost `website_menu` rows (ids 108-112) from abandoned addons; marked `odoo_website_helpdesk`/`language_helpdesk` as `uninstalled`; deleted 299 `ir_model_data` rows. ✅
+- [x] M26-15c · `portal_ticket_detail` rewritten: removed `portal.record_layout` + `portal.message_thread` (not available / OWL-only); replaced with `portal.portal_layout` + Bootstrap card + direct QWeb `t-foreach` over `message_ids`. ✅
+- [x] M26-15d · Committed `fix(M26): nuclear cleanup of old helpdesk records and fix portal 500 error` (c7fa703) and pushed to `m26_ai_helpdesk`. ✅
+- [x] M26-15e · `docker restart odoo` → health pass; `/support` → 200; `/helpdesk_ticket` → 404 (ghost route dead). ✅
 - [ ] M26-16 · E2E test: submit ticket via `/support` → OdooBot reply appears in chatter within 35 s.
 - [ ] M26-17 · Portal history: log in → `/my/tickets` shows ticket list → click ticket → chatter with AI reply visible.
 - [ ] M26-18 · Record rules: confirm user A cannot access user B's tickets (direct URL `/my/tickets/<other_id>` returns 404).
-- [ ] M26-19 · Commit and push `m26_ai_helpdesk`.
+- [ ] M26-19 · Final commit and push `m26_ai_helpdesk` after browser E2E passes.
 
 #### Architecture notes
 
