@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- Portal / internal users see only their own tickets -->
+    <record id="rule_lexora_ticket_user_own" model="ir.rule">
+        <field name="name">lexora.ticket: user sees own tickets</field>
+        <field name="model_id" ref="model_lexora_ticket"/>
+        <field name="domain_force">[('user_id', '=', user.id)]</field>
+        <field name="groups" eval="[(4, ref('base.group_user'))]"/>
+        <field name="perm_read" eval="True"/>
+        <field name="perm_write" eval="True"/>
+        <field name="perm_create" eval="False"/>
+        <field name="perm_unlink" eval="False"/>
+    </record>
+
+    <!-- Admins / system users bypass the rule (no domain restriction) -->
+    <record id="rule_lexora_ticket_admin_all" model="ir.rule">
+        <field name="name">lexora.ticket: admin sees all</field>
+        <field name="model_id" ref="model_lexora_ticket"/>
+        <field name="domain_force">[(1, '=', 1)]</field>
+        <field name="groups" eval="[(4, ref('base.group_system'))]"/>
+        <field name="perm_read" eval="True"/>
+        <field name="perm_write" eval="True"/>
+        <field name="perm_create" eval="True"/>
+        <field name="perm_unlink" eval="True"/>
+    </record>
+
+</odoo>

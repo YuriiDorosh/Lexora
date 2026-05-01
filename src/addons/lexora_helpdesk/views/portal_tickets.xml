@@ -1,0 +1,148 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- ================================================================
+         Portal home widget — shows ticket count on /my
+    ================================================================ -->
+    <template id="portal_my_home_ticket" name="Portal My Home: Tickets"
+              inherit_id="portal.portal_my_home" priority="30">
+        <xpath expr="//div[hasclass('o_portal_docs')]" position="before">
+            <t t-call="portal.portal_docs_entry">
+                <t t-set="title">My Support Tickets</t>
+                <t t-set="url">/my/tickets</t>
+                <t t-set="placeholder_count">ticket_count</t>
+            </t>
+        </xpath>
+    </template>
+
+    <!-- ================================================================
+         /my/tickets  — ticket list
+    ================================================================ -->
+    <template id="portal_ticket_list" name="My Tickets">
+        <t t-call="portal.portal_layout">
+            <t t-set="breadcrumbs_searchbar" t-value="True"/>
+
+            <t t-call="portal.portal_searchbar">
+                <t t-set="title">Support Tickets</t>
+            </t>
+
+            <t t-if="not tickets">
+                <div class="alert alert-info mt-3" role="alert">
+                    You have no support tickets yet.
+                    <a href="/support" class="alert-link">Submit your first ticket →</a>
+                </div>
+            </t>
+
+            <t t-if="tickets">
+                <div class="card mt-3">
+                    <table class="table table-hover mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Subject</th>
+                                <th>Date</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <t t-foreach="tickets" t-as="ticket">
+                                <tr>
+                                    <td>
+                                        <a t-attf-href="/my/tickets/#{ticket.id}">
+                                            <t t-esc="ticket.name"/>
+                                        </a>
+                                    </td>
+                                    <td>
+                                        <span t-field="ticket.create_date"
+                                              t-options='{"format": "MMM d, yyyy"}'/>
+                                    </td>
+                                    <td>
+                                        <span t-if="ticket.state == 'new'"
+                                              class="badge bg-primary">New</span>
+                                        <span t-if="ticket.state == 'closed'"
+                                              class="badge bg-secondary">Closed</span>
+                                    </td>
+                                </tr>
+                            </t>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="mt-3">
+                    <t t-call="portal.pager"/>
+                </div>
+            </t>
+
+            <div class="mt-4">
+                <a href="/support" class="btn btn-primary">
+                    Submit New Ticket &#8594;
+                </a>
+            </div>
+        </t>
+    </template>
+
+    <!-- ================================================================
+         /my/tickets/<id>  — ticket detail with chatter
+    ================================================================ -->
+    <template id="portal_ticket_detail" name="Ticket Detail">
+        <t t-call="portal.portal_layout">
+            <t t-set="o_portal_fullwidth_alert" t-value="True"/>
+
+            <!-- Breadcrumb -->
+            <t t-call="portal.record_layout">
+                <t t-set="card_header">
+                    <div class="row align-items-center">
+                        <div class="col">
+                            <h5 class="mb-0">
+                                <span t-esc="ticket.name"/>
+                            </h5>
+                        </div>
+                        <div class="col-auto">
+                            <span t-if="ticket.state == 'new'"
+                                  class="badge bg-primary fs-6">New</span>
+                            <span t-if="ticket.state == 'closed'"
+                                  class="badge bg-secondary fs-6">Closed</span>
+                        </div>
+                    </div>
+                </t>
+                <t t-set="card_body">
+                    <div class="row mb-3">
+                        <div class="col-12 col-md-6">
+                            <label class="text-muted small mb-1">Submitted on</label>
+                            <div>
+                                <span t-field="ticket.create_date"
+                                      t-options='{"format": "MMMM d, yyyy – HH:mm"}'/>
+                            </div>
+                        </div>
+                        <div class="col-12 col-md-6">
+                            <label class="text-muted small mb-1">Status</label>
+                            <div>
+                                <span t-if="ticket.state == 'new'"
+                                      class="badge bg-primary">New</span>
+                                <span t-if="ticket.state == 'closed'"
+                                      class="badge bg-secondary">Closed</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <hr/>
+
+                    <div class="mb-3">
+                        <label class="text-muted small mb-1">Your Message</label>
+                        <div class="border rounded p-3 bg-light">
+                            <t t-esc="ticket.description"/>
+                        </div>
+                    </div>
+                </t>
+            </t>
+
+            <!-- Chatter (message thread with OdooBot reply) -->
+            <div class="mt-4">
+                <t t-call="portal.message_thread">
+                    <t t-set="object" t-value="ticket"/>
+                    <t t-set="token" t-value="False"/>
+                    <t t-set="allow_composer" t-value="False"/>
+                </t>
+            </div>
+        </t>
+    </template>
+
+</odoo>
