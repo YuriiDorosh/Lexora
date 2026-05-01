@@ -27,14 +27,14 @@
             </t>
 
             <t t-if="not tickets">
-                <div class="alert alert-info mt-3" role="alert">
+                <div class="alert alert-info mt-3 rounded-3" role="alert">
                     You have no support tickets yet.
                     <a href="/support" class="alert-link">Submit your first ticket →</a>
                 </div>
             </t>
 
             <t t-if="tickets">
-                <div class="card mt-3">
+                <div class="card shadow-sm mt-3">
                     <table class="table table-hover mb-0">
                         <thead class="table-light">
                             <tr>
@@ -47,9 +47,8 @@
                             <t t-foreach="tickets" t-as="ticket">
                                 <tr>
                                     <td>
-                                        <a t-attf-href="/my/tickets/#{ticket.id}">
-                                            <t t-esc="ticket.name"/>
-                                        </a>
+                                        <a t-attf-href="/my/tickets/#{ticket.id}"
+                                           t-esc="ticket.name"/>
                                     </td>
                                     <td>
                                         <span t-field="ticket.create_date"
@@ -57,7 +56,7 @@
                                     </td>
                                     <td>
                                         <span t-if="ticket.state == 'new'"
-                                              class="badge bg-primary">New</span>
+                                              class="badge bg-primary">Open</span>
                                         <span t-if="ticket.state == 'closed'"
                                               class="badge bg-secondary">Closed</span>
                                     </td>
@@ -72,75 +71,85 @@
             </t>
 
             <div class="mt-4">
-                <a href="/support" class="btn btn-primary">
-                    Submit New Ticket &#8594;
-                </a>
+                <a href="/support" class="btn btn-primary">Submit New Ticket &#8594;</a>
             </div>
         </t>
     </template>
 
     <!-- ================================================================
-         /my/tickets/<id>  — ticket detail with chatter
+         /my/tickets/<id>  — ticket detail with server-side message list
+         Does NOT use portal.record_layout (not available in this install)
+         or portal.message_thread (OWL chatter, requires access tokens).
+         Renders messages directly via QWeb for reliability.
     ================================================================ -->
     <template id="portal_ticket_detail" name="Ticket Detail">
         <t t-call="portal.portal_layout">
-            <t t-set="o_portal_fullwidth_alert" t-value="True"/>
+            <div class="container mt-4 mb-5">
 
-            <!-- Breadcrumb -->
-            <t t-call="portal.record_layout">
-                <t t-set="card_header">
-                    <div class="row align-items-center">
-                        <div class="col">
-                            <h5 class="mb-0">
-                                <span t-esc="ticket.name"/>
-                            </h5>
-                        </div>
-                        <div class="col-auto">
-                            <span t-if="ticket.state == 'new'"
-                                  class="badge bg-primary fs-6">New</span>
-                            <span t-if="ticket.state == 'closed'"
-                                  class="badge bg-secondary fs-6">Closed</span>
-                        </div>
+                <!-- Ticket summary card -->
+                <div class="card shadow-sm mb-4">
+                    <div class="card-header d-flex justify-content-between align-items-center py-3">
+                        <h5 class="mb-0">
+                            <t t-esc="ticket.name"/>
+                        </h5>
+                        <span t-if="ticket.state == 'new'"
+                              class="badge bg-primary">Open</span>
+                        <span t-if="ticket.state == 'closed'"
+                              class="badge bg-secondary">Closed</span>
                     </div>
-                </t>
-                <t t-set="card_body">
-                    <div class="row mb-3">
-                        <div class="col-12 col-md-6">
-                            <label class="text-muted small mb-1">Submitted on</label>
-                            <div>
-                                <span t-field="ticket.create_date"
-                                      t-options='{"format": "MMMM d, yyyy – HH:mm"}'/>
-                            </div>
-                        </div>
-                        <div class="col-12 col-md-6">
-                            <label class="text-muted small mb-1">Status</label>
-                            <div>
-                                <span t-if="ticket.state == 'new'"
-                                      class="badge bg-primary">New</span>
-                                <span t-if="ticket.state == 'closed'"
-                                      class="badge bg-secondary">Closed</span>
-                            </div>
-                        </div>
-                    </div>
-
-                    <hr/>
-
-                    <div class="mb-3">
-                        <label class="text-muted small mb-1">Your Message</label>
+                    <div class="card-body">
+                        <p class="text-muted small mb-3">
+                            Submitted on
+                            <span t-field="ticket.create_date"
+                                  t-options='{"format": "MMMM d, yyyy"}'/>
+                        </p>
                         <div class="border rounded p-3 bg-light">
-                            <t t-esc="ticket.description"/>
+                            <p class="mb-0" t-esc="ticket.description"/>
                         </div>
                     </div>
-                </t>
-            </t>
+                </div>
 
-            <!-- Chatter (message thread with OdooBot reply) -->
-            <div class="mt-4">
-                <t t-call="portal.message_thread">
-                    <t t-set="object" t-value="ticket"/>
-                    <t t-set="token" t-value="False"/>
-                    <t t-set="allow_composer" t-value="False"/>
+                <!-- Message thread (server-side rendered) -->
+                <h6 class="text-uppercase text-muted fw-semibold mb-3"
+                    style="letter-spacing:.05em; font-size:.75rem;">Support Replies</h6>
+
+                <t t-set="replies" t-value="ticket.sudo().message_ids.filtered(
+                    lambda m: m.message_type in ('comment', 'email') and not m.is_internal
+                ).sorted('date')"/>
+
+                <t t-if="replies">
+                    <t t-foreach="replies" t-as="msg">
+                        <div class="card mb-3 border-0 shadow-sm">
+                            <div class="card-body">
+                                <div class="d-flex justify-content-between align-items-center mb-2">
+                                    <div class="fw-semibold" t-esc="msg.author_id.name"/>
+                                    <small class="text-muted">
+                                        <span t-field="msg.date"
+                                              t-options='{"format": "MMM d, yyyy · HH:mm"}'/>
+                                    </small>
+                                </div>
+                                <div t-out="msg.body"/>
+                            </div>
+                        </div>
+                    </t>
                 </t>
+
+                <t t-else="">
+                    <div class="alert alert-info rounded-3">
+                        Our AI is processing your ticket. A reply will appear here within seconds.
+                    </div>
+                </t>
+
+                <!-- Navigation -->
+                <div class="mt-4 d-flex gap-2">
+                    <a href="/my/tickets" class="btn btn-outline-secondary btn-sm">
+                        &#8592; Back to My Tickets
+                    </a>
+                    <a href="/support" class="btn btn-primary btn-sm">
+                        Submit New Ticket
+                    </a>
+                </div>
+
             </div>
         </t>
     </template>
