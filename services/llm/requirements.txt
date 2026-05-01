@@ -7,4 +7,4 @@ pika==1.3.2
 # so pip will prefer the prebuilt wheel over a source build.  The Dockerfile
 # keeps build-essential + cmake as a safety net when no wheel matches.
 llama-cpp-python==0.3.2
-huggingface-hub==0.26.2
+huggingface-hub==1.13.0
