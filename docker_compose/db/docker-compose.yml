@@ -2,10 +2,7 @@ version: '3.8'
 
 services:
   postgres:
-    # pgvector/pgvector:pg15 is a drop-in replacement for postgres:15 that
-    # adds the pgvector extension required by the ai_mentor RAG service.
-    # Existing postgres_data_odoo volume is fully compatible — no data migration needed.
-    image: pgvector/pgvector:pg15
+    image: postgres:15
     container_name: postgres
     restart: unless-stopped
     env_file:
@@ -28,7 +25,7 @@ services:
       - backend
 
   backup:
-    image: pgvector/pgvector:pg15
+    image: postgres:15
     container_name: postgres_backup
     restart: unless-stopped
     env_file:

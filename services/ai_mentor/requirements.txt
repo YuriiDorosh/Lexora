@@ -1,8 +1,0 @@
-fastapi==0.115.5
-uvicorn[standard]==0.32.1
-llama-cpp-python==0.3.2
-huggingface-hub==0.26.2
-fastembed==0.3.6
-psycopg2-binary==2.9.9
-pgvector==0.3.6
-requests==2.31.0

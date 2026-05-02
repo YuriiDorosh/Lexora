@@ -366,18 +366,15 @@ TRANSLATION_CONTAINER = translation_service
 LLM_CONTAINER = llm_service
 ANKI_CONTAINER = anki_service
 AUDIO_CONTAINER    = audio_service
-AI_MENTOR_CONTAINER = ai_mentor_service
-
 .PHONY: up-dev down-dev logs-dev ps-dev \
         up-rabbitmq down-rabbitmq logs-rabbitmq \
         up-translation down-translation up-translation-no-cache logs-translation \
         up-llm down-llm up-llm-no-cache logs-llm \
         up-anki down-anki up-anki-no-cache logs-anki \
-        up-audio down-audio up-audio-no-cache logs-audio \
-        up-ai-mentor down-ai-mentor up-ai-mentor-no-cache logs-ai-mentor
+        up-audio down-audio up-audio-no-cache logs-audio
 
 # Start the full local development stack:
-#   postgres · odoo · nginx · rabbitmq · redis · translation · llm · anki · audio · ai_mentor
+#   postgres · odoo · nginx · rabbitmq · redis · translation · llm · anki · audio
 up-dev: check-network
 	$(MAKE) up-db
 	$(DC) -f docker_compose/rabbitmq/docker-compose.yml $(ENV) up -d
@@ -387,10 +384,8 @@ up-dev: check-network
 	$(DC) -f docker_compose/llm/docker-compose.yml $(ENV) up -d
 	$(DC) -f docker_compose/anki/docker-compose.yml $(ENV) up -d
 	$(DC) -f docker_compose/audio/docker-compose.yml $(ENV) up -d
-	$(DC) -f docker_compose/ai_mentor/docker-compose.yml $(ENV) up -d
 
 down-dev:
-	$(DC) -f docker_compose/ai_mentor/docker-compose.yml down
 	$(DC) -f docker_compose/audio/docker-compose.yml down
 	$(DC) -f docker_compose/anki/docker-compose.yml down
 	$(DC) -f docker_compose/llm/docker-compose.yml down
@@ -411,7 +406,6 @@ ps-dev:
 	           --filter "name=^$(LLM_CONTAINER)$$" \
 	           --filter "name=^$(ANKI_CONTAINER)$$" \
 	           --filter "name=^$(AUDIO_CONTAINER)$$" \
-	           --filter "name=^$(AI_MENTOR_CONTAINER)$$" \
 	           --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'
 
 # Tail the last 50 lines of every dev-stack container's log.
@@ -420,7 +414,7 @@ logs-dev:
 	@for c in $(DB_CONTAINER) $(APP_CONTAINER) $(NGINX_CONTAINER) \
 	         $(RABBITMQ_CONTAINER) $(REDIS_CONTAINER) \
 	         $(TRANSLATION_CONTAINER) $(LLM_CONTAINER) \
-	         $(ANKI_CONTAINER) $(AUDIO_CONTAINER) $(AI_MENTOR_CONTAINER); do \
+	         $(ANKI_CONTAINER) $(AUDIO_CONTAINER); do \
 	    echo "───────── $$c ─────────"; \
 	    docker logs --tail 50 $$c 2>&1 || echo "(container $$c not running)"; \
 	done
@@ -491,19 +485,6 @@ down-audio:
 logs-audio:
 	$(LOGS) $(AUDIO_CONTAINER)
 
-# === AI Mentor / Helpdesk RAG service (M26) ===
-up-ai-mentor:
-	$(DC) -f docker_compose/ai_mentor/docker-compose.yml $(ENV) up -d
-
-up-ai-mentor-no-cache:
-	$(DC) -f docker_compose/ai_mentor/docker-compose.yml $(ENV) build --no-cache
-	$(DC) -f docker_compose/ai_mentor/docker-compose.yml $(ENV) up -d
-
-down-ai-mentor:
-	$(DC) -f docker_compose/ai_mentor/docker-compose.yml down
-
-logs-ai-mentor:
-	$(LOGS) $(AI_MENTOR_CONTAINER)
 
 # =============================================================================
 # Developer tooling

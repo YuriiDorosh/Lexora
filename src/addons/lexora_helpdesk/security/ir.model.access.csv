@@ -1,4 +1,0 @@
-id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
-access_lexora_ticket_user,lexora.ticket (user),model_lexora_ticket,base.group_user,1,1,1,0
-access_lexora_ticket_admin,lexora.ticket (admin),model_lexora_ticket,base.group_system,1,1,1,1
-access_lexora_ticket_portal,lexora.ticket (portal),model_lexora_ticket,base.group_portal,1,0,0,0
