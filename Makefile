@@ -365,8 +365,7 @@ RABBITMQ_CONTAINER = rabbitmq
 TRANSLATION_CONTAINER = translation_service
 LLM_CONTAINER = llm_service
 ANKI_CONTAINER = anki_service
-AUDIO_CONTAINER = audio_service
-
+AUDIO_CONTAINER    = audio_service
 .PHONY: up-dev down-dev logs-dev ps-dev \
         up-rabbitmq down-rabbitmq logs-rabbitmq \
         up-translation down-translation up-translation-no-cache logs-translation \
@@ -485,6 +484,7 @@ down-audio:
 
 logs-audio:
 	$(LOGS) $(AUDIO_CONTAINER)
+
 
 # =============================================================================
 # Developer tooling

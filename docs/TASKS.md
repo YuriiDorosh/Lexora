@@ -15,6 +15,16 @@
 
 ## Current Milestone
 
+None in progress. M25 is the stable baseline.
+
+**M26 was cancelled on 2026-05-02** due to server RAM constraints (8 GiB KVM,
+fully loaded by the M25 stack). All M26 work is preserved on the `m26_ai_helpdesk`
+branch. See `docs/PLAN.md § M26` for the resumption criteria and re-enable steps.
+
+---
+
+## Completed Milestones (M25)
+
 ### M25 — Browser Extension: Mini-Practice New Tab
 
 **Status:** Complete and verified.

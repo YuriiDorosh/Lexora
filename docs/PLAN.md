@@ -1,8 +1,8 @@
 # Lexora — Implementation Plan (MVP)
 
-> Version: 1.3 (M22–M25 Lexora Browser Ecosystem roadmap)
-> Last updated: 2026-04-28
-> Status: M0–M21 complete; M22–M25 planned
+> Version: 1.3 (M25 Browser Ecosystem — stable baseline)
+> Last updated: 2026-05-02
+> Status: M0–M25 complete; M26 postponed (resource constraints — see note below)
 
 ---
 
@@ -49,10 +49,11 @@
 | M19 | Natural Speech Hub — Idioms & Phrasal Verbs | ✅ Complete | 100+ phrasal verbs (EN) + idioms (EL/UK); interactive flip-card expression cards; `/idioms` portal |
 | M20 | Survival Phrasebook — Tourist Kits | ✅ Complete | Essential phrase sets grouped by scenario; one-click Copy to Roleplay Chat; `/phrasebook` portal |
 | M21 | Sentence Builder — Syntax Master | ✅ Complete | Word-ordering game using M18 sentence dataset; click-to-order mechanics; XP award; `/my/sentence-builder` |
-| M22 | Browser Extension — Scaffold & Odoo API | 🔄 In progress | Chrome Extension MV3 scaffold; `/lexora_api/add_word` Odoo endpoint; glassmorphism popup |
-| M23 | Browser Extension — Contextual Capture | 🗓 Planned | Right-click "Add to Lexora" context menu; surrounding sentence capture for Sentence Builder |
-| M24 | Browser Extension — Media & Subtitles | 🗓 Planned | YouTube/Netflix subtitle overlay; click-word mini-popup with definition + Add to List |
-| M25 | Browser Extension — Mini-Practice New Tab | 🗓 Planned | New Tab override with Idiom card or Sentence Builder exercise; Quick Explain via `/enrich` |
+| M22 | Browser Extension — Scaffold & Odoo API | ✅ Complete | Chrome Extension MV3 scaffold; `/lexora_api/add_word` Odoo endpoint; glassmorphism popup |
+| M23 | Browser Extension — Contextual Capture | ✅ Complete | Right-click "Add to Lexora" context menu; surrounding sentence capture for Sentence Builder |
+| M24 | Browser Extension — Media & Subtitles | ✅ Complete | YouTube/Netflix subtitle overlay; click-word mini-popup with definition + Add to List |
+| M25 | Browser Extension — Mini-Practice New Tab | ✅ Complete | New Tab override with daily vocabulary card; animated dark gradient; OdooBot greeting |
+| M26 | AI Helpdesk — RAG Auto-Reply | ⏸ Postponed | Requires pgvector + llama-cpp + fastembed (~2.5 GiB RAM on top of existing stack); postponed until a higher-RAM server is available |
 
 ---
 
@@ -1278,3 +1279,61 @@ M22 is the foundation for M23–M25; all three extension milestones can be devel
 in parallel once M22's extension scaffold and Odoo API are stable.
 M24 has no dependency on M19–M21 but benefits from M19 idiom data for M25.
 M25 requires M19 (`language.idiom` model) and M21 (`cloze_exercises.py` dataset).
+
+---
+
+## M26 — AI Helpdesk: CPU-Only RAG Auto-Reply *(Postponed)*
+
+**Status:** ⏸ Postponed — removed from the active stack on 2026-05-02.
+
+**Reason:** The RAG pipeline (pgvector + fastembed ONNX + llama-cpp Qwen2.5-1.5B
+Q4_K_M) requires ~1.5–2.0 GiB of additional resident RAM on top of the already
+fully-loaded M25 stack (Odoo × 4 workers + Postgres + RabbitMQ + Redis + 4 FastAPI
+services). On the 8 GiB KVM host this leaves under 0.5 GiB headroom, causing OOM
+kills under normal portal traffic. The feature is architecturally complete but
+operationally unsafe on current infrastructure.
+
+**Resumption criteria:** Upgrade the server to ≥16 GiB RAM *or* migrate Odoo to a
+dedicated VM so the LLM service has ≥4 GiB reserved.
+
+**What was built (preserved in git history on `m26_ai_helpdesk`):**
+- `services/ai_mentor/` — FastAPI RAG service (pgvector + fastembed + llama-cpp)
+- `docker_compose/ai_mentor/` — Dockerfile + compose file
+- `src/addons/lexora_helpdesk/` — self-contained Odoo addon with `lexora.ticket`
+  model, OdooBot auto-reply, portal ticket history at `/my/tickets`
+
+**To re-enable:** checkout the `m26_ai_helpdesk` branch, revert the postgres image
+to `pgvector/pgvector:pg15`, restore the Makefile ai_mentor targets, run
+`make up-ai-mentor-no-cache`, and init the addon via
+`docker exec odoo odoo ... --init lexora_helpdesk --stop-after-init`.
+
+---
+
+## Dependency Graph (final)
+
+```
+M0 → M1 → M2 → M3
+               ↓
+               M4 → M4b → M4c
+               ↓
+          M5   M6
+          ↓    ↓
+          M7 ←→ M8
+          ↓
+          M9 → M10 → M11 → M12 → M13 → M14 → M15 → M16 → M17 → M18
+                                                                    ↓
+                                                              M18.5 (Header)
+                                                                    ↓
+                                                  M19 ←──────── parallel ──────→ M20
+                                                                    ↓
+                                                                   M21
+                                                                    ↓
+                                            M22 (Extension scaffold + Odoo API)
+                                                 ↓              ↓           ↓
+                                               M23          M24           M25
+                                          (Contextual)   (Subtitles)  (New Tab)
+                                                    (M26 — AI Helpdesk — postponed ⏸)
+```
+
+M25 is the current stable baseline. M26 is fully designed and built on the
+`m26_ai_helpdesk` branch but postponed due to server RAM constraints.
