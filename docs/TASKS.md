@@ -173,6 +173,10 @@ explanation rendered inline in the overlay — no page navigation.
   extension pattern). `.lx-ql-explain-btn` + `.lx-ql-grammar-block` appended to `_QL_CSS`
   in `content.js`. `.lx-yt-explain-btn` + `.lx-yt-grammar-block` appended to `_OVERLAY_CSS`
   in `overlay.js`. Both use `display:none → .lx-visible { display:block }` pattern. ✅
+- [x] M28-12b · Selection length limit raised to 1000 chars for M28 sentence support:
+  `_QL_MAX_LEN` in `content.js` (was 120); `_MAX_WORD_LEN` in `portal_api.py` (was 500).
+  The 500-char `add_word` guard is unchanged — only the `explain_grammar` truncation
+  (`[:_MAX_WORD_LEN]`) and the Quick Look icon trigger share this new ceiling. ✅
 
 **Phase 6 — Verification**
 

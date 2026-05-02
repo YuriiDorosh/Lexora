@@ -249,7 +249,7 @@ chrome.runtime.onMessage.addListener((msg) => {
 const _QL_HOST_ID  = 'lx-ql-shadow-host';
 const _QL_ICON_ID  = 'lx-ql-icon';
 const _QL_MIN_LEN  = 2;
-const _QL_MAX_LEN  = 120;
+const _QL_MAX_LEN  = 1000;
 
 const _QL_LANG_NAMES = { en: 'EN', uk: 'UK', el: 'EL' };
 
