@@ -104,7 +104,8 @@ local cache to avoid per-page API calls.
 - [ ] M27-19 · User not logged in: no highlighting (graceful silent failure).
 - [ ] M27-20 · YouTube with subtitles active: subtitle words NOT double-highlighted;
   Quick Look overlay still works independently.
-- [ ] M27-21 · Commit: `feat(M27): Review in the Wild — page highlighting + SRS tooltip`
+- [x] M27-21 · Commit: `feat(M27): Review in the Wild — page highlighting + SRS tooltip` ✅
+  Committed as d596807 on branch `m27_review_in_the_wild`.
 
 ---
 
