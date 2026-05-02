@@ -1,6 +1,8 @@
 import json
 import logging
 import os
+import time
+from datetime import date as _date, datetime as _datetime
 
 from odoo import http
 from odoo.http import request
@@ -489,9 +491,6 @@ class LexoraApiController(http.Controller):
         if err:
             return err
 
-        import time
-        from datetime import date as _date
-
         uid = _resolve_uid()
 
         if 'language.entry' not in request.env.registry:
@@ -530,7 +529,10 @@ class LexoraApiController(http.Controller):
             srs_state = review.state if review else None
             days_ago = None
             if review and review.last_review_date:
-                days_ago = (today - review.last_review_date.date()).days
+                lrd = review.last_review_date
+                # Odoo Date → date object; Odoo Datetime → datetime object
+                lrd_date = lrd.date() if isinstance(lrd, _datetime) else lrd
+                days_ago = (today - lrd_date).days
 
             words.append({
                 'id': entry.id,

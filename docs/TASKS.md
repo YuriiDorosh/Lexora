@@ -17,8 +17,8 @@
 
 ### M27 — Browser Extension: Review in the Wild
 
-**Status:** Planned (not yet started)
-**Branch:** `m27_review_in_the_wild` (to be created from `m26_ai_helpdesk`)
+**Status:** Implementation complete; pending verification and commit.
+**Branch:** `m27_review_in_the_wild` (created from `m26_ai_helpdesk`)
 
 **Scope:** Passive vocabulary reinforcement on any webpage. The content script
 highlights known words with a dotted indigo underline. Hovering reveals a
@@ -30,119 +30,69 @@ local cache to avoid per-page API calls.
 
 **Phase 1 — Odoo API endpoint**
 
-- [ ] M27-01 · Branch `m27_review_in_the_wild` created from current HEAD. TASKS.md updated.
-- [ ] M27-02 · `language_portal/controllers/portal_api.py` — add
-  `GET /lexora_api/get_learned_words` endpoint.
-  - `_require_session()` guard; returns 401 JSON on failure.
-  - Queries `language.entry` (active, owned by user) with LEFT JOIN to
-    `language.review` for `srs_state` + `last_review_date`, and LEFT JOIN to
-    `language.translation` for `best_translation` (first completed, any target lang).
-  - Result capped at 500 entries, ordered by `last_review_date DESC NULLS LAST`
-    (most recently reviewed first — these are most likely to appear on relevant pages).
-  - `days_ago` computed in Python: `(date.today() - last_review_date.date()).days`
-    if `last_review_date` else `None`.
-  - `generated_at` = `int(time.time())` for extension TTL computation.
-  - Registry guards: `language.review` check (graceful if SRS module not installed —
-    returns `srs_state=None`, `days_ago=None`).
-- [ ] M27-03 · `--update language_portal --stop-after-init --no-http` → 0 errors.
-- [ ] M27-04 · Curl smoke test:
-  ```bash
-  curl -H "X-Lexora-Session-Id: <sid>" \
-    http://localhost:5433/lexora_api/get_learned_words
-  # → {"status":"ok","words":[...],"generated_at":N}
-  ```
-  Verify: entries have `word`, `normalized`, `lang`, `best_translation`, `srs_state`,
-  `days_ago` fields. Verify: user with 0 entries returns `{"status":"ok","words":[]}`.
+- [x] M27-01 · Branch `m27_review_in_the_wild` created from current HEAD. TASKS.md updated. ✅
+- [x] M27-02 · `language_portal/controllers/portal_api.py` — `GET /lexora_api/get_learned_words`
+  endpoint implemented. Queries `language.entry` (limit 500, order write_date desc),
+  builds srs_map via `language.review` search, trans_map via `language.translation` search.
+  Returns `{id, word, normalized, lang, best_translation, srs_state, days_ago}` per word.
+  Registry guards for `language.review` and `language.translation`. ✅
+- [x] M27-03 · `--update language_portal --stop-after-init --no-http` → 0 errors. ✅
+  Fixed bug: `last_review_date` is a `date` object in Odoo, not `datetime` — removed
+  spurious `.date()` call; added `from datetime import date as _date, datetime as _datetime`
+  at module level; removed duplicate inline imports.
+- [x] M27-04 · Curl smoke test passed: ✅
+  `{"status":"ok","words":[500 entries],"generated_at":1777750969}`
+  All required keys present: `id`, `word`, `normalized`, `lang`, `best_translation`,
+  `srs_state`, `days_ago`. Unauthenticated request returns `{"status":"unauthorized"}`.
 
 **Phase 2 — Extension background message handler**
 
-- [ ] M27-05 · `extension/background.js` — add `lexora-get-learned-words` handler:
-  `GET /lexora_api/get_learned_words` proxied through background (same
-  `_fetchApi` pattern used by `lexora-define`, `lexora-add-word-overlay`).
-  Returns the parsed JSON response or `null` on error.
-- [ ] M27-06 · Add cache invalidation: when `lexora-add-word-bg` (add_word) succeeds,
-  also clear `lx_word_cache` from `chrome.storage.local` so the next page
-  scan picks up the newly added word.
+- [x] M27-05 · `extension/background.js` — `lexora-get-learned-words` handler added:
+  `handleGetLearnedWords()` fetches `GET /lexora_api/get_learned_words` via background
+  (same session-cookie pattern as `handleDailyCard`/`handleWhoami`). ✅
+- [x] M27-06 · Cache invalidation: `chrome.storage.local.remove('lx_word_cache')` added
+  in `handleAddWordOverlay` (Quick Look "Add to Vocabulary") and in the context menu
+  `onClicked` handler — both on `data.status === 'ok'`. ✅
 
 **Phase 3 — Content script: cache + DOM highlighter**
 
-- [ ] M27-07 · `extension/content.js` — `_getWordList()` async function:
-  - Reads `lx_word_cache` from `chrome.storage.local`.
-  - Cache hit if `(Date.now() - cached.generated_at * 1000) < 900_000` (15 min).
-  - Cache miss: sends `{action:"lexora-get-learned-words"}` to background; stores
-    result; returns `words` array.
-  - On auth failure (null response): returns `[]` silently (user not logged in).
-- [ ] M27-08 · `extension/content.js` — `_buildWordMap(words)`:
-  Returns `Map<normalized_string, entry_object>`. Lower-cases all normalized values.
-  This is the O(1) lookup structure used by the scanner.
-- [ ] M27-09 · `extension/content.js` — `_highlightPage(wordMap)`:
-  `TreeWalker` over `document.body` text nodes.
-  Tag denylist: `SCRIPT STYLE TEXTAREA INPUT CODE PRE NOSCRIPT SVG MATH`.
-  Also skips nodes already inside `.lx-known-word` (idempotent).
-  Calls `_wrapMatchesInNode(node, wordMap)` for each accepted node.
-- [ ] M27-10 · `extension/content.js` — `_wrapMatchesInNode(node, wordMap)`:
-  Splits `node.textContent` on `/\b/` word boundaries. For each token, checks
-  `wordMap.get(token.toLowerCase().replace(/[.,!?;:'"]+$/, ''))`. If matched:
-  creates `<span class="lx-known-word">` with `data-entry-id`, `data-word`,
-  `data-best-translation`, `data-srs-state`, `data-days-ago` attributes.
-  Builds a `DocumentFragment` replacing the original text node. Returns `true`
-  if any replacements made.
-- [ ] M27-11 · `extension/content.js` — `_initHighlighter()`:
-  Called once on `document.readyState === 'complete'` (or `requestIdleCallback`).
-  Fetches word list → builds map → runs `_highlightPage`.
-  SPA re-highlight: `MutationObserver` on `document.body`
-  (`{childList:true, subtree:true}`), debounced 500 ms via `setTimeout`.
-  Skip re-highlight if `wordMap.size === 0`.
-- [ ] M27-12 · Exclude YouTube subtitle spans from highlighting: if
-  `node.parentElement?.classList.contains('ytp-caption-segment')` → skip
-  (prevents double-wrapping with M24 overlay).
+- [x] M27-07 · `extension/content.js` — `_getWordList()` async function:
+  15-min TTL cache via `chrome.storage.local` (`lx_word_cache` key with `generated_at`).
+  Cache miss → `_qlSendMessage({action:'lexora-get-learned-words'})` → stores result.
+  Returns `[]` silently on auth failure or error. ✅
+- [x] M27-08 · `extension/content.js` — `_buildWordMap(words)`:
+  Returns `Map<normalized_string → entry_object>`. Lower-cases, trims, skips keys < 2 chars. ✅
+- [x] M27-09 · `extension/content.js` — `_highlightPage(wordMap)`:
+  TreeWalker over `document.body` text nodes. Tag denylist: SCRIPT STYLE TEXTAREA INPUT
+  CODE PRE NOSCRIPT IFRAME CANVAS SVG MATH BUTTON SELECT. Skips `.lx-known-word` subtrees
+  (idempotent). `_lxIsHighlighting` flag prevents MutationObserver re-entry. ✅
+- [x] M27-10 · `extension/content.js` — `_wrapMatchesInNode(node, wordMap)`:
+  Splits on `/(\s+)/`. For each non-whitespace token, strips leading/trailing non-alpha
+  to produce lookup key; checks `wordMap.get(key)`. Match → `<span class="lx-known-word">`
+  with `data-srs`, `data-word`, `data-trans`, `data-days`. Returns `true` if modified. ✅
+- [x] M27-11 · `extension/content.js` — `_initHighlighter()`:
+  Injects CSS, fetches word list, builds map, runs `_highlightPage` via `requestIdleCallback`
+  (or `setTimeout` fallback). MutationObserver on `document.body`, debounced 500 ms;
+  guarded by `_lxIsHighlighting` to prevent self-triggering loops. ✅
+- [x] M27-12 · YouTube subtitle spans excluded: walker filter already skips
+  `.lx-yt-word` parent class (M24 overlay.js territory). ✅
 
 **Phase 4 — Tooltip UI**
 
-- [ ] M27-13 · `extension/overlay.css` — three new rules:
-  ```css
-  .lx-known-word {
-    border-bottom: 2px dotted rgba(99, 102, 241, 0.65);
-    cursor: help;
-    border-radius: 2px;
-    transition: background 0.15s;
-  }
-  .lx-known-word:hover { background: rgba(99, 102, 241, 0.12); }
-
-  .lx-review-tooltip {
-    position: fixed; z-index: 2147483640;
-    background: rgba(15,23,42,0.92); backdrop-filter: blur(12px);
-    border: 1px solid rgba(99,102,241,0.4); border-radius: 12px;
-    padding: 12px 16px; max-width: 280px; color: #e2e8f0;
-    font-family: Inter, system-ui, sans-serif; font-size: 13px;
-    line-height: 1.5; box-shadow: 0 8px 32px rgba(0,0,0,0.4);
-    pointer-events: auto;
-  }
-  .lx-reveal-btn {
-    margin-top: 8px; padding: 4px 12px; border-radius: 6px;
-    background: rgba(99,102,241,0.2); border: 1px solid rgba(99,102,241,0.5);
-    color: #a5b4fc; cursor: pointer; font-size: 12px;
-    transition: background 0.15s;
-  }
-  .lx-reveal-btn:hover { background: rgba(99,102,241,0.35); }
-  ```
-- [ ] M27-14 · `extension/content.js` — `_showReviewTooltip(span)`:
-  Creates or reuses a single `.lx-review-tooltip` div (singleton, appended to
-  `document.body` once). Positions it via `span.getBoundingClientRect()`.
-  Content template:
-  ```
-  📚 You learned "<word>" [N days ago | recently].
-  SRS: [New | Learning | Due for review]
-  [Reveal translation ▼]  ← button, hidden initially
-  ```
-  "Reveal" click: replaces button with `<em>best_translation</em>` text.
-- [ ] M27-15 · `extension/content.js` — `_hideReviewTooltip()`:
-  `mouseleave` on `.lx-known-word` with 200 ms delay (allows moving mouse into
-  the tooltip itself without it disappearing). `mouseleave` on the tooltip itself
-  → hide immediately.
-- [ ] M27-16 · Attach `mouseenter`/`mouseleave` listeners via event delegation on
-  `document.body` (not per-span) to avoid memory leaks from potentially
-  thousands of highlighted spans.
+- [x] M27-13 · CSS embedded as `_REVIEW_CSS` string constant in `content.js` (injected via
+  `_ensureReviewStyles()` into `document.head` as `<style id="lx-review-styles">`).
+  Note: `extension/overlay.css` does not exist; the extension uses embedded CSS strings
+  in JS files — confirmed when reading `overlay.js` which uses `_OVERLAY_CSS` string.
+  Styles: `.lx-known-word` (indigo/green/amber underline by SRS state), `#lx-review-tooltip`
+  (glassmorphism card, `opacity: 0` → `.lx-tt-visible` transition). ✅
+- [x] M27-14 · `extension/content.js` — `_showReviewTooltip(entry, anchorEl)`:
+  Singleton `#lx-review-tooltip` div appended to body. Shows word, translation (indigo),
+  SRS label (Mastered/In progress/New word) + time label (reviewed N days ago / today /
+  yesterday / not yet reviewed). Viewport-clamped positioning. ✅
+- [x] M27-15 · `extension/content.js` — `_hideReviewTooltip()`:
+  Removes `.lx-tt-visible` class (opacity transition handles fade-out). ✅
+- [x] M27-16 · Event delegation via `document.body.addEventListener('mouseover')` and
+  `'mouseout'` — not per-span — using `e.target?.closest?.('.lx-known-word')`. ✅
 
 **Phase 5 — Verification**
 
