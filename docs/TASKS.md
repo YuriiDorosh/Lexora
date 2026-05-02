@@ -15,7 +15,258 @@
 
 ## Current Milestone
 
-None in progress. M25 is the stable baseline.
+### M27 — Browser Extension: Review in the Wild
+
+**Status:** Planned (not yet started)
+**Branch:** `m27_review_in_the_wild` (to be created from `m26_ai_helpdesk`)
+
+**Scope:** Passive vocabulary reinforcement on any webpage. The content script
+highlights known words with a dotted indigo underline. Hovering reveals a
+glassmorphism tooltip showing SRS age ("You learned this 3 days ago") and a
+"Reveal" button that shows the stored translation — all served from a 15-minute
+local cache to avoid per-page API calls.
+
+#### Sub-steps
+
+**Phase 1 — Odoo API endpoint**
+
+- [ ] M27-01 · Branch `m27_review_in_the_wild` created from current HEAD. TASKS.md updated.
+- [ ] M27-02 · `language_portal/controllers/portal_api.py` — add
+  `GET /lexora_api/get_learned_words` endpoint.
+  - `_require_session()` guard; returns 401 JSON on failure.
+  - Queries `language.entry` (active, owned by user) with LEFT JOIN to
+    `language.review` for `srs_state` + `last_review_date`, and LEFT JOIN to
+    `language.translation` for `best_translation` (first completed, any target lang).
+  - Result capped at 500 entries, ordered by `last_review_date DESC NULLS LAST`
+    (most recently reviewed first — these are most likely to appear on relevant pages).
+  - `days_ago` computed in Python: `(date.today() - last_review_date.date()).days`
+    if `last_review_date` else `None`.
+  - `generated_at` = `int(time.time())` for extension TTL computation.
+  - Registry guards: `language.review` check (graceful if SRS module not installed —
+    returns `srs_state=None`, `days_ago=None`).
+- [ ] M27-03 · `--update language_portal --stop-after-init --no-http` → 0 errors.
+- [ ] M27-04 · Curl smoke test:
+  ```bash
+  curl -H "X-Lexora-Session-Id: <sid>" \
+    http://localhost:5433/lexora_api/get_learned_words
+  # → {"status":"ok","words":[...],"generated_at":N}
+  ```
+  Verify: entries have `word`, `normalized`, `lang`, `best_translation`, `srs_state`,
+  `days_ago` fields. Verify: user with 0 entries returns `{"status":"ok","words":[]}`.
+
+**Phase 2 — Extension background message handler**
+
+- [ ] M27-05 · `extension/background.js` — add `lexora-get-learned-words` handler:
+  `GET /lexora_api/get_learned_words` proxied through background (same
+  `_fetchApi` pattern used by `lexora-define`, `lexora-add-word-overlay`).
+  Returns the parsed JSON response or `null` on error.
+- [ ] M27-06 · Add cache invalidation: when `lexora-add-word-bg` (add_word) succeeds,
+  also clear `lx_word_cache` from `chrome.storage.local` so the next page
+  scan picks up the newly added word.
+
+**Phase 3 — Content script: cache + DOM highlighter**
+
+- [ ] M27-07 · `extension/content.js` — `_getWordList()` async function:
+  - Reads `lx_word_cache` from `chrome.storage.local`.
+  - Cache hit if `(Date.now() - cached.generated_at * 1000) < 900_000` (15 min).
+  - Cache miss: sends `{action:"lexora-get-learned-words"}` to background; stores
+    result; returns `words` array.
+  - On auth failure (null response): returns `[]` silently (user not logged in).
+- [ ] M27-08 · `extension/content.js` — `_buildWordMap(words)`:
+  Returns `Map<normalized_string, entry_object>`. Lower-cases all normalized values.
+  This is the O(1) lookup structure used by the scanner.
+- [ ] M27-09 · `extension/content.js` — `_highlightPage(wordMap)`:
+  `TreeWalker` over `document.body` text nodes.
+  Tag denylist: `SCRIPT STYLE TEXTAREA INPUT CODE PRE NOSCRIPT SVG MATH`.
+  Also skips nodes already inside `.lx-known-word` (idempotent).
+  Calls `_wrapMatchesInNode(node, wordMap)` for each accepted node.
+- [ ] M27-10 · `extension/content.js` — `_wrapMatchesInNode(node, wordMap)`:
+  Splits `node.textContent` on `/\b/` word boundaries. For each token, checks
+  `wordMap.get(token.toLowerCase().replace(/[.,!?;:'"]+$/, ''))`. If matched:
+  creates `<span class="lx-known-word">` with `data-entry-id`, `data-word`,
+  `data-best-translation`, `data-srs-state`, `data-days-ago` attributes.
+  Builds a `DocumentFragment` replacing the original text node. Returns `true`
+  if any replacements made.
+- [ ] M27-11 · `extension/content.js` — `_initHighlighter()`:
+  Called once on `document.readyState === 'complete'` (or `requestIdleCallback`).
+  Fetches word list → builds map → runs `_highlightPage`.
+  SPA re-highlight: `MutationObserver` on `document.body`
+  (`{childList:true, subtree:true}`), debounced 500 ms via `setTimeout`.
+  Skip re-highlight if `wordMap.size === 0`.
+- [ ] M27-12 · Exclude YouTube subtitle spans from highlighting: if
+  `node.parentElement?.classList.contains('ytp-caption-segment')` → skip
+  (prevents double-wrapping with M24 overlay).
+
+**Phase 4 — Tooltip UI**
+
+- [ ] M27-13 · `extension/overlay.css` — three new rules:
+  ```css
+  .lx-known-word {
+    border-bottom: 2px dotted rgba(99, 102, 241, 0.65);
+    cursor: help;
+    border-radius: 2px;
+    transition: background 0.15s;
+  }
+  .lx-known-word:hover { background: rgba(99, 102, 241, 0.12); }
+
+  .lx-review-tooltip {
+    position: fixed; z-index: 2147483640;
+    background: rgba(15,23,42,0.92); backdrop-filter: blur(12px);
+    border: 1px solid rgba(99,102,241,0.4); border-radius: 12px;
+    padding: 12px 16px; max-width: 280px; color: #e2e8f0;
+    font-family: Inter, system-ui, sans-serif; font-size: 13px;
+    line-height: 1.5; box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+    pointer-events: auto;
+  }
+  .lx-reveal-btn {
+    margin-top: 8px; padding: 4px 12px; border-radius: 6px;
+    background: rgba(99,102,241,0.2); border: 1px solid rgba(99,102,241,0.5);
+    color: #a5b4fc; cursor: pointer; font-size: 12px;
+    transition: background 0.15s;
+  }
+  .lx-reveal-btn:hover { background: rgba(99,102,241,0.35); }
+  ```
+- [ ] M27-14 · `extension/content.js` — `_showReviewTooltip(span)`:
+  Creates or reuses a single `.lx-review-tooltip` div (singleton, appended to
+  `document.body` once). Positions it via `span.getBoundingClientRect()`.
+  Content template:
+  ```
+  📚 You learned "<word>" [N days ago | recently].
+  SRS: [New | Learning | Due for review]
+  [Reveal translation ▼]  ← button, hidden initially
+  ```
+  "Reveal" click: replaces button with `<em>best_translation</em>` text.
+- [ ] M27-15 · `extension/content.js` — `_hideReviewTooltip()`:
+  `mouseleave` on `.lx-known-word` with 200 ms delay (allows moving mouse into
+  the tooltip itself without it disappearing). `mouseleave` on the tooltip itself
+  → hide immediately.
+- [ ] M27-16 · Attach `mouseenter`/`mouseleave` listeners via event delegation on
+  `document.body` (not per-span) to avoid memory leaks from potentially
+  thousands of highlighted spans.
+
+**Phase 5 — Verification**
+
+- [ ] M27-17 · Load extension; navigate to any English Wikipedia article.
+  Verify: known words underlined (if user has vocabulary); tooltip appears on hover;
+  "Reveal" shows translation; cache prevents second API call within 15 min.
+- [ ] M27-18 · Add a new word via popup → navigate to a page containing that word →
+  reload extension (or wait for cache TTL) → new word is highlighted.
+- [ ] M27-19 · User not logged in: no highlighting (graceful silent failure).
+- [ ] M27-20 · YouTube with subtitles active: subtitle words NOT double-highlighted;
+  Quick Look overlay still works independently.
+- [ ] M27-21 · Commit: `feat(M27): Review in the Wild — page highlighting + SRS tooltip`
+
+---
+
+### M28 — Browser Extension: One-Click Grammar Explainer (planned)
+
+**Status:** Planned — begins after M27 is verified.
+**Branch:** `m28_grammar_explainer` (to be created from `m27_review_in_the_wild`)
+
+**Scope:** "Explain Grammar" button added to the existing Quick Look overlay (M24
+content script) and YouTube subtitle overlay (M24 overlay.js). Sends selected phrase
+to the local Qwen 1.5B model via an Odoo proxy. Returns a 2-sentence linguistic
+explanation rendered inline in the overlay — no page navigation.
+
+#### Sub-steps
+
+**Phase 1 — LLM service endpoint**
+
+- [ ] M28-01 · Branch + TASKS.md update.
+- [ ] M28-02 · `services/llm/main.py` — add `GrammarExplainRequest` Pydantic model and
+  `POST /explain-grammar` FastAPI sync endpoint. System prompt (≤60 words):
+  "You are a linguistics expert. Explain the grammar of the given phrase in exactly
+  2 sentences. State what grammatical rule applies and why the phrase is structured
+  this way. Be concise. Reply in the same language as the phrase."
+  Use `max_tokens=150, temperature=0.3, repeat_penalty=1.1`.
+  Stub response when `_llm is None`:
+  `{"status":"unavailable","explanation":"LLM loading — try again in 30 s."}`.
+- [ ] M28-03 · `make up-llm-no-cache` → rebuild.
+- [ ] M28-04 · Curl smoke test:
+  ```bash
+  curl -X POST http://localhost:8002/explain-grammar \
+    -H "Content-Type: application/json" \
+    -d '{"phrase":"She had been waiting for two hours","language":"en"}'
+  # → {"status":"ok","explanation":"..."}
+  ```
+
+**Phase 2 — Odoo proxy endpoint**
+
+- [ ] M28-05 · `language_portal/controllers/portal_api.py` — add
+  `POST /lexora_api/explain_grammar`:
+  - `_require_session()` guard.
+  - Reads `phrase` (required, ≤500 chars) and `language` (optional, default `en`).
+  - `requests.post(f"{_LLM_SVC}/explain-grammar", json={...}, timeout=60)` where
+    `_LLM_SVC = os.environ.get('LLM_SERVICE_URL', 'http://llm-service:8000')`.
+  - On success: forward `explanation` field from LLM response.
+  - On timeout/connection error: `{"status":"unavailable","explanation":"LLM timed out."}`.
+  - On `phrase` empty: `{"status":"error","message":"phrase is required"}`, 400.
+- [ ] M28-06 · `--update language_portal --stop-after-init --no-http` → 0 errors.
+- [ ] M28-07 · Curl smoke test through Odoo:
+  ```bash
+  curl -X POST http://localhost:5433/lexora_api/explain_grammar \
+    -H "Content-Type: application/json" \
+    -H "X-Lexora-Session-Id: <sid>" \
+    -d '{"phrase":"She had been waiting","language":"en"}'
+  # → {"status":"ok","explanation":"..."}
+  ```
+
+**Phase 3 — Extension background handler**
+
+- [ ] M28-08 · `extension/background.js` — `lexora-explain-grammar` handler:
+  POST `/lexora_api/explain_grammar` with `{phrase, language}` body.
+  Returns parsed JSON or `{status:"error"}` on network failure.
+
+**Phase 4 — Quick Look overlay UI (content.js)**
+
+- [ ] M28-09 · `extension/content.js` — in `_renderQlOverlay()`, append to the
+  overlay HTML string:
+  ```html
+  <button id="lx-explain-grammar" class="lx-explain-btn">Explain Grammar</button>
+  <div id="lx-grammar-block" class="lx-grammar-block d-none"></div>
+  ```
+- [ ] M28-10 · `extension/content.js` — attach click handler to `#lx-explain-grammar`
+  inside `_renderQlOverlay()` (after `shadow.innerHTML = ...`):
+  - Set `disabled=true`, `textContent='Explaining…'`.
+  - Send `{action:"lexora-explain-grammar", phrase:_currentWord, language:_currentLang}`
+    to background via `_qlSendMessage`.
+  - On response: populate `#lx-grammar-block`, remove `d-none`, re-enable button.
+  - On timeout (no response after 65 s): show "LLM timed out." in the block.
+- [ ] M28-11 · `extension/overlay.js` — same button + handler added to the YouTube
+  subtitle overlay card (`.lx-yt-overlay-content`). Word and language are already
+  available as local variables at click time.
+
+**Phase 5 — CSS**
+
+- [ ] M28-12 · `extension/overlay.css`:
+  ```css
+  .lx-explain-btn {
+    margin-top: 10px; width: 100%; padding: 6px 0;
+    background: rgba(139,92,246,0.15); border: 1px solid rgba(139,92,246,0.4);
+    border-radius: 8px; color: #c4b5fd; font-size: 12px; cursor: pointer;
+    transition: background 0.15s;
+  }
+  .lx-explain-btn:hover { background: rgba(139,92,246,0.3); }
+  .lx-explain-btn:disabled { opacity: 0.5; cursor: default; }
+
+  .lx-grammar-block {
+    margin-top: 10px; padding: 10px 12px;
+    background: rgba(139,92,246,0.08); border-left: 3px solid #7c3aed;
+    border-radius: 0 8px 8px 0; font-size: 12px; line-height: 1.6;
+    color: #ddd6fe; max-height: 200px; overflow-y: auto;
+  }
+  ```
+
+**Phase 6 — Verification**
+
+- [ ] M28-13 · Select any text on any webpage → Quick Look overlay → "Explain Grammar"
+  button visible → click → "Explaining…" → after ~15 s → explanation renders.
+- [ ] M28-14 · YouTube subtitle word click → overlay → same button works.
+- [ ] M28-15 · LLM not ready (`llm_ready:false` in `/health`) → overlay shows
+  "LLM loading — try again in 30 s." immediately.
+- [ ] M28-16 · Commit: `feat(M28): one-click grammar explainer via Qwen LLM`
+
+---
 
 **M26 was cancelled on 2026-05-02** due to server RAM constraints (8 GiB KVM,
 fully loaded by the M25 stack). All M26 work is preserved on the `m26_ai_helpdesk`

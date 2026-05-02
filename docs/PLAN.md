@@ -1,8 +1,8 @@
 # Lexora — Implementation Plan (MVP)
 
-> Version: 1.3 (M25 Browser Ecosystem — stable baseline)
+> Version: 1.5 (M27–M28 Browser Extension — Review & Grammar)
 > Last updated: 2026-05-02
-> Status: M0–M25 complete; M26 postponed (resource constraints — see note below)
+> Status: M0–M25 complete; M26 postponed (resource constraints); M27–M28 planned
 
 ---
 
@@ -54,6 +54,8 @@
 | M24 | Browser Extension — Media & Subtitles | ✅ Complete | YouTube/Netflix subtitle overlay; click-word mini-popup with definition + Add to List |
 | M25 | Browser Extension — Mini-Practice New Tab | ✅ Complete | New Tab override with daily vocabulary card; animated dark gradient; OdooBot greeting |
 | M26 | AI Helpdesk — RAG Auto-Reply | ⏸ Postponed | Requires pgvector + llama-cpp + fastembed (~2.5 GiB RAM on top of existing stack); postponed until a higher-RAM server is available |
+| M27 | Browser Extension — Review in the Wild | 🔜 Planned | Highlight known vocab on any webpage; hover tooltip with SRS age + Reveal button; cached word list |
+| M28 | Browser Extension — Grammar Explainer | 🔜 Planned | One-click LLM grammar explanation via Quick Look overlay; Qwen `/explain-grammar` sync endpoint |
 
 ---
 
@@ -1309,6 +1311,286 @@ to `pgvector/pgvector:pg15`, restore the Makefile ai_mentor targets, run
 
 ---
 
+## M27 — Browser Extension: Review in the Wild
+
+**Goal:** Turn any webpage into a passive review session. Known vocabulary words are
+highlighted with a subtle underline; hovering reveals an SRS-aware tooltip ("You
+learned this 3 days ago — do you remember the translation?") with a one-click Reveal
+button showing the stored translation.
+
+**Architecture:**
+
+```
+Content script loads word list
+    ← chrome.storage.local cache (TTL 15 min)
+    ← GET /lexora_api/get_learned_words (on cache miss)
+
+DOM scan: TreeWalker over all Text nodes
+    → split on word boundaries
+    → match against normalized word set (Map lookup, O(1) per word)
+    → wrap match in <span class="lx-known-word" data-entry-id="..." data-days-ago="...">
+
+Hover on .lx-known-word
+    → show .lx-review-tooltip (positioned via getBoundingClientRect)
+    → "Reveal" button fetches best_translation from cached entry data
+    → no additional network call needed
+```
+
+**New Odoo API endpoint (`GET /lexora_api/get_learned_words`):**
+
+Response shape:
+```json
+{
+  "status": "ok",
+  "words": [
+    {
+      "id": 42,
+      "word": "ephemeral",
+      "normalized": "ephemeral",
+      "lang": "en",
+      "best_translation": "короткочасний",
+      "srs_state": "review",
+      "days_ago": 3
+    }
+  ],
+  "generated_at": 1746300000
+}
+```
+
+- Capped at 500 active entries per user (active SRS cards ordered by most-recently reviewed).
+- `best_translation`: first completed translation for the entry (any target language).
+- `days_ago`: computed from `language.review.last_review_date`; `None` if card never reviewed.
+- `srs_state`: `new` / `learning` / `review` — drives tooltip badge colour.
+- `generated_at`: Unix timestamp for cache TTL computation in the extension.
+
+**Extension content script (`extension/content.js`) additions:**
+
+```javascript
+// Cache management
+const CACHE_KEY = 'lx_word_cache';
+const CACHE_TTL_MS = 15 * 60 * 1000;  // 15 minutes
+
+async function _getWordList() {
+    const { lx_word_cache: cached } = await chrome.storage.local.get(CACHE_KEY);
+    if (cached && (Date.now() - cached.generated_at * 1000) < CACHE_TTL_MS) {
+        return cached.words;
+    }
+    const resp = await _bgFetch('GET', '/lexora_api/get_learned_words');
+    if (resp && resp.status === 'ok') {
+        await chrome.storage.local.set({ [CACHE_KEY]: resp });
+        return resp.words;
+    }
+    return [];
+}
+
+// DOM highlighter — O(n) single pass via TreeWalker
+function _highlightPage(wordMap) {
+    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, {
+        acceptNode: n => {
+            const tag = n.parentElement?.tagName;
+            if (['SCRIPT','STYLE','TEXTAREA','INPUT','CODE','PRE'].includes(tag)) {
+                return NodeFilter.FILTER_REJECT;
+            }
+            return NodeFilter.FILTER_ACCEPT;
+        }
+    });
+    const nodes = [];
+    while (walker.nextNode()) nodes.push(walker.currentNode);
+    nodes.forEach(node => _wrapMatchesInNode(node, wordMap));
+}
+```
+
+**Tooltip CSS:** `.lx-known-word` gets `border-bottom: 2px dotted rgba(99,102,241,0.6)` (indigo,
+subtle). Tooltip is a `position:fixed` glassmorphism card identical to the Quick Look overlay
+style — reuses `.lx-ql-card` CSS from `overlay.css`.
+
+**Work:**
+1. `language_portal/controllers/portal_api.py` — `GET /lexora_api/get_learned_words` endpoint.
+   Joins `language.entry` ↔ `language.review` ↔ `language.translation`. Returns ≤500 words
+   ordered by `last_review_date desc nulls last`.
+2. `extension/content.js` — `_getWordList()` cache layer; `_highlightPage(wordMap)` DOM walker;
+   `_wrapMatchesInNode(node, wordMap)` split-and-wrap; `_showReviewTooltip(span, entry)`;
+   `_hideReviewTooltip()`. Invalidate cache key after `lexora-add-word-overlay` success.
+3. `extension/overlay.css` — `.lx-known-word`, `.lx-review-tooltip`, `.lx-reveal-btn` styles.
+   Reuse glassmorphism variables already defined.
+4. `extension/background.js` — add `lexora-get-learned-words` message handler (GET proxy).
+5. `extension/manifest.json` — no changes needed (content.js already injected on all pages).
+
+**Performance contract:**
+- `_highlightPage` is called once on `document.idle` via `requestIdleCallback`.
+- Re-highlighting on SPA navigation: `MutationObserver` on `document.body` with
+  `subtree:true, childList:true`; debounced 500 ms to avoid thrashing on React/Vue apps.
+- Word matching uses a `Map<normalized_word, entry>` — O(1) lookup per token.
+- Known sites that inject huge DOMs (e.g. Google Docs) are excluded via a denylist in options.
+
+**Verification:**
+```bash
+# 1. Update language_portal (new endpoint)
+docker exec odoo odoo --config /etc/odoo/odoo.conf \
+  -d lexora --update language_portal --stop-after-init --no-http
+
+# 2. Test endpoint
+curl -H "X-Lexora-Session-Id: <sid>" \
+  http://localhost:5433/lexora_api/get_learned_words
+# → {"status":"ok","words":[...],"generated_at":...}
+
+# 3. Verify SRS data included
+# Each word entry should contain srs_state and days_ago when language.review installed
+
+# 4. Load extension in Chrome; navigate to any English-language article
+# → known words underlined in indigo; hover shows tooltip with translation reveal
+```
+
+---
+
+## M28 — Browser Extension: One-Click Grammar Explainer
+
+**Goal:** From the existing Quick Look overlay (M24 content script) and subtitle overlay
+(M24 YouTube), a single "Explain Grammar" button sends the selected phrase to the local
+Qwen 1.5B model, which returns a 2-sentence linguistic explanation. Result renders inside
+the overlay with no new tabs or page navigations.
+
+**Architecture:**
+
+```
+User selects text → Quick Look overlay renders (existing M24 flow)
+    → "Explain Grammar" button clicked
+    → content.js sends {action:"lexora-explain-grammar", phrase, lang} to background
+    → background.js POSTs to /lexora_api/explain_grammar (Odoo proxy)
+    → Odoo controller calls requests.post("http://llm-service:8000/explain-grammar", timeout=60)
+    → LLM service: Qwen 1.5B inference, ~10–40 s on E5-2680v2
+    → {"status":"ok","explanation":"..."}
+    → overlay renders explanation in .lx-grammar-block (scrollable, max-height 200px)
+```
+
+**LLM service (`services/llm/main.py`) new endpoint:**
+
+```python
+class GrammarExplainRequest(BaseModel):
+    phrase: str
+    language: str = "en"
+
+@app.post("/explain-grammar")
+def explain_grammar_endpoint(req: GrammarExplainRequest):
+    if _llm is None:
+        return {"status": "unavailable", "explanation": "LLM not ready — try again in 30s."}
+    _SYSTEM = (
+        "You are a linguistics expert. Explain the grammar of the given phrase in "
+        "exactly 2 sentences. Focus on: what grammatical rule applies, and why the "
+        "phrase is structured this way. Be precise and educational. "
+        "Reply in the same language as the phrase."
+    )
+    messages = [
+        {"role": "system", "content": _SYSTEM},
+        {"role": "user",   "content": f'Explain the grammar of: "{req.phrase}"'},
+    ]
+    try:
+        result = _llm.create_chat_completion(
+            messages=messages,
+            max_tokens=150,
+            temperature=0.3,
+            repeat_penalty=1.1,
+        )
+        explanation = result['choices'][0]['message']['content'].strip()
+        return {"status": "ok", "explanation": explanation}
+    except Exception as exc:
+        _logger.error("explain-grammar failed: %s", exc)
+        return {"status": "error", "explanation": ""}
+```
+
+**Prompt engineering notes:**
+- `max_tokens=150` enforces the 2-sentence contract at the generation level.
+- `temperature=0.3` keeps output factual; higher values cause linguistic hallucination.
+- `repeat_penalty=1.1` prevents the model from repeating the input phrase verbatim.
+- System prompt explicitly says "same language as the phrase" — the model uses this
+  for Greek/Ukrainian input (though quality is lower, consistent with SPEC §4.4).
+
+**Odoo proxy (`portal_api.py`) new endpoint:**
+
+```python
+POST /lexora_api/explain_grammar
+Body: {"phrase": "...", "language": "en"}
+Response: {"status": "ok", "explanation": "..."}
+          {"status": "unavailable", "message": "LLM not ready"}
+          {"status": "error", "message": "..."}
+```
+
+- Auth required (session check via `_require_session()`).
+- `phrase` capped at 500 chars. Empty → 400.
+- `requests.post(LLM_SVC/explain-grammar, timeout=60)` — same pattern as roleplay proxy.
+- On timeout or connection error → `{"status":"unavailable","explanation":"LLM timed out"}`.
+
+**Extension UI changes:**
+
+`extension/content.js` Quick Look overlay additions:
+```javascript
+// Add to _renderQlOverlay() after the translations block:
+const grammarBtn = shadow.querySelector('#lx-explain-grammar');
+if (grammarBtn) {
+    grammarBtn.addEventListener('click', async () => {
+        grammarBtn.disabled = true;
+        grammarBtn.textContent = 'Explaining…';
+        const result = await _bgFetch('POST', '/lexora_api/explain_grammar',
+            { phrase: _currentWord, language: _currentLang });
+        const block = shadow.querySelector('#lx-grammar-block');
+        if (block) {
+            block.textContent = result?.explanation || 'Could not generate explanation.';
+            block.classList.remove('d-none');
+        }
+        grammarBtn.textContent = 'Explain Grammar';
+        grammarBtn.disabled = false;
+    });
+}
+```
+
+`extension/background.js` additions:
+- `lexora-explain-grammar` message handler: POST `/lexora_api/explain_grammar`.
+
+**Work:**
+1. `services/llm/main.py` — `POST /explain-grammar` FastAPI sync endpoint (see spec above).
+   Rebuild image: `make up-llm-no-cache`.
+2. `language_portal/controllers/portal_api.py` — `POST /lexora_api/explain_grammar` proxy endpoint.
+   Update module: `--update language_portal --stop-after-init --no-http`.
+3. `extension/content.js` — "Explain Grammar" button in `_renderQlOverlay()` HTML string;
+   click handler; `#lx-grammar-block` scrollable div.
+4. `extension/overlay.js` — same "Explain Grammar" button in the YouTube subtitle overlay.
+5. `extension/background.js` — `lexora-explain-grammar` fetch handler.
+6. `extension/overlay.css` — `.lx-grammar-block` (scrollable, max-height 200px, monospace-ish
+   content font, indigo left border for visual distinction from translations).
+
+**Latency UX contract:**
+- Button text changes to "Explaining…" immediately on click.
+- Overlay stays open (user can read translations while waiting).
+- No spinner animation — text feedback is sufficient given expected 10–40 s latency.
+- On timeout (>60 s): show "LLM timed out — try again" in the grammar block.
+
+**Verification:**
+```bash
+# 1. Rebuild LLM service with new endpoint
+make up-llm-no-cache
+curl -X POST http://localhost:8002/explain-grammar \
+  -H "Content-Type: application/json" \
+  -d '{"phrase":"She had been waiting for two hours","language":"en"}'
+# → {"status":"ok","explanation":"This sentence uses the past perfect continuous..."}
+
+# 2. Update Odoo
+docker exec odoo odoo --config /etc/odoo/odoo.conf \
+  -d lexora --update language_portal --stop-after-init --no-http
+
+# 3. Test proxy endpoint
+curl -X POST http://localhost:5433/lexora_api/explain_grammar \
+  -H "Content-Type: application/json" \
+  -H "X-Lexora-Session-Id: <sid>" \
+  -d '{"phrase":"She had been waiting","language":"en"}'
+# → {"status":"ok","explanation":"..."}
+
+# 4. Extension: select any text on any page → Quick Look overlay
+#    → "Explain Grammar" button visible
+#    → click → "Explaining…" → after ~15s → explanation text renders in overlay
+```
+
+---
+
 ## Dependency Graph (final)
 
 ```
@@ -1332,8 +1614,12 @@ M0 → M1 → M2 → M3
                                                  ↓              ↓           ↓
                                                M23          M24           M25
                                           (Contextual)   (Subtitles)  (New Tab)
+                                                 ↓              ↓
+                                               M27            M28
+                                          (Highlighting)  (Grammar LLM)
                                                     (M26 — AI Helpdesk — postponed ⏸)
 ```
 
-M25 is the current stable baseline. M26 is fully designed and built on the
-`m26_ai_helpdesk` branch but postponed due to server RAM constraints.
+M25 is the current stable baseline. M27 and M28 extend the extension ecosystem:
+M27 requires M22 (API infrastructure) + M9 (SRS review data); M28 requires M22 +
+M4b (LLM service). M26 is built on `m26_ai_helpdesk` but postponed due to RAM.
