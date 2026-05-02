@@ -195,6 +195,27 @@ const _OVERLAY_CSS = `
     margin-top:7px; font-size:11px; font-weight:600;
     min-height:16px; text-align:center; color:rgba(255,255,255,0.55);
   }
+
+  .lx-yt-explain-btn {
+    display:block; width:100%; margin-top:8px; padding:6px 0;
+    background: rgba(139,92,246,0.15);
+    border: 1px solid rgba(139,92,246,0.4);
+    border-radius:8px; color:#c4b5fd; font-size:12px; font-weight:600;
+    cursor: pointer !important; pointer-events: auto !important;
+    transition: background 0.15s;
+  }
+  .lx-yt-explain-btn:hover { background: rgba(139,92,246,0.3); }
+  .lx-yt-explain-btn:disabled { opacity:0.5; cursor:default !important; }
+
+  .lx-yt-grammar-block {
+    display:none; margin-top:8px; padding:10px 12px;
+    background: rgba(139,92,246,0.08);
+    border-left: 3px solid #7c3aed;
+    border-radius: 0 8px 8px 0;
+    font-size:12px; line-height:1.6; color:#ddd6fe;
+    max-height:200px; overflow-y:auto;
+  }
+  .lx-yt-grammar-block.lx-visible { display:block; }
 `;
 
 // ── Utilities ──────────────────────────────────────────────────────────────
@@ -442,6 +463,8 @@ function _showOverlay(word, wasPaused, timestamp, lang, video, response) {
           <button class="lx-yt-add-btn" id="lx-yt-add">➕ Add to Vocabulary</button>
           <button class="lx-yt-resume-btn" id="lx-yt-resume">▶ Resume</button>
         </div>
+        <button class="lx-yt-explain-btn" id="lx-yt-explain">Explain Grammar</button>
+        <div class="lx-yt-grammar-block" id="lx-yt-grammar"></div>
         <div class="lx-yt-status" id="lx-yt-status"></div>` : ''}
       </div>
     </div>
@@ -477,6 +500,29 @@ function _showOverlay(word, wasPaused, timestamp, lang, video, response) {
       }
     );
   });
+
+  const explainBtn   = overlay.querySelector('#lx-yt-explain');
+  const grammarBlock = overlay.querySelector('#lx-yt-grammar');
+  if (explainBtn && grammarBlock) {
+    explainBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      explainBtn.disabled = true;
+      explainBtn.textContent = 'Explaining…';
+      const timer = setTimeout(() => {
+        grammarBlock.textContent = 'LLM timed out — try again.';
+        grammarBlock.classList.add('lx-visible');
+        explainBtn.textContent = 'Explain Grammar';
+        explainBtn.disabled = false;
+      }, 65000);
+      _sendMessage({ action: 'lexora-explain-grammar', phrase: word, language: lang }, (resp) => {
+        clearTimeout(timer);
+        grammarBlock.textContent = resp?.explanation || 'Could not generate explanation.';
+        grammarBlock.classList.add('lx-visible');
+        explainBtn.textContent = 'Explain Grammar';
+        explainBtn.disabled = false;
+      });
+    });
+  }
 
   const addBtn = overlay.querySelector('#lx-yt-add');
   if (addBtn) {

@@ -113,10 +113,10 @@ local cache to avoid per-page API calls.
 
 ---
 
-### M28 — Browser Extension: One-Click Grammar Explainer (planned)
+### M28 — Browser Extension: One-Click Grammar Explainer
 
-**Status:** Planned — begins after M27 is verified.
-**Branch:** `m28_grammar_explainer` (to be created from `m27_review_in_the_wild`)
+**Status:** Implementation complete; pending LLM rebuild + verification.
+**Branch:** `m28_grammar_explainer` (created from `m27_review_in_the_wild`)
 
 **Scope:** "Explain Grammar" button added to the existing Quick Look overlay (M24
 content script) and YouTube subtitle overlay (M24 overlay.js). Sends selected phrase
@@ -127,15 +127,12 @@ explanation rendered inline in the overlay — no page navigation.
 
 **Phase 1 — LLM service endpoint**
 
-- [ ] M28-01 · Branch + TASKS.md update.
-- [ ] M28-02 · `services/llm/main.py` — add `GrammarExplainRequest` Pydantic model and
-  `POST /explain-grammar` FastAPI sync endpoint. System prompt (≤60 words):
-  "You are a linguistics expert. Explain the grammar of the given phrase in exactly
-  2 sentences. State what grammatical rule applies and why the phrase is structured
-  this way. Be concise. Reply in the same language as the phrase."
-  Use `max_tokens=150, temperature=0.3, repeat_penalty=1.1`.
-  Stub response when `_llm is None`:
-  `{"status":"unavailable","explanation":"LLM loading — try again in 30 s."}`.
+- [x] M28-01 · Branch `m28_grammar_explainer` created from `m27_review_in_the_wild`. TASKS.md updated. ✅
+- [x] M28-02 · `services/llm/main.py` — added `GrammarExplainRequest` Pydantic model,
+  `_explain_grammar()` helper, and `POST /explain-grammar` FastAPI sync endpoint.
+  System prompt instructs 2-sentence linguistics explanation in same language as input.
+  `max_tokens=150, temperature=0.3, repeat_penalty=1.1`. Stub returns
+  `"LLM not ready — try again in 30 s."` when model not loaded. ✅
 - [ ] M28-03 · `make up-llm-no-cache` → rebuild.
 - [ ] M28-04 · Curl smoke test:
   ```bash
@@ -147,70 +144,35 @@ explanation rendered inline in the overlay — no page navigation.
 
 **Phase 2 — Odoo proxy endpoint**
 
-- [ ] M28-05 · `language_portal/controllers/portal_api.py` — add
-  `POST /lexora_api/explain_grammar`:
-  - `_require_session()` guard.
-  - Reads `phrase` (required, ≤500 chars) and `language` (optional, default `en`).
-  - `requests.post(f"{_LLM_SVC}/explain-grammar", json={...}, timeout=60)` where
-    `_LLM_SVC = os.environ.get('LLM_SERVICE_URL', 'http://llm-service:8000')`.
-  - On success: forward `explanation` field from LLM response.
-  - On timeout/connection error: `{"status":"unavailable","explanation":"LLM timed out."}`.
-  - On `phrase` empty: `{"status":"error","message":"phrase is required"}`, 400.
+- [x] M28-05 · `language_portal/controllers/portal_api.py` — `POST /lexora_api/explain_grammar`
+  already present (was pre-implemented in the prior session). `_require_session()` guard,
+  `phrase` ≤500 chars, forwards to `_LLM_SVC/explain-grammar` with 60s timeout. ✅
 - [ ] M28-06 · `--update language_portal --stop-after-init --no-http` → 0 errors.
-- [ ] M28-07 · Curl smoke test through Odoo:
-  ```bash
-  curl -X POST http://localhost:5433/lexora_api/explain_grammar \
-    -H "Content-Type: application/json" \
-    -H "X-Lexora-Session-Id: <sid>" \
-    -d '{"phrase":"She had been waiting","language":"en"}'
-  # → {"status":"ok","explanation":"..."}
-  ```
+- [ ] M28-07 · Curl smoke test through Odoo proxy.
 
 **Phase 3 — Extension background handler**
 
-- [ ] M28-08 · `extension/background.js` — `lexora-explain-grammar` handler:
-  POST `/lexora_api/explain_grammar` with `{phrase, language}` body.
-  Returns parsed JSON or `{status:"error"}` on network failure.
+- [x] M28-08 · `extension/background.js` — `lexora-explain-grammar` case added to
+  `onMessage` listener; `handleExplainGrammar({phrase, language})` function POSTs to
+  `/lexora_api/explain_grammar` (same session-cookie pattern as other handlers). ✅
 
 **Phase 4 — Quick Look overlay UI (content.js)**
 
-- [ ] M28-09 · `extension/content.js` — in `_renderQlOverlay()`, append to the
-  overlay HTML string:
-  ```html
-  <button id="lx-explain-grammar" class="lx-explain-btn">Explain Grammar</button>
-  <div id="lx-grammar-block" class="lx-grammar-block d-none"></div>
-  ```
-- [ ] M28-10 · `extension/content.js` — attach click handler to `#lx-explain-grammar`
-  inside `_renderQlOverlay()` (after `shadow.innerHTML = ...`):
-  - Set `disabled=true`, `textContent='Explaining…'`.
-  - Send `{action:"lexora-explain-grammar", phrase:_currentWord, language:_currentLang}`
-    to background via `_qlSendMessage`.
-  - On response: populate `#lx-grammar-block`, remove `d-none`, re-enable button.
-  - On timeout (no response after 65 s): show "LLM timed out." in the block.
-- [ ] M28-11 · `extension/overlay.js` — same button + handler added to the YouTube
-  subtitle overlay card (`.lx-yt-overlay-content`). Word and language are already
-  available as local variables at click time.
+- [x] M28-09 · `extension/content.js` — "Explain Grammar" button and `#lx-ql-grammar`
+  block added to `shadow.innerHTML` inside `showActions` conditional in `_renderQlOverlay()`. ✅
+- [x] M28-10 · `extension/content.js` — click handler attached to `#lx-ql-explain`:
+  disables button, shows "Explaining…", sends `lexora-explain-grammar` message with 65s
+  timeout guard; populates `#lx-ql-grammar` and adds `.lx-visible` on response. ✅
+- [x] M28-11 · `extension/overlay.js` — same "Explain Grammar" button + `#lx-yt-grammar`
+  block added to `overlay.innerHTML`; click handler uses `_sendMessage` and same
+  timeout pattern; `lang` variable already in scope from closure. ✅
 
 **Phase 5 — CSS**
 
-- [ ] M28-12 · `extension/overlay.css`:
-  ```css
-  .lx-explain-btn {
-    margin-top: 10px; width: 100%; padding: 6px 0;
-    background: rgba(139,92,246,0.15); border: 1px solid rgba(139,92,246,0.4);
-    border-radius: 8px; color: #c4b5fd; font-size: 12px; cursor: pointer;
-    transition: background 0.15s;
-  }
-  .lx-explain-btn:hover { background: rgba(139,92,246,0.3); }
-  .lx-explain-btn:disabled { opacity: 0.5; cursor: default; }
-
-  .lx-grammar-block {
-    margin-top: 10px; padding: 10px 12px;
-    background: rgba(139,92,246,0.08); border-left: 3px solid #7c3aed;
-    border-radius: 0 8px 8px 0; font-size: 12px; line-height: 1.6;
-    color: #ddd6fe; max-height: 200px; overflow-y: auto;
-  }
-  ```
+- [x] M28-12 · CSS added as embedded strings (no separate `.css` file — consistent with
+  extension pattern). `.lx-ql-explain-btn` + `.lx-ql-grammar-block` appended to `_QL_CSS`
+  in `content.js`. `.lx-yt-explain-btn` + `.lx-yt-grammar-block` appended to `_OVERLAY_CSS`
+  in `overlay.js`. Both use `display:none → .lx-visible { display:block }` pattern. ✅
 
 **Phase 6 — Verification**
 

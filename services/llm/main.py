@@ -502,3 +502,51 @@ def _roleplay(req: RoleplayRequest) -> str:
 def roleplay_endpoint(req: RoleplayRequest):
     reply = _roleplay(req)
     return {"status": "ok", "reply": reply}
+
+
+# ---------------------------------------------------------------------------
+# Sync grammar explainer endpoint (M28 — no RabbitMQ, direct HTTP from Odoo)
+# ---------------------------------------------------------------------------
+
+_GRAMMAR_SYSTEM_PROMPT = (
+    "You are a linguistics expert. Explain the grammar of the given phrase in exactly "
+    "2 sentences. State what grammatical rule applies and why the phrase is structured "
+    "this way. Be concise. Reply in the same language as the phrase."
+)
+
+
+class GrammarExplainRequest(BaseModel):
+    phrase: str
+    language: str = "en"
+
+
+def _explain_grammar(phrase: str, language: str) -> str:
+    """Return a 2-sentence grammar explanation.  Falls back to a stub when not loaded."""
+    if not _llm_ready or _llm is None:
+        return "LLM not ready — try again in 30 s."
+
+    messages = [
+        {"role": "system", "content": _GRAMMAR_SYSTEM_PROMPT},
+        {"role": "user",   "content": f'Explain the grammar of: "{phrase}"'},
+    ]
+    try:
+        result = _llm.create_chat_completion(
+            messages=messages,
+            max_tokens=150,
+            temperature=0.3,
+            repeat_penalty=1.1,
+        )
+        explanation = result["choices"][0]["message"]["content"].strip()
+        return explanation or "Could not generate an explanation."
+    except Exception as exc:
+        _logger.error("explain-grammar failed: %s", exc)
+        return ""
+
+
+@app.post("/explain-grammar")
+def explain_grammar_endpoint(req: GrammarExplainRequest):
+    if not req.phrase or not req.phrase.strip():
+        return {"status": "error", "explanation": ""}
+    explanation = _explain_grammar(req.phrase.strip(), req.language)
+    status = "ok" if explanation and not explanation.startswith("LLM not ready") else "unavailable"
+    return {"status": status, "explanation": explanation}

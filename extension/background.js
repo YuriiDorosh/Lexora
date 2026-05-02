@@ -70,6 +70,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     handleWhoami().then(sendResponse).catch(() => sendResponse({ status: 'error' }));
   } else if (msg.action === 'lexora-get-learned-words') {
     handleGetLearnedWords().then(sendResponse).catch(() => sendResponse({ status: 'error' }));
+  } else if (msg.action === 'lexora-explain-grammar') {
+    handleExplainGrammar(msg).then(sendResponse).catch(() => sendResponse({ status: 'error' }));
   }
   return true; // MUST be at the very end — keeps channel open for all async handlers
 });
@@ -194,6 +196,27 @@ async function handleGetLearnedWords() {
       method: 'GET',
       credentials: 'include',
       headers: sessionHeaders,
+    });
+    if (resp.status === 401) return { status: 'unauthorized' };
+    if (!resp.ok) return { status: 'error', message: `HTTP ${resp.status}` };
+    return resp.json();
+  } catch (err) {
+    return { status: 'error', message: err.message };
+  }
+}
+
+// ── M28 — Grammar Explainer ───────────────────────────────────────────────
+
+async function handleExplainGrammar({ phrase, language }) {
+  if (!phrase) return { status: 'error', message: 'phrase required' };
+  const baseUrl = await getBaseUrl();
+  const sessionHeaders = await getSessionHeader(baseUrl);
+  try {
+    const resp = await fetch(`${baseUrl}/lexora_api/explain_grammar`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json', ...sessionHeaders },
+      body: JSON.stringify({ phrase, language: language || 'en' }),
     });
     if (resp.status === 401) return { status: 'unauthorized' };
     if (!resp.ok) return { status: 'error', message: `HTTP ${resp.status}` };
