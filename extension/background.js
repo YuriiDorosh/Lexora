@@ -68,6 +68,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     handleDailyCard().then(sendResponse).catch(() => sendResponse({ status: 'error' }));
   } else if (msg.action === 'lexora-get-whoami') {
     handleWhoami().then(sendResponse).catch(() => sendResponse({ status: 'error' }));
+  } else if (msg.action === 'lexora-get-learned-words') {
+    handleGetLearnedWords().then(sendResponse).catch(() => sendResponse({ status: 'error' }));
   }
   return true; // MUST be at the very end — keeps channel open for all async handlers
 });
@@ -135,7 +137,12 @@ async function handleAddWordOverlay({ word, source_language, source_url }) {
     });
     if (resp.status === 401) return { status: 'unauthorized' };
     if (!resp.ok) return { status: 'error', message: `HTTP ${resp.status}` };
-    return await resp.json();
+    const data = await resp.json();
+    if (data.status === 'ok') {
+      // Invalidate the M27 word-list cache so the new word is highlighted on next page load
+      chrome.storage.local.remove('lx_word_cache');
+    }
+    return data;
   } catch (err) {
     return { status: 'error', message: err.message };
   }
@@ -165,6 +172,25 @@ async function handleWhoami() {
   const sessionHeaders = await getSessionHeader(baseUrl);
   try {
     const resp = await fetch(`${baseUrl}/lexora_api/whoami`, {
+      method: 'GET',
+      credentials: 'include',
+      headers: sessionHeaders,
+    });
+    if (resp.status === 401) return { status: 'unauthorized' };
+    if (!resp.ok) return { status: 'error', message: `HTTP ${resp.status}` };
+    return resp.json();
+  } catch (err) {
+    return { status: 'error', message: err.message };
+  }
+}
+
+// ── M27 — Learned word list (page highlighting) ───────────────────────────
+
+async function handleGetLearnedWords() {
+  const baseUrl = await getBaseUrl();
+  const sessionHeaders = await getSessionHeader(baseUrl);
+  try {
+    const resp = await fetch(`${baseUrl}/lexora_api/get_learned_words`, {
       method: 'GET',
       credentials: 'include',
       headers: sessionHeaders,
@@ -232,6 +258,8 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
 
     const data = await resp.json();
     if (data.status === 'ok') {
+      // Invalidate M27 word-list cache so the new word highlights on next page scan
+      chrome.storage.local.remove('lx_word_cache');
       setBadge(tab.id, '✓', '#22c55e');
       chrome.tabs.sendMessage(tab.id, { action: 'show-toast', status: 'ok', word });
     } else if (data.status === 'duplicate') {

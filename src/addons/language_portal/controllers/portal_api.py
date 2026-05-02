@@ -1,6 +1,8 @@
 import json
 import logging
 import os
+import time
+from datetime import date as _date, datetime as _datetime
 
 from odoo import http
 from odoo.http import request
@@ -12,6 +14,7 @@ _MAX_WORD_LEN = 500
 _MAX_CONTEXT_LEN = 2000
 _MAX_URL_LEN = 2048
 _TRANSLATION_SVC = os.environ.get('TRANSLATION_SERVICE_URL', 'http://translation-service:8000').rstrip('/')
+_LLM_SVC = os.environ.get('LLM_SERVICE_URL', 'http://llm-service:8000').rstrip('/')
 
 
 def _cors_headers():
@@ -454,6 +457,157 @@ class LexoraApiController(http.Controller):
                                    'message': 'Enrichment started, check back in ~30s'})
 
         return _json_response({'status': 'pending', 'message': 'Enrichment in progress'})
+
+
+    # ------------------------------------------------------------------
+    # GET /lexora_api/get_learned_words  (M27 — Review in the Wild)
+    # ------------------------------------------------------------------
+    @http.route('/lexora_api/get_learned_words', type='http', auth='none',
+                methods=['GET'], csrf=False)
+    def get_learned_words(self, **kw):
+        """Return the user's vocabulary with SRS metadata for page highlighting.
+
+        Response (≤500 entries, ordered by most-recently reviewed first):
+            {
+              "status": "ok",
+              "words": [
+                {
+                  "id": 42,
+                  "word": "ephemeral",
+                  "normalized": "ephemeral",
+                  "lang": "en",
+                  "best_translation": "короткочасний",
+                  "srs_state": "review",   // "new" | "learning" | "review" | null
+                  "days_ago": 3            // null if never reviewed
+                }
+              ],
+              "generated_at": 1746300000   // Unix timestamp for client-side TTL
+            }
+
+        The extension caches this response for 15 minutes in chrome.storage.local.
+        Cache is invalidated when the user adds a word via the extension popup.
+        """
+        err = _require_session()
+        if err:
+            return err
+
+        uid = _resolve_uid()
+
+        if 'language.entry' not in request.env.registry:
+            return _json_response({'status': 'ok', 'words': [],
+                                   'generated_at': int(time.time())})
+
+        entries = request.env['language.entry'].sudo().search([
+            ('owner_id', '=', uid),
+            ('status', '=', 'active'),
+        ], limit=500, order='write_date desc')
+
+        # Build SRS lookup: entry_id → review record
+        srs_map = {}
+        if 'language.review' in request.env.registry:
+            reviews = request.env['language.review'].sudo().search([
+                ('user_id', '=', uid),
+                ('entry_id', 'in', entries.ids),
+            ])
+            srs_map = {r.entry_id.id: r for r in reviews}
+
+        # Build translation lookup: entry_id → {lang_code: translated_text}
+        trans_map = {}
+        if 'language.translation' in request.env.registry:
+            translations = request.env['language.translation'].sudo().search([
+                ('entry_id', 'in', entries.ids),
+                ('status', '=', 'completed'),
+            ], order='id asc')
+            for t in translations:
+                entry_trans = trans_map.setdefault(t.entry_id.id, {})
+                # Keep first result per language (order='id asc' → earliest job wins)
+                if t.target_language not in entry_trans:
+                    entry_trans[t.target_language] = t.translated_text
+
+        today = _date.today()
+        words = []
+        for entry in entries:
+            review = srs_map.get(entry.id)
+            srs_state = review.state if review else None
+            days_ago = None
+            if review and review.last_review_date:
+                lrd = review.last_review_date
+                # Odoo Date → date object; Odoo Datetime → datetime object
+                lrd_date = lrd.date() if isinstance(lrd, _datetime) else lrd
+                days_ago = (today - lrd_date).days
+
+            words.append({
+                'id': entry.id,
+                'word': entry.source_text,
+                'normalized': entry.normalized_text or entry.source_text.lower(),
+                'lang': entry.source_language,
+                'translations': trans_map.get(entry.id) or {},
+                'srs_state': srs_state,
+                'days_ago': days_ago,
+            })
+
+        return _json_response({
+            'status': 'ok',
+            'words': words,
+            'generated_at': int(time.time()),
+        })
+
+    # ------------------------------------------------------------------
+    # POST /lexora_api/explain_grammar  (M28 — Grammar Explainer)
+    # ------------------------------------------------------------------
+    @http.route('/lexora_api/explain_grammar', type='http', auth='none',
+                methods=['POST'], csrf=False)
+    def explain_grammar(self, **kw):
+        """Proxy a grammar explanation request to the LLM service.
+
+        Request body (JSON):
+            phrase    (str, required)  — the phrase or sentence to explain
+            language  (str, optional)  — language hint: en / uk / el (default 'en')
+
+        Response:
+            {"status": "ok",          "explanation": "..."}
+            {"status": "unavailable", "explanation": "LLM not ready — try again in 30s."}
+            {"status": "error",       "message": "..."}
+
+        The LLM service runs Qwen2.5-1.5B-Instruct locally. Expected latency on the
+        target server (E5-2680 v2, AVX-only): 10–40 s. The extension should show
+        a "Explaining…" state while waiting.
+        """
+        err = _require_session()
+        if err:
+            return err
+
+        try:
+            raw = request.httprequest.get_data(as_text=True)
+            data = json.loads(raw) if raw else {}
+        except (ValueError, UnicodeDecodeError):
+            data = {}
+        data = {**request.params, **data}
+
+        phrase = (data.get('phrase') or '').strip()[:_MAX_WORD_LEN]
+        if not phrase:
+            return _json_response({'status': 'error', 'message': 'phrase is required'}, 400)
+
+        language = (data.get('language') or 'en').strip().lower()
+        if language not in _ALLOWED_LANGUAGES:
+            language = 'en'
+
+        try:
+            import requests as _req
+            resp = _req.post(
+                f'{_LLM_SVC}/explain-grammar',
+                json={'phrase': phrase, 'language': language},
+                timeout=60,
+            )
+            resp.raise_for_status()
+            result = json.loads(resp.content.decode('utf-8', errors='replace'))
+            return _json_response(result)
+        except Exception as exc:
+            _logger.warning('explain_grammar proxy error: %s', exc)
+            return _json_response({
+                'status': 'unavailable',
+                'explanation': 'LLM service unavailable — please try again shortly.',
+            })
 
 
 # -------------------------------------------------------------------------

@@ -655,3 +655,269 @@ document.addEventListener('mousedown', (e) => {
   _removeQlIcon();
   _removeQlOverlay();
 });
+
+// ── M27 — Review in the Wild: page highlighting + SRS tooltip ─────────────
+// Highlights words in the user's vocabulary with a subtle underline.
+// On hover shows a glassmorphism tooltip with the translation and SRS state.
+// Word list fetched from Odoo and cached 15 min in chrome.storage.local.
+
+const _LX_CACHE_KEY    = 'lx_word_cache';
+const _LX_CACHE_TTL_MS = 15 * 60 * 1000; // 15 minutes
+
+const _REVIEW_CSS = `
+  .lx-known-word {
+    border-bottom: 1.5px solid rgba(99,102,241,0.5);
+    cursor: default;
+    border-radius: 1px;
+    transition: border-color 0.15s;
+  }
+  .lx-known-word:hover { border-bottom-color: rgba(99,102,241,0.85); }
+  .lx-known-word[data-srs="review"]   { border-bottom-color: rgba(52,211,153,0.55); }
+  .lx-known-word[data-srs="review"]:hover { border-bottom-color: rgba(52,211,153,0.9); }
+  .lx-known-word[data-srs="learning"] { border-bottom-color: rgba(251,191,36,0.55); }
+  .lx-known-word[data-srs="learning"]:hover { border-bottom-color: rgba(251,191,36,0.9); }
+
+  #lx-review-tooltip {
+    position: fixed;
+    z-index: 2147483646;
+    max-width: 240px;
+    padding: 10px 13px;
+    background: rgba(10,14,28,0.95);
+    backdrop-filter: blur(16px) saturate(180%);
+    -webkit-backdrop-filter: blur(16px) saturate(180%);
+    border: 1px solid rgba(255,255,255,0.11);
+    border-radius: 12px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.55), 0 2px 8px rgba(0,0,0,0.4);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    font-size: 12px;
+    color: #e2e8f0;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.12s;
+  }
+  #lx-review-tooltip.lx-tt-visible { opacity: 1; }
+  .lx-tt-word  { font-weight: 700; font-size: 13px; color: #f1f5f9; margin-bottom: 3px; }
+  .lx-tt-trans { color: #a5b4fc; font-weight: 600; margin-bottom: 4px; }
+  .lx-tt-srs   { color: rgba(255,255,255,0.42); font-size: 11px; }
+`;
+
+function _ensureReviewStyles() {
+  if (document.getElementById('lx-review-styles')) return;
+  const style = document.createElement('style');
+  style.id = 'lx-review-styles';
+  style.textContent = _REVIEW_CSS;
+  document.head.appendChild(style);
+}
+
+// ── Word list cache ────────────────────────────────────────────────────────
+
+function _getWordList() {
+  return new Promise((resolve) => {
+    try {
+      chrome.storage.local.get([_LX_CACHE_KEY], (result) => {
+        const cached = result[_LX_CACHE_KEY];
+        if (cached && cached.generated_at &&
+            (Date.now() - cached.generated_at * 1000) < _LX_CACHE_TTL_MS) {
+          resolve(cached.words || []);
+          return;
+        }
+        _qlSendMessage({ action: 'lexora-get-learned-words' }, (response) => {
+          if (!response || response.status !== 'ok' || !Array.isArray(response.words)) {
+            resolve([]);
+            return;
+          }
+          try {
+            chrome.storage.local.set({
+              [_LX_CACHE_KEY]: { words: response.words, generated_at: response.generated_at },
+            });
+          } catch (_) { /* non-fatal */ }
+          resolve(response.words);
+        });
+      });
+    } catch (_) {
+      resolve([]);
+    }
+  });
+}
+
+// ── Word map ───────────────────────────────────────────────────────────────
+
+function _buildWordMap(words) {
+  const map = new Map();
+  for (const w of words) {
+    const key = (w.normalized || w.word || '').toLowerCase().trim();
+    if (key.length >= 2 && !map.has(key)) map.set(key, w);
+  }
+  return map;
+}
+
+// ── DOM scanner ────────────────────────────────────────────────────────────
+
+const _LX_SKIP_TAGS = new Set([
+  'SCRIPT','STYLE','TEXTAREA','INPUT','CODE','PRE',
+  'NOSCRIPT','IFRAME','CANVAS','SVG','MATH','BUTTON','SELECT',
+]);
+
+let _lxIsHighlighting = false;
+
+function _wrapMatchesInNode(textNode, wordMap) {
+  const text = textNode.nodeValue;
+  if (!text || text.trim().length < 2) return false;
+
+  const parts = text.split(/(\s+)/);
+  let modified = false;
+  const fragment = document.createDocumentFragment();
+
+  for (const part of parts) {
+    if (/^\s*$/.test(part)) {
+      fragment.appendChild(document.createTextNode(part));
+      continue;
+    }
+    const key = part.toLowerCase().replace(/^[^a-zÀ-ɏͰ-ϿЀ-ӿ]+/i, '')
+                                  .replace(/[^a-zÀ-ɏͰ-ϿЀ-ӿ]+$/i, '');
+    const entry = key.length >= 2 ? wordMap.get(key) : null;
+    if (entry) {
+      const span = document.createElement('span');
+      span.className = 'lx-known-word';
+      span.setAttribute('data-srs',      entry.srs_state || 'null');
+      span.setAttribute('data-word',     entry.word);
+      span.setAttribute('data-trans-uk', (entry.translations && entry.translations.uk) || '');
+      span.setAttribute('data-trans-el', (entry.translations && entry.translations.el) || '');
+      span.setAttribute('data-days',     entry.days_ago != null ? String(entry.days_ago) : '');
+      span.textContent = part;
+      fragment.appendChild(span);
+      modified = true;
+    } else {
+      fragment.appendChild(document.createTextNode(part));
+    }
+  }
+
+  if (modified) textNode.parentNode.replaceChild(fragment, textNode);
+  return modified;
+}
+
+function _highlightPage(wordMap) {
+  if (_lxIsHighlighting || !wordMap.size) return;
+  _lxIsHighlighting = true;
+
+  try {
+    const walker = document.createTreeWalker(
+      document.body,
+      NodeFilter.SHOW_TEXT,
+      {
+        acceptNode(node) {
+          const parent = node.parentElement;
+          if (!parent) return NodeFilter.FILTER_REJECT;
+          if (_LX_SKIP_TAGS.has(parent.tagName)) return NodeFilter.FILTER_REJECT;
+          if (parent.classList?.contains('lx-known-word')) return NodeFilter.FILTER_REJECT;
+          if (parent.classList?.contains('lx-yt-word')) return NodeFilter.FILTER_REJECT;
+          if (parent.id === _QL_HOST_ID || parent.id === 'lx-review-tooltip') return NodeFilter.FILTER_REJECT;
+          if (parent.closest?.(`#${_QL_HOST_ID}, #lx-review-tooltip`)) return NodeFilter.FILTER_REJECT;
+          return NodeFilter.FILTER_ACCEPT;
+        },
+      }
+    );
+
+    const nodes = [];
+    while (walker.nextNode()) nodes.push(walker.currentNode);
+    for (const node of nodes) _wrapMatchesInNode(node, wordMap);
+  } finally {
+    _lxIsHighlighting = false;
+  }
+}
+
+// ── Tooltip ────────────────────────────────────────────────────────────────
+
+function _showReviewTooltip(entry, anchorEl) {
+  let tt = document.getElementById('lx-review-tooltip');
+  if (!tt) {
+    tt = document.createElement('div');
+    tt.id = 'lx-review-tooltip';
+    document.body.appendChild(tt);
+  }
+
+  const daysAgo = entry.days_ago != null ? entry.days_ago : null;
+  const srsLabel = entry.srs_state === 'review'   ? 'Mastered'
+                 : entry.srs_state === 'learning' ? 'In progress'
+                 : 'New word';
+  const timeLabel = daysAgo === 0 ? 'reviewed today'
+                  : daysAgo === 1 ? 'reviewed yesterday'
+                  : daysAgo > 1  ? `reviewed ${daysAgo} days ago`
+                  : 'not yet reviewed';
+
+  const transLines = [];
+  if (entry.translations) {
+    if (entry.translations.uk) transLines.push(`🇺🇦 ${escHtml(entry.translations.uk)}`);
+    if (entry.translations.el) transLines.push(`🇬🇷 ${escHtml(entry.translations.el)}`);
+  }
+
+  tt.innerHTML = `
+    <div class="lx-tt-word">${escHtml(entry.word)}</div>
+    ${transLines.length ? `<div class="lx-tt-trans">${transLines.join('<span class="lx-tt-sep"> · </span>')}</div>` : ''}
+    <div class="lx-tt-srs">${escHtml(srsLabel)} · ${escHtml(timeLabel)}</div>
+  `;
+
+  const rect = anchorEl.getBoundingClientRect();
+  let left = Math.round(rect.left);
+  let top  = Math.round(rect.bottom + 6);
+  if (left + 244 > window.innerWidth - 8) left = Math.max(8, window.innerWidth - 252);
+  if (top + 90 > window.innerHeight - 8) top = Math.max(8, Math.round(rect.top - 96));
+
+  tt.style.left = `${left}px`;
+  tt.style.top  = `${top}px`;
+  tt.classList.add('lx-tt-visible');
+}
+
+function _hideReviewTooltip() {
+  document.getElementById('lx-review-tooltip')?.classList.remove('lx-tt-visible');
+}
+
+// ── Hover delegation ───────────────────────────────────────────────────────
+
+document.body.addEventListener('mouseover', (e) => {
+  const span = e.target?.closest?.('.lx-known-word');
+  if (!span) return;
+  _showReviewTooltip({
+    word:         span.dataset.word || span.textContent,
+    translations: { uk: span.dataset.transUk || '', el: span.dataset.transEl || '' },
+    srs_state:    span.dataset.srs !== 'null' ? span.dataset.srs : null,
+    days_ago:     span.dataset.days !== ''    ? parseInt(span.dataset.days, 10) : null,
+  }, span);
+});
+
+document.body.addEventListener('mouseout', (e) => {
+  if (e.target?.closest?.('.lx-known-word')) _hideReviewTooltip();
+});
+
+// ── Init ───────────────────────────────────────────────────────────────────
+
+let _lxMutationTimer = null;
+
+async function _initHighlighter() {
+  _ensureReviewStyles();
+
+  const words = await _getWordList();
+  if (!words.length) return;
+
+  const wordMap = _buildWordMap(words);
+
+  const run = () => _highlightPage(wordMap);
+  if (typeof requestIdleCallback === 'function') {
+    requestIdleCallback(run, { timeout: 2000 });
+  } else {
+    setTimeout(run, 150);
+  }
+
+  const observer = new MutationObserver(() => {
+    if (_lxIsHighlighting) return;
+    clearTimeout(_lxMutationTimer);
+    _lxMutationTimer = setTimeout(() => _highlightPage(wordMap), 500);
+  });
+  observer.observe(document.body, { childList: true, subtree: true });
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', _initHighlighter);
+} else {
+  _initHighlighter();
+}
