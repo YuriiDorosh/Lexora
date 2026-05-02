@@ -779,10 +779,11 @@ function _wrapMatchesInNode(textNode, wordMap) {
     if (entry) {
       const span = document.createElement('span');
       span.className = 'lx-known-word';
-      span.setAttribute('data-srs',   entry.srs_state || 'null');
-      span.setAttribute('data-word',  entry.word);
-      span.setAttribute('data-trans', entry.best_translation || '');
-      span.setAttribute('data-days',  entry.days_ago != null ? String(entry.days_ago) : '');
+      span.setAttribute('data-srs',      entry.srs_state || 'null');
+      span.setAttribute('data-word',     entry.word);
+      span.setAttribute('data-trans-uk', (entry.translations && entry.translations.uk) || '');
+      span.setAttribute('data-trans-el', (entry.translations && entry.translations.el) || '');
+      span.setAttribute('data-days',     entry.days_ago != null ? String(entry.days_ago) : '');
       span.textContent = part;
       fragment.appendChild(span);
       modified = true;
@@ -844,9 +845,15 @@ function _showReviewTooltip(entry, anchorEl) {
                   : daysAgo > 1  ? `reviewed ${daysAgo} days ago`
                   : 'not yet reviewed';
 
+  const transLines = [];
+  if (entry.translations) {
+    if (entry.translations.uk) transLines.push(`🇺🇦 ${escHtml(entry.translations.uk)}`);
+    if (entry.translations.el) transLines.push(`🇬🇷 ${escHtml(entry.translations.el)}`);
+  }
+
   tt.innerHTML = `
     <div class="lx-tt-word">${escHtml(entry.word)}</div>
-    ${entry.best_translation ? `<div class="lx-tt-trans">${escHtml(entry.best_translation)}</div>` : ''}
+    ${transLines.length ? `<div class="lx-tt-trans">${transLines.join('<span class="lx-tt-sep"> · </span>')}</div>` : ''}
     <div class="lx-tt-srs">${escHtml(srsLabel)} · ${escHtml(timeLabel)}</div>
   `;
 
@@ -871,10 +878,10 @@ document.body.addEventListener('mouseover', (e) => {
   const span = e.target?.closest?.('.lx-known-word');
   if (!span) return;
   _showReviewTooltip({
-    word:             span.dataset.word  || span.textContent,
-    best_translation: span.dataset.trans || '',
-    srs_state:        span.dataset.srs !== 'null' ? span.dataset.srs : null,
-    days_ago:         span.dataset.days  !== ''   ? parseInt(span.dataset.days, 10) : null,
+    word:         span.dataset.word || span.textContent,
+    translations: { uk: span.dataset.transUk || '', el: span.dataset.transEl || '' },
+    srs_state:    span.dataset.srs !== 'null' ? span.dataset.srs : null,
+    days_ago:     span.dataset.days !== ''    ? parseInt(span.dataset.days, 10) : null,
   }, span);
 });
 

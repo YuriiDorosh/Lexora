@@ -511,7 +511,7 @@ class LexoraApiController(http.Controller):
             ])
             srs_map = {r.entry_id.id: r for r in reviews}
 
-        # Build translation lookup: entry_id → first completed translated_text
+        # Build translation lookup: entry_id → {lang_code: translated_text}
         trans_map = {}
         if 'language.translation' in request.env.registry:
             translations = request.env['language.translation'].sudo().search([
@@ -519,8 +519,10 @@ class LexoraApiController(http.Controller):
                 ('status', '=', 'completed'),
             ], order='id asc')
             for t in translations:
-                if t.entry_id.id not in trans_map:
-                    trans_map[t.entry_id.id] = t.translated_text
+                entry_trans = trans_map.setdefault(t.entry_id.id, {})
+                # Keep first result per language (order='id asc' → earliest job wins)
+                if t.target_language not in entry_trans:
+                    entry_trans[t.target_language] = t.translated_text
 
         today = _date.today()
         words = []
@@ -539,7 +541,7 @@ class LexoraApiController(http.Controller):
                 'word': entry.source_text,
                 'normalized': entry.normalized_text or entry.source_text.lower(),
                 'lang': entry.source_language,
-                'best_translation': trans_map.get(entry.id) or '',
+                'translations': trans_map.get(entry.id) or {},
                 'srs_state': srs_state,
                 'days_ago': days_ago,
             })

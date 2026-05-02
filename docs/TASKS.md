@@ -106,6 +106,10 @@ local cache to avoid per-page API calls.
   Quick Look overlay still works independently.
 - [x] M27-21 · Commit: `feat(M27): Review in the Wild — page highlighting + SRS tooltip` ✅
   Committed as d596807 on branch `m27_review_in_the_wild`.
+- [x] M27-22 · Multi-language tooltip fix: `get_learned_words` now returns `translations: {uk, el}` dict
+  instead of a single `best_translation` string. `_wrapMatchesInNode` stores `data-trans-uk` and
+  `data-trans-el` attributes; `_showReviewTooltip` renders "🇺🇦 UA · 🇬🇷 EL" rows; mouseover handler
+  passes `translations` dict. Fixes tooltip showing only the first (alphabetically) translation. ✅
 
 ---
 
