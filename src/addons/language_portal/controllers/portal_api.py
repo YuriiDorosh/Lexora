@@ -10,7 +10,7 @@ from odoo.http import request
 _logger = logging.getLogger(__name__)
 
 _ALLOWED_LANGUAGES = ('en', 'uk', 'el')
-_MAX_WORD_LEN = 500
+_MAX_WORD_LEN = 1000
 _MAX_CONTEXT_LEN = 2000
 _MAX_URL_LEN = 2048
 _TRANSLATION_SVC = os.environ.get('TRANSLATION_SERVICE_URL', 'http://translation-service:8000').rstrip('/')

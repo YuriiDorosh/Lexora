@@ -21,7 +21,7 @@
 
 1. [Concept](#1-concept)
 2. [Feature Catalogue](#2-feature-catalogue)
-3. [The Browser Ecosystem (M22–M25)](#3-the-browser-ecosystem-m22m25)
+3. [The Browser Ecosystem (M22–M28)](#3-the-browser-ecosystem-m22m28)
 4. [Backend Architecture](#4-backend-architecture)
 5. [Async Microservices](#5-async-microservices)
 6. [Spaced Repetition (SM-2)](#6-spaced-repetition-sm-2)
@@ -114,7 +114,7 @@ fees, no external databases — just Docker Compose on a CPU-only Linux server.
 
 ---
 
-## 3. The Browser Ecosystem (M22–M25)
+## 3. The Browser Ecosystem (M22–M28)
 
 The Chrome Extension is the centrepiece of the immersion strategy. It turns every
 browser tab into a capture and practice surface.
@@ -191,6 +191,53 @@ Replacing the browser's default new tab with a Lexora vocabulary card.
   tab page without uninstalling the extension.
 - **Authentication-aware**: if the user is logged out, the card shows "Sign in to
   Lexora" and links to the portal.
+
+### M27 — Review in the Wild
+
+Every webpage becomes a passive vocabulary review surface.
+
+- **Automatic highlighting**: the content script runs a single-pass `TreeWalker` over
+  every text node via `requestIdleCallback`. Words that exist in the user's vocabulary
+  receive a coloured dotted underline (`border-bottom: 2px dotted`) colour-keyed by SRS
+  state: **indigo** = due for review, **green** = in learning, **amber** = new.
+- **SRS-aware tooltip**: hovering a highlighted word shows a glassmorphism card with
+  the word, SRS age ("Reviewed 3 days ago"), and — simultaneously — the Ukrainian 🇺🇦 and
+  Greek 🇬🇷 translations rendered side by side.
+- **Multi-language support**: `GET /lexora_api/get_learned_words` returns a
+  `translations: {"uk": "...", "el": "..."}` dict. The content script stores
+  `data-trans-uk` / `data-trans-el` attributes on each `<span>` so the tooltip renders
+  both translations without an extra network call.
+- **15-minute local cache**: word list is fetched once and stored in
+  `chrome.storage.local` with a `generated_at` timestamp. Cache is automatically
+  invalidated when the user adds a new word via the popup or context menu.
+- **SPA-safe**: a `MutationObserver` on `document.body` (debounced 500 ms) re-highlights
+  after React/Vue/Angular route changes without thrashing the DOM.
+- **YouTube safety**: subtitle spans (`lx-yt-word`) are excluded from the walker so
+  subtitle highlighting and the M24 Quick Look overlay are never double-applied.
+
+### M28 — AI Grammar Explainer
+
+One click produces a 2-sentence linguistic explanation of any selected phrase, powered
+by the local Qwen 1.5B model.
+
+- **"Explain Grammar" button** appears in both the global Quick Look overlay (any
+  webpage text selection) and the YouTube subtitle word-click overlay.
+- **LLM endpoint**: `POST /explain-grammar` on the LLM service (FastAPI sync);
+  `max_tokens=150`, `temperature=0.3`, `repeat_penalty=1.1`. System prompt requests a
+  2-sentence linguistics explanation in the same language as the input phrase.
+- **Odoo proxy**: `POST /lexora_api/explain_grammar` forwards to the LLM service with a
+  60-second timeout (same synchronous pattern as the `/roleplay` proxy).
+- **Sentence-length support**: `_QL_MAX_LEN` raised to 1000 characters so full sentences
+  can be selected for grammar analysis (not just individual words).
+- **Draggable overlays**: both the Quick Look card (Shadow DOM) and the YouTube overlay
+  (page DOM) are draggable by their header bars. Viewport-clamped repositioning; the
+  YouTube overlay converts from `bottom/transform` to pure `top/left` positioning on
+  first drag so delta arithmetic is clean.
+- **Scrollable content**: a flex-column sandwich layout (`header → scroll body → footer`)
+  with `!important` on all structural flex/overflow properties survives YouTube's
+  aggressive stylesheet overrides.
+- **Latency UX**: button shows "Explaining…" immediately; overlay stays open so the user
+  can read translations while the model generates (~10–40 s on E5-2680v2 CPU).
 
 ---
 
@@ -271,8 +318,9 @@ Replacing the browser's default new tab with a Lexora vocabulary card.
   no cross-lingual output (ADR-028)
 - **JSON enforcement:** `response_format={"type":"json_object"}` + parse fallback to
   stub to prevent queue wedging
-- **Sync endpoint:** `POST /roleplay` for the AI Roleplay portal feature (bypasses
-  RabbitMQ; conversation turns need immediate response)
+- **Sync endpoints:** `POST /roleplay` for AI Roleplay; `POST /explain-grammar` for the
+  Grammar Explainer button in the browser extension (both bypass RabbitMQ; both require
+  immediate response)
 
 ### Anki Import Service (port 8003)
 
@@ -628,6 +676,8 @@ Key variables in `.env` (see `env.example` for the full list):
 | M24 | ✅ Complete | YouTube clickable subtitles, global Quick Look overlay (Shadow DOM) |
 | M25 | ✅ Complete | New Tab vocabulary card, live clock, animated dark gradient |
 | M26 | ⏸ Postponed | AI Helpdesk RAG — requires ≥16 GiB RAM; preserved on `m26_ai_helpdesk` |
+| M27 | ✅ Complete | Known vocabulary highlighted on any webpage; SRS-aware tooltip with simultaneous 🇺🇦/🇬🇷 translations; 15-min local cache; MutationObserver re-scan |
+| M28 | ✅ Complete | "Explain Grammar" in Quick Look + YouTube overlays; Qwen 1.5B via Odoo proxy; draggable scrollable overlays |
 
 ---
 
@@ -635,13 +685,13 @@ Key variables in `.env` (see `env.example` for the full list):
 
 **M26 — AI Helpdesk (Postponed):** Full automated helpdesk with OdooBot replies
 generated by a local pgvector + Qwen2.5-1.5B RAG pipeline. Complete implementation
-exists on `m26_ai_helpdesk` branch. Blocked by server RAM constraints.
+exists on `m26_ai_helpdesk` branch. Blocked by server RAM constraints (requires ≥16 GiB).
 
 **Potential future milestones:**
-- M27: ELO rating system for PvP matchmaking
-- M28: Mobile PWA / React Native companion
-- M29: Multi-language expansion (Polish, Spanish, German)
-- M30: Collaborative vocabulary lists / class rooms
+- M29: ELO rating system for PvP matchmaking
+- M30: Multi-language expansion (Polish, Spanish, German)
+- M31: Collaborative vocabulary lists / class rooms
+- M32: Mobile PWA / React Native companion
 
 ---
 

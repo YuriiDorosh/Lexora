@@ -78,6 +78,9 @@ const _OVERLAY_CSS = `
   .lx-yt-card {
     min-width: 280px;
     max-width: 400px;
+    max-height: 70vh !important;
+    display: flex !important;
+    flex-direction: column !important;
     background: rgba(10, 15, 30, 0.93);
     backdrop-filter: blur(20px) saturate(180%);
     -webkit-backdrop-filter: blur(20px) saturate(180%);
@@ -87,7 +90,7 @@ const _OVERLAY_CSS = `
       0 16px 48px rgba(0,0,0,0.65),
       0 3px 10px rgba(0,0,0,0.45),
       inset 0 1px 0 rgba(255,255,255,0.08);
-    overflow: hidden;
+    overflow: hidden !important;
   }
 
   .lx-yt-card-header {
@@ -96,6 +99,8 @@ const _OVERLAY_CSS = `
     gap: 10px;
     padding: 12px 14px 10px;
     border-bottom: 1px solid rgba(255,255,255,0.07);
+    cursor: move;
+    user-select: none;
   }
 
   .lx-yt-logo {
@@ -111,6 +116,7 @@ const _OVERLAY_CSS = `
     flex: 1;
     font-size: 15px; font-weight: 700;
     color: #e0e7ff; letter-spacing: 0.2px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; word-break: break-word;
   }
 
   .lx-yt-close {
@@ -123,7 +129,33 @@ const _OVERLAY_CSS = `
   }
   .lx-yt-close:hover { color:#fff; background: rgba(255,255,255,0.1); }
 
-  .lx-yt-body { padding: 10px 14px 12px; }
+  .lx-yt-body {
+    display: flex !important;
+    flex-direction: column !important;
+    flex: 1 1 auto !important;
+    overflow: hidden !important;
+    min-height: 0 !important;
+    padding: 0;
+  }
+
+  .lx-yt-scroll {
+    overflow-y: auto !important;
+    flex: 1 1 auto !important;
+    min-height: 0 !important;
+    padding: 10px 14px 6px;
+    scrollbar-width: thin; scrollbar-color: rgba(99,102,241,0.4) transparent;
+  }
+  .lx-yt-scroll::-webkit-scrollbar { width: 4px; }
+  .lx-yt-scroll::-webkit-scrollbar-track { background: transparent; }
+  .lx-yt-scroll::-webkit-scrollbar-thumb {
+    background: rgba(99,102,241,0.4); border-radius: 4px;
+  }
+
+  .lx-yt-footer {
+    padding: 4px 14px 12px;
+    border-top: 1px solid rgba(255,255,255,0.06);
+    flex-shrink: 0 !important;
+  }
 
   .lx-yt-loading {
     color: rgba(255,255,255,0.4); font-size: 13px;
@@ -154,7 +186,7 @@ const _OVERLAY_CSS = `
     font-style: italic; padding: 4px 0 8px;
   }
 
-  .lx-yt-actions { display:flex; gap:8px; margin-top:4px; }
+  .lx-yt-actions { display:flex; gap:8px; margin-top:0; }
 
   .lx-yt-add-btn {
     flex:1; padding:7px 12px;
@@ -195,6 +227,26 @@ const _OVERLAY_CSS = `
     margin-top:7px; font-size:11px; font-weight:600;
     min-height:16px; text-align:center; color:rgba(255,255,255,0.55);
   }
+
+  .lx-yt-explain-btn {
+    display:block; width:100%; margin-top:6px; padding:6px 0;
+    background: rgba(139,92,246,0.15);
+    border: 1px solid rgba(139,92,246,0.4);
+    border-radius:8px; color:#c4b5fd; font-size:12px; font-weight:600;
+    cursor: pointer !important; pointer-events: auto !important;
+    transition: background 0.15s;
+  }
+  .lx-yt-explain-btn:hover { background: rgba(139,92,246,0.3); }
+  .lx-yt-explain-btn:disabled { opacity:0.5; cursor:default !important; }
+
+  .lx-yt-grammar-block {
+    display:none; margin-top:8px; padding:10px 12px;
+    background: rgba(139,92,246,0.08);
+    border-left: 3px solid #7c3aed;
+    border-radius: 0 8px 8px 0;
+    font-size:12px; line-height:1.6; color:#ddd6fe;
+  }
+  .lx-yt-grammar-block.lx-visible { display:block; }
 `;
 
 // ── Utilities ──────────────────────────────────────────────────────────────
@@ -341,6 +393,47 @@ function _removeOverlay() {
   document.getElementById(_OVERLAY_ID)?.remove();
 }
 
+// ── draggable card (YouTube overlay) ──────────────────────────────────────
+// The overlay starts with bottom/transform CSS positioning; on first drag
+// mousedown we convert to top/left so arithmetic stays straightforward.
+
+function _makeDraggable(overlayEl) {
+  const handle = overlayEl.querySelector('.lx-yt-card-header');
+  if (!handle) return;
+
+  let dragging = false, startX = 0, startY = 0, originLeft = 0, originTop = 0;
+
+  handle.addEventListener('mousedown', (e) => {
+    if (e.button !== 0) return;
+    dragging = true;
+    const rect = overlayEl.getBoundingClientRect();
+    // Anchor to top/left so drag math is simple
+    overlayEl.style.bottom    = 'auto';
+    overlayEl.style.transform = 'none';
+    overlayEl.style.left      = rect.left + 'px';
+    overlayEl.style.top       = rect.top  + 'px';
+    startX     = e.clientX;
+    startY     = e.clientY;
+    originLeft = rect.left;
+    originTop  = rect.top;
+    e.preventDefault();
+    e.stopPropagation();
+  });
+
+  const onMove = (e) => {
+    if (!dragging) return;
+    const newLeft = Math.max(0, Math.min(window.innerWidth  - overlayEl.offsetWidth,  originLeft + e.clientX - startX));
+    const newTop  = Math.max(0, Math.min(window.innerHeight - overlayEl.offsetHeight, originTop  + e.clientY - startY));
+    overlayEl.style.left = newLeft + 'px';
+    overlayEl.style.top  = newTop  + 'px';
+  };
+
+  const onUp = () => { dragging = false; };
+
+  document.addEventListener('mousemove', onMove);
+  document.addEventListener('mouseup',   onUp);
+}
+
 function _onWordClick(e) {
   e.stopPropagation();
   e.preventDefault();
@@ -436,18 +529,25 @@ function _showOverlay(word, wasPaused, timestamp, lang, video, response) {
         <button class="lx-yt-close" id="lx-yt-close" title="Close">×</button>
       </div>
       <div class="lx-yt-body">
-        ${bodyHtml}
-        ${showActions ? `
-        <div class="lx-yt-actions">
-          <button class="lx-yt-add-btn" id="lx-yt-add">➕ Add to Vocabulary</button>
-          <button class="lx-yt-resume-btn" id="lx-yt-resume">▶ Resume</button>
+        <div class="lx-yt-scroll">
+          ${bodyHtml}
+          ${showActions ? `<div class="lx-yt-grammar-block" id="lx-yt-grammar"></div>` : ''}
         </div>
-        <div class="lx-yt-status" id="lx-yt-status"></div>` : ''}
+        ${showActions ? `
+        <div class="lx-yt-footer">
+          <div class="lx-yt-actions">
+            <button class="lx-yt-add-btn" id="lx-yt-add">➕ Add to Vocabulary</button>
+            <button class="lx-yt-resume-btn" id="lx-yt-resume">▶ Resume</button>
+          </div>
+          <button class="lx-yt-explain-btn" id="lx-yt-explain">Explain Grammar</button>
+          <div class="lx-yt-status" id="lx-yt-status"></div>
+        </div>` : ''}
       </div>
     </div>
   `;
 
   document.body.appendChild(overlay);
+  _makeDraggable(overlay);
 
   overlay.querySelector('#lx-yt-close')?.addEventListener('click', (e) => {
     e.stopPropagation();
@@ -477,6 +577,31 @@ function _showOverlay(word, wasPaused, timestamp, lang, video, response) {
       }
     );
   });
+
+  const explainBtn   = overlay.querySelector('#lx-yt-explain');
+  const grammarBlock = overlay.querySelector('#lx-yt-grammar');
+  if (explainBtn && grammarBlock) {
+    explainBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      explainBtn.disabled = true;
+      explainBtn.textContent = 'Explaining…';
+      const timer = setTimeout(() => {
+        grammarBlock.textContent = 'LLM timed out — try again.';
+        grammarBlock.classList.add('lx-visible');
+        explainBtn.textContent = 'Explain Grammar';
+        explainBtn.disabled = false;
+      }, 65000);
+      _sendMessage({ action: 'lexora-explain-grammar', phrase: word, language: lang }, (resp) => {
+        clearTimeout(timer);
+        grammarBlock.textContent = resp?.explanation || 'Could not generate explanation.';
+        grammarBlock.classList.add('lx-visible');
+        explainBtn.textContent = 'Explain Grammar';
+        explainBtn.disabled = false;
+        const scrollEl = overlay.querySelector('.lx-yt-scroll');
+        if (scrollEl) scrollEl.scrollTop = scrollEl.scrollHeight;
+      });
+    });
+  }
 
   const addBtn = overlay.querySelector('#lx-yt-add');
   if (addBtn) {

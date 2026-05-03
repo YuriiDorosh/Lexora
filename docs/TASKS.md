@@ -17,7 +17,7 @@
 
 ### M27 — Browser Extension: Review in the Wild
 
-**Status:** Implementation complete; pending verification and commit.
+**Status:** Complete and verified. Committed as d596807 on `m27_review_in_the_wild`.
 **Branch:** `m27_review_in_the_wild` (created from `m26_ai_helpdesk`)
 
 **Scope:** Passive vocabulary reinforcement on any webpage. The content script
@@ -96,14 +96,14 @@ local cache to avoid per-page API calls.
 
 **Phase 5 — Verification**
 
-- [ ] M27-17 · Load extension; navigate to any English Wikipedia article.
+- [x] M27-17 · Load extension; navigate to any English Wikipedia article.
   Verify: known words underlined (if user has vocabulary); tooltip appears on hover;
-  "Reveal" shows translation; cache prevents second API call within 15 min.
-- [ ] M27-18 · Add a new word via popup → navigate to a page containing that word →
-  reload extension (or wait for cache TTL) → new word is highlighted.
-- [ ] M27-19 · User not logged in: no highlighting (graceful silent failure).
-- [ ] M27-20 · YouTube with subtitles active: subtitle words NOT double-highlighted;
-  Quick Look overlay still works independently.
+  "Reveal" shows translation; cache prevents second API call within 15 min. ✅
+- [x] M27-18 · Add a new word via popup → navigate to a page containing that word →
+  reload extension (or wait for cache TTL) → new word is highlighted. ✅
+- [x] M27-19 · User not logged in: no highlighting (graceful silent failure). ✅
+- [x] M27-20 · YouTube with subtitles active: subtitle words NOT double-highlighted;
+  Quick Look overlay still works independently. ✅
 - [x] M27-21 · Commit: `feat(M27): Review in the Wild — page highlighting + SRS tooltip` ✅
   Committed as d596807 on branch `m27_review_in_the_wild`.
 - [x] M27-22 · Multi-language tooltip fix: `get_learned_words` now returns `translations: {uk, el}` dict
@@ -113,10 +113,10 @@ local cache to avoid per-page API calls.
 
 ---
 
-### M28 — Browser Extension: One-Click Grammar Explainer (planned)
+### M28 — Browser Extension: One-Click Grammar Explainer
 
-**Status:** Planned — begins after M27 is verified.
-**Branch:** `m28_grammar_explainer` (to be created from `m27_review_in_the_wild`)
+**Status:** Complete and verified. Committed as 4dfd3ed on `m28_grammar_explainer`.
+**Branch:** `m28_grammar_explainer` (created from `m27_review_in_the_wild`)
 
 **Scope:** "Explain Grammar" button added to the existing Quick Look overlay (M24
 content script) and YouTube subtitle overlay (M24 overlay.js). Sends selected phrase
@@ -127,99 +127,82 @@ explanation rendered inline in the overlay — no page navigation.
 
 **Phase 1 — LLM service endpoint**
 
-- [ ] M28-01 · Branch + TASKS.md update.
-- [ ] M28-02 · `services/llm/main.py` — add `GrammarExplainRequest` Pydantic model and
-  `POST /explain-grammar` FastAPI sync endpoint. System prompt (≤60 words):
-  "You are a linguistics expert. Explain the grammar of the given phrase in exactly
-  2 sentences. State what grammatical rule applies and why the phrase is structured
-  this way. Be concise. Reply in the same language as the phrase."
-  Use `max_tokens=150, temperature=0.3, repeat_penalty=1.1`.
-  Stub response when `_llm is None`:
-  `{"status":"unavailable","explanation":"LLM loading — try again in 30 s."}`.
-- [ ] M28-03 · `make up-llm-no-cache` → rebuild.
-- [ ] M28-04 · Curl smoke test:
-  ```bash
-  curl -X POST http://localhost:8002/explain-grammar \
-    -H "Content-Type: application/json" \
-    -d '{"phrase":"She had been waiting for two hours","language":"en"}'
-  # → {"status":"ok","explanation":"..."}
-  ```
+- [x] M28-01 · Branch `m28_grammar_explainer` created from `m27_review_in_the_wild`. TASKS.md updated. ✅
+- [x] M28-02 · `services/llm/main.py` — added `GrammarExplainRequest` Pydantic model,
+  `_explain_grammar()` helper, and `POST /explain-grammar` FastAPI sync endpoint.
+  System prompt instructs 2-sentence linguistics explanation in same language as input.
+  `max_tokens=150, temperature=0.3, repeat_penalty=1.1`. Stub returns
+  `"LLM not ready — try again in 30 s."` when model not loaded. ✅
+- [x] M28-03 · `make up-llm-no-cache` → rebuild completed. `/explain-grammar` endpoint
+  confirmed live via `/openapi.json` route list. ✅
+- [x] M28-04 · Curl smoke test passed: ✅
+  `curl -X POST http://localhost:8002/explain-grammar -d '{"phrase":"She had been waiting for two hours","language":"en"}'`
+  → `{"status":"ok","explanation":"The phrase... follows the grammatical rule of past perfect tense..."}`
 
 **Phase 2 — Odoo proxy endpoint**
 
-- [ ] M28-05 · `language_portal/controllers/portal_api.py` — add
-  `POST /lexora_api/explain_grammar`:
-  - `_require_session()` guard.
-  - Reads `phrase` (required, ≤500 chars) and `language` (optional, default `en`).
-  - `requests.post(f"{_LLM_SVC}/explain-grammar", json={...}, timeout=60)` where
-    `_LLM_SVC = os.environ.get('LLM_SERVICE_URL', 'http://llm-service:8000')`.
-  - On success: forward `explanation` field from LLM response.
-  - On timeout/connection error: `{"status":"unavailable","explanation":"LLM timed out."}`.
-  - On `phrase` empty: `{"status":"error","message":"phrase is required"}`, 400.
-- [ ] M28-06 · `--update language_portal --stop-after-init --no-http` → 0 errors.
-- [ ] M28-07 · Curl smoke test through Odoo:
-  ```bash
-  curl -X POST http://localhost:5433/lexora_api/explain_grammar \
-    -H "Content-Type: application/json" \
-    -H "X-Lexora-Session-Id: <sid>" \
-    -d '{"phrase":"She had been waiting","language":"en"}'
-  # → {"status":"ok","explanation":"..."}
-  ```
+- [x] M28-05 · `language_portal/controllers/portal_api.py` — `POST /lexora_api/explain_grammar`
+  already present (was pre-implemented in the prior session). `_require_session()` guard,
+  `phrase` ≤500 chars, forwards to `_LLM_SVC/explain-grammar` with 60s timeout. ✅
+- [x] M28-06 · `--update language_portal --stop-after-init --no-http` → 0 errors. ✅
+- [x] M28-07 · Curl smoke test through Odoo proxy passed: ✅
+  `curl -b <session_cookie> -X POST http://localhost:5433/lexora_api/explain_grammar -d '{"phrase":"She had been waiting","language":"en"}'`
+  → `{"status":"ok","explanation":"The phrase... follows the grammatical rule of perfect aspect..."}`
 
 **Phase 3 — Extension background handler**
 
-- [ ] M28-08 · `extension/background.js` — `lexora-explain-grammar` handler:
-  POST `/lexora_api/explain_grammar` with `{phrase, language}` body.
-  Returns parsed JSON or `{status:"error"}` on network failure.
+- [x] M28-08 · `extension/background.js` — `lexora-explain-grammar` case added to
+  `onMessage` listener; `handleExplainGrammar({phrase, language})` function POSTs to
+  `/lexora_api/explain_grammar` (same session-cookie pattern as other handlers). ✅
 
 **Phase 4 — Quick Look overlay UI (content.js)**
 
-- [ ] M28-09 · `extension/content.js` — in `_renderQlOverlay()`, append to the
-  overlay HTML string:
-  ```html
-  <button id="lx-explain-grammar" class="lx-explain-btn">Explain Grammar</button>
-  <div id="lx-grammar-block" class="lx-grammar-block d-none"></div>
-  ```
-- [ ] M28-10 · `extension/content.js` — attach click handler to `#lx-explain-grammar`
-  inside `_renderQlOverlay()` (after `shadow.innerHTML = ...`):
-  - Set `disabled=true`, `textContent='Explaining…'`.
-  - Send `{action:"lexora-explain-grammar", phrase:_currentWord, language:_currentLang}`
-    to background via `_qlSendMessage`.
-  - On response: populate `#lx-grammar-block`, remove `d-none`, re-enable button.
-  - On timeout (no response after 65 s): show "LLM timed out." in the block.
-- [ ] M28-11 · `extension/overlay.js` — same button + handler added to the YouTube
-  subtitle overlay card (`.lx-yt-overlay-content`). Word and language are already
-  available as local variables at click time.
+- [x] M28-09 · `extension/content.js` — "Explain Grammar" button and `#lx-ql-grammar`
+  block added to `shadow.innerHTML` inside `showActions` conditional in `_renderQlOverlay()`. ✅
+- [x] M28-10 · `extension/content.js` — click handler attached to `#lx-ql-explain`:
+  disables button, shows "Explaining…", sends `lexora-explain-grammar` message with 65s
+  timeout guard; populates `#lx-ql-grammar` and adds `.lx-visible` on response. ✅
+- [x] M28-11 · `extension/overlay.js` — same "Explain Grammar" button + `#lx-yt-grammar`
+  block added to `overlay.innerHTML`; click handler uses `_sendMessage` and same
+  timeout pattern; `lang` variable already in scope from closure. ✅
 
 **Phase 5 — CSS**
 
-- [ ] M28-12 · `extension/overlay.css`:
-  ```css
-  .lx-explain-btn {
-    margin-top: 10px; width: 100%; padding: 6px 0;
-    background: rgba(139,92,246,0.15); border: 1px solid rgba(139,92,246,0.4);
-    border-radius: 8px; color: #c4b5fd; font-size: 12px; cursor: pointer;
-    transition: background 0.15s;
-  }
-  .lx-explain-btn:hover { background: rgba(139,92,246,0.3); }
-  .lx-explain-btn:disabled { opacity: 0.5; cursor: default; }
-
-  .lx-grammar-block {
-    margin-top: 10px; padding: 10px 12px;
-    background: rgba(139,92,246,0.08); border-left: 3px solid #7c3aed;
-    border-radius: 0 8px 8px 0; font-size: 12px; line-height: 1.6;
-    color: #ddd6fe; max-height: 200px; overflow-y: auto;
-  }
-  ```
+- [x] M28-12 · CSS added as embedded strings (no separate `.css` file — consistent with
+  extension pattern). `.lx-ql-explain-btn` + `.lx-ql-grammar-block` appended to `_QL_CSS`
+  in `content.js`. `.lx-yt-explain-btn` + `.lx-yt-grammar-block` appended to `_OVERLAY_CSS`
+  in `overlay.js`. Both use `display:none → .lx-visible { display:block }` pattern. ✅
+- [x] M28-12b · Selection length limit raised to 1000 chars for M28 sentence support:
+  `_QL_MAX_LEN` in `content.js` (was 120); `_MAX_WORD_LEN` in `portal_api.py` (was 500).
+  The 500-char `add_word` guard is unchanged — only the `explain_grammar` truncation
+  (`[:_MAX_WORD_LEN]`) and the Quick Look icon trigger share this new ceiling. ✅
+- [x] M28-12c · Scrollable overlay content: both Quick Look (content.js) and YouTube subtitle
+  overlay (overlay.js) now use a flex-column card structure with a scrollable `.lx-ql-scroll` /
+  `.lx-yt-scroll` inner layer and a pinned `.lx-ql-footer` / `.lx-yt-footer` holding action
+  buttons. `.lx-ql-card`: `max-height:80vh`; `.lx-yt-card`: `max-height:70vh`. Grammar block
+  `max-height` removed — scroll container handles overflow. Scroll-to-bottom triggered after
+  grammar explanation renders. ✅
+- [x] M28-12d · Fix(UI): `!important` added to all structural flex/overflow properties in both
+  overlays (`max-height`, `display`, `flex-direction`, `overflow`, `flex: 1 1 auto`,
+  `min-height: 0`, `flex-shrink`) so YouTube's stylesheet cannot override the sandwich layout.
+  Committed as fa8fbd4. ✅
+- [x] M28-17 · UX: Draggable overlay window — both Quick Look (`content.js`) and YouTube
+  subtitle overlay (`overlay.js`) are now draggable by their header bars. CSS adds
+  `cursor: move; user-select: none` to `.lx-ql-header` / `.lx-yt-card-header`.
+  `_makeQlDraggable(shadow)` (Shadow DOM, `position:absolute` card) and
+  `_makeDraggable(overlayEl)` (page DOM, converts bottom/transform → top/left on first drag)
+  handle viewport-clamped repositioning via `document` mousemove/mouseup listeners.
+  Prevents accidental text selection with `e.preventDefault()` on mousedown. ✅
 
 **Phase 6 — Verification**
 
-- [ ] M28-13 · Select any text on any webpage → Quick Look overlay → "Explain Grammar"
-  button visible → click → "Explaining…" → after ~15 s → explanation renders.
-- [ ] M28-14 · YouTube subtitle word click → overlay → same button works.
-- [ ] M28-15 · LLM not ready (`llm_ready:false` in `/health`) → overlay shows
-  "LLM loading — try again in 30 s." immediately.
-- [ ] M28-16 · Commit: `feat(M28): one-click grammar explainer via Qwen LLM`
+- [x] M28-13 · Select any text on any webpage → Quick Look overlay → "Explain Grammar"
+  button visible → click → "Explaining…" → after ~15 s → explanation renders. ✅
+- [x] M28-14 · YouTube subtitle word click → overlay → same button works. ✅
+- [x] M28-15 · LLM service smoke tests confirmed ready (`llm_ready:true`); stub path returns
+  `"LLM not ready — try again in 30 s."` when model is not loaded (verified via code inspection). ✅
+- [x] M28-16 · Commit: `feat(M28): one-click grammar explainer via Qwen LLM` ✅
+  Committed as 4dfd3ed on branch `m28_grammar_explainer`.
 
 ---
 

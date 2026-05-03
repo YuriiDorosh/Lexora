@@ -249,7 +249,7 @@ chrome.runtime.onMessage.addListener((msg) => {
 const _QL_HOST_ID  = 'lx-ql-shadow-host';
 const _QL_ICON_ID  = 'lx-ql-icon';
 const _QL_MIN_LEN  = 2;
-const _QL_MAX_LEN  = 120;
+const _QL_MAX_LEN  = 1000;
 
 const _QL_LANG_NAMES = { en: 'EN', uk: 'UK', el: 'EL' };
 
@@ -261,6 +261,9 @@ const _QL_CSS = `
     position: absolute;
     width: 300px;
     max-width: calc(100vw - 24px);
+    max-height: 80vh !important;
+    display: flex !important;
+    flex-direction: column !important;
     background: rgba(10, 14, 28, 0.93);
     backdrop-filter: blur(20px) saturate(180%);
     -webkit-backdrop-filter: blur(20px) saturate(180%);
@@ -270,7 +273,7 @@ const _QL_CSS = `
                 inset 0 1px 0 rgba(255,255,255,0.07);
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter', sans-serif;
     color: #e2e8f0;
-    overflow: hidden;
+    overflow: hidden !important;
     pointer-events: all;
     animation: lx-ql-pop 0.18s cubic-bezier(0.34,1.56,0.64,1) both;
   }
@@ -286,6 +289,8 @@ const _QL_CSS = `
     gap: 8px;
     padding: 12px 14px 8px;
     border-bottom: 1px solid rgba(255,255,255,0.07);
+    cursor: move;
+    user-select: none;
   }
 
   .lx-ql-logo {
@@ -301,7 +306,7 @@ const _QL_CSS = `
   .lx-ql-word {
     flex: 1;
     font-size: 14px; font-weight: 700; color: #f1f5f9;
-    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; word-break: break-word;
   }
 
   .lx-ql-close {
@@ -313,7 +318,33 @@ const _QL_CSS = `
   }
   .lx-ql-close:hover { color: #fff; }
 
-  .lx-ql-body { padding: 10px 14px 14px; }
+  .lx-ql-body {
+    display: flex !important;
+    flex-direction: column !important;
+    flex: 1 1 auto !important;
+    overflow: hidden !important;
+    min-height: 0 !important;
+    padding: 0;
+  }
+
+  .lx-ql-scroll {
+    overflow-y: auto !important;
+    flex: 1 1 auto !important;
+    min-height: 0 !important;
+    padding: 10px 14px 6px;
+    scrollbar-width: thin; scrollbar-color: rgba(99,102,241,0.4) transparent;
+  }
+  .lx-ql-scroll::-webkit-scrollbar { width: 4px; }
+  .lx-ql-scroll::-webkit-scrollbar-track { background: transparent; }
+  .lx-ql-scroll::-webkit-scrollbar-thumb {
+    background: rgba(99,102,241,0.4); border-radius: 4px;
+  }
+
+  .lx-ql-footer {
+    padding: 4px 14px 12px;
+    border-top: 1px solid rgba(255,255,255,0.06);
+    flex-shrink: 0 !important;
+  }
 
   .lx-ql-loading, .lx-ql-no-def {
     font-size: 12px; color: rgba(255,255,255,0.42);
@@ -346,7 +377,7 @@ const _QL_CSS = `
     vertical-align: middle; letter-spacing: 0.3px;
   }
 
-  .lx-ql-actions { display: flex; gap: 6px; margin-top: 10px; }
+  .lx-ql-actions { display: flex; gap: 6px; margin-top: 0; }
 
   .lx-ql-add-btn {
     all: unset;
@@ -377,6 +408,27 @@ const _QL_CSS = `
     margin-top: 6px; font-size: 11px; font-weight: 600;
     min-height: 14px; color: rgba(255,255,255,0.5); text-align: center;
   }
+
+  .lx-ql-explain-btn {
+    margin-top: 6px; width: 100%; padding: 6px 0;
+    background: rgba(139,92,246,0.15);
+    border: 1px solid rgba(139,92,246,0.4);
+    border-radius: 8px; color: #c4b5fd; font-size: 12px; font-weight: 600;
+    cursor: pointer;
+    transition: background 0.15s;
+    pointer-events: auto;
+  }
+  .lx-ql-explain-btn:hover { background: rgba(139,92,246,0.3); }
+  .lx-ql-explain-btn:disabled { opacity: 0.5; cursor: default; }
+
+  .lx-ql-grammar-block {
+    display: none; margin-top: 8px; padding: 10px 12px;
+    background: rgba(139,92,246,0.08);
+    border-left: 3px solid #7c3aed;
+    border-radius: 0 8px 8px 0;
+    font-size: 12px; line-height: 1.6; color: #ddd6fe;
+  }
+  .lx-ql-grammar-block.lx-visible { display: block; }
 `;
 
 // ── helpers ────────────────────────────────────────────────────────────────
@@ -541,18 +593,25 @@ function _renderQlOverlay(word, anchorRect, response) {
         <button class="lx-ql-close" id="lx-ql-close" title="Close">×</button>
       </div>
       <div class="lx-ql-body">
-        ${bodyHtml}
+        <div class="lx-ql-scroll">
+          ${bodyHtml}
+          ${showActions ? `<div class="lx-ql-grammar-block" id="lx-ql-grammar"></div>` : ''}
+        </div>
         ${showActions ? `
-          <div class="lx-ql-actions">
-            <button class="lx-ql-add-btn" id="lx-ql-add">➕ Add to Vocabulary</button>
+          <div class="lx-ql-footer">
+            <div class="lx-ql-actions">
+              <button class="lx-ql-add-btn" id="lx-ql-add">➕ Add to Vocabulary</button>
+            </div>
+            <button class="lx-ql-explain-btn" id="lx-ql-explain">Explain Grammar</button>
+            <div class="lx-ql-status" id="lx-ql-status"></div>
           </div>
-          <div class="lx-ql-status" id="lx-ql-status"></div>
         ` : ''}
       </div>
     </div>
   `;
 
   document.body.appendChild(host);
+  _makeQlDraggable(shadow);
 
   shadow.getElementById('lx-ql-close')?.addEventListener('click', (e) => {
     e.stopPropagation();
@@ -570,6 +629,32 @@ function _renderQlOverlay(word, anchorRect, response) {
       _renderQlOverlay(word, anchorRect, resp || { status: 'empty', translations: [] });
     });
   });
+
+  const explainBtn   = shadow.getElementById('lx-ql-explain');
+  const grammarBlock = shadow.getElementById('lx-ql-grammar');
+  if (explainBtn && grammarBlock) {
+    explainBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      explainBtn.disabled = true;
+      explainBtn.textContent = 'Explaining…';
+      const lang = _detectLang(word);
+      const timer = setTimeout(() => {
+        grammarBlock.textContent = 'LLM timed out — try again.';
+        grammarBlock.classList.add('lx-visible');
+        explainBtn.textContent = 'Explain Grammar';
+        explainBtn.disabled = false;
+      }, 65000);
+      _qlSendMessage({ action: 'lexora-explain-grammar', phrase: word, language: lang }, (resp) => {
+        clearTimeout(timer);
+        grammarBlock.textContent = resp?.explanation || 'Could not generate explanation.';
+        grammarBlock.classList.add('lx-visible');
+        explainBtn.textContent = 'Explain Grammar';
+        explainBtn.disabled = false;
+        const scrollEl = shadow.querySelector('.lx-ql-scroll');
+        if (scrollEl) scrollEl.scrollTop = scrollEl.scrollHeight;
+      });
+    });
+  }
 
   const addBtn   = shadow.getElementById('lx-ql-add');
   const statusEl = shadow.getElementById('lx-ql-status');
@@ -598,6 +683,40 @@ function _renderQlOverlay(word, anchorRect, response) {
       );
     });
   }
+}
+
+// ── draggable card (Quick Look) ────────────────────────────────────────────
+
+function _makeQlDraggable(shadow) {
+  const card   = shadow.querySelector('.lx-ql-card');
+  const handle = shadow.querySelector('.lx-ql-header');
+  if (!card || !handle) return;
+
+  let dragging = false, startX = 0, startY = 0, originLeft = 0, originTop = 0;
+
+  handle.addEventListener('mousedown', (e) => {
+    if (e.button !== 0) return;
+    dragging   = true;
+    startX     = e.clientX;
+    startY     = e.clientY;
+    originLeft = parseInt(card.style.left, 10) || 0;
+    originTop  = parseInt(card.style.top,  10) || 0;
+    e.preventDefault();
+    e.stopPropagation();
+  });
+
+  const onMove = (e) => {
+    if (!dragging) return;
+    const newLeft = Math.max(0, Math.min(window.innerWidth  - card.offsetWidth,  originLeft + e.clientX - startX));
+    const newTop  = Math.max(0, Math.min(window.innerHeight - card.offsetHeight, originTop  + e.clientY - startY));
+    card.style.left = newLeft + 'px';
+    card.style.top  = newTop  + 'px';
+  };
+
+  const onUp = () => { dragging = false; };
+
+  document.addEventListener('mousemove', onMove);
+  document.addEventListener('mouseup',   onUp);
 }
 
 function _openQlOverlay(word, anchorRect) {

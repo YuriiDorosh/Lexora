@@ -1,8 +1,8 @@
 # Lexora — Implementation Plan (MVP)
 
-> Version: 1.5 (M27–M28 Browser Extension — Review & Grammar)
-> Last updated: 2026-05-02
-> Status: M0–M25 complete; M26 postponed (resource constraints); M27–M28 planned
+> Version: 1.6 (M27–M28 Browser Extension — Review & Grammar — Complete)
+> Last updated: 2026-05-03
+> Status: M0–M25 complete; M26 postponed (resource constraints); M27–M28 complete
 
 ---
 
@@ -54,8 +54,8 @@
 | M24 | Browser Extension — Media & Subtitles | ✅ Complete | YouTube/Netflix subtitle overlay; click-word mini-popup with definition + Add to List |
 | M25 | Browser Extension — Mini-Practice New Tab | ✅ Complete | New Tab override with daily vocabulary card; animated dark gradient; OdooBot greeting |
 | M26 | AI Helpdesk — RAG Auto-Reply | ⏸ Postponed | Requires pgvector + llama-cpp + fastembed (~2.5 GiB RAM on top of existing stack); postponed until a higher-RAM server is available |
-| M27 | Browser Extension — Review in the Wild | 🔜 Planned | Highlight known vocab on any webpage; hover tooltip with SRS age + Reveal button; cached word list |
-| M28 | Browser Extension — Grammar Explainer | 🔜 Planned | One-click LLM grammar explanation via Quick Look overlay; Qwen `/explain-grammar` sync endpoint |
+| M27 | Browser Extension — Review in the Wild | ✅ Complete | Known vocabulary highlighted on any webpage; SRS-aware tooltip with simultaneous 🇺🇦/🇬🇷 translations; 15-min cached word list; MutationObserver debounced re-scan |
+| M28 | Browser Extension — Grammar Explainer | ✅ Complete | "Explain Grammar" button in Quick Look + YouTube overlays; Qwen 1.5B via Odoo proxy; draggable scrollable overlays with `!important` flex enforcement |
 
 ---
 
@@ -1348,7 +1348,7 @@ Response shape:
       "word": "ephemeral",
       "normalized": "ephemeral",
       "lang": "en",
-      "best_translation": "короткочасний",
+      "translations": {"uk": "короткочасний", "el": "εφήμερος"},
       "srs_state": "review",
       "days_ago": 3
     }
@@ -1358,9 +1358,9 @@ Response shape:
 ```
 
 - Capped at 500 active entries per user (active SRS cards ordered by most-recently reviewed).
-- `best_translation`: first completed translation for the entry (any target language).
+- `translations`: dict of `{lang_code: translated_text}` for all completed translations; tooltip renders all simultaneously (🇺🇦 UA · 🇬🇷 EL rows).
 - `days_ago`: computed from `language.review.last_review_date`; `None` if card never reviewed.
-- `srs_state`: `new` / `learning` / `review` — drives tooltip badge colour.
+- `srs_state`: `new` / `learning` / `review` — drives tooltip badge colour (indigo/green/amber underline).
 - `generated_at`: Unix timestamp for cache TTL computation in the extension.
 
 **Extension content script (`extension/content.js`) additions:**
@@ -1401,18 +1401,23 @@ function _highlightPage(wordMap) {
 ```
 
 **Tooltip CSS:** `.lx-known-word` gets `border-bottom: 2px dotted rgba(99,102,241,0.6)` (indigo,
-subtle). Tooltip is a `position:fixed` glassmorphism card identical to the Quick Look overlay
-style — reuses `.lx-ql-card` CSS from `overlay.css`.
+subtle); colour varies by SRS state (indigo=review, green=learning, amber=new). Tooltip is a
+`position:fixed` glassmorphism card using the same design language as the Quick Look overlay.
+CSS is embedded as `_REVIEW_CSS` in `content.js` — no separate `.css` file.
 
 **Work:**
 1. `language_portal/controllers/portal_api.py` — `GET /lexora_api/get_learned_words` endpoint.
    Joins `language.entry` ↔ `language.review` ↔ `language.translation`. Returns ≤500 words
-   ordered by `last_review_date desc nulls last`.
+   ordered by `last_review_date desc nulls last`. Returns `translations: {uk, el}` dict (not a
+   single `best_translation` string) so the tooltip can show all languages simultaneously.
 2. `extension/content.js` — `_getWordList()` cache layer; `_highlightPage(wordMap)` DOM walker;
-   `_wrapMatchesInNode(node, wordMap)` split-and-wrap; `_showReviewTooltip(span, entry)`;
-   `_hideReviewTooltip()`. Invalidate cache key after `lexora-add-word-overlay` success.
-3. `extension/overlay.css` — `.lx-known-word`, `.lx-review-tooltip`, `.lx-reveal-btn` styles.
-   Reuse glassmorphism variables already defined.
+   `_wrapMatchesInNode(node, wordMap)` stores `data-trans-uk` / `data-trans-el` attributes;
+   `_showReviewTooltip(entry, anchorEl)` renders 🇺🇦/🇬🇷 rows; `_hideReviewTooltip()`.
+   Invalidate `lx_word_cache` after `lexora-add-word-overlay` success.
+3. `_REVIEW_CSS` string constant in `content.js` (injected via `_ensureReviewStyles()`):
+   `.lx-known-word` underline keyed by SRS state (indigo=review, green=learning, amber=new);
+   `#lx-review-tooltip` glassmorphism card with opacity fade transition.
+   Note: no `extension/overlay.css` file — the extension uses embedded CSS strings in JS.
 4. `extension/background.js` — add `lexora-get-learned-words` message handler (GET proxy).
 5. `extension/manifest.json` — no changes needed (content.js already injected on all pages).
 
@@ -1551,12 +1556,21 @@ if (grammarBtn) {
    Rebuild image: `make up-llm-no-cache`.
 2. `language_portal/controllers/portal_api.py` — `POST /lexora_api/explain_grammar` proxy endpoint.
    Update module: `--update language_portal --stop-after-init --no-http`.
+   Selection length cap raised to 1000 chars (`_MAX_WORD_LEN`) for sentence-length phrase support.
 3. `extension/content.js` — "Explain Grammar" button in `_renderQlOverlay()` HTML string;
-   click handler; `#lx-grammar-block` scrollable div.
-4. `extension/overlay.js` — same "Explain Grammar" button in the YouTube subtitle overlay.
+   click handler with 65s timeout guard; `#lx-ql-grammar` scrollable block.
+   `_QL_MAX_LEN` raised to 1000 chars to allow sentence-length selections for grammar queries.
+4. `extension/overlay.js` — same "Explain Grammar" button + `#lx-yt-grammar` block in
+   YouTube subtitle overlay; same `_sendMessage` + timeout pattern.
 5. `extension/background.js` — `lexora-explain-grammar` fetch handler.
-6. `extension/overlay.css` — `.lx-grammar-block` (scrollable, max-height 200px, monospace-ish
-   content font, indigo left border for visual distinction from translations).
+6. CSS embedded as string constants (no separate `.css` file — consistent with extension pattern).
+   `.lx-ql-explain-btn` + `.lx-ql-grammar-block` appended to `_QL_CSS` in `content.js`.
+   `.lx-yt-explain-btn` + `.lx-yt-grammar-block` appended to `_OVERLAY_CSS` in `overlay.js`.
+   Both overlays use a flex-column sandwich layout (`header / scroll-body / footer`) with
+   `!important` on all structural flex/overflow properties to survive YouTube's stylesheet.
+   Both overlays are **draggable** by their header bars: `_makeQlDraggable(shadow)` for the
+   Shadow DOM Quick Look card; `_makeDraggable(overlayEl)` for the YouTube page overlay
+   (converts `bottom/transform` → `top/left` on first drag). Viewport-clamped repositioning.
 
 **Latency UX contract:**
 - Button text changes to "Explaining…" immediately on click.
@@ -1620,6 +1634,7 @@ M0 → M1 → M2 → M3
                                                     (M26 — AI Helpdesk — postponed ⏸)
 ```
 
-M25 is the current stable baseline. M27 and M28 extend the extension ecosystem:
-M27 requires M22 (API infrastructure) + M9 (SRS review data); M28 requires M22 +
+M28 is the current stable baseline — all extension milestones M22–M28 are complete.
+M27 required M22 (API infrastructure) + M9 (SRS review data); M28 required M22 +
 M4b (LLM service). M26 is built on `m26_ai_helpdesk` but postponed due to RAM.
+The next milestone (M29) will be planned separately.
