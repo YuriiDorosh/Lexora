@@ -177,6 +177,12 @@ explanation rendered inline in the overlay — no page navigation.
   `_QL_MAX_LEN` in `content.js` (was 120); `_MAX_WORD_LEN` in `portal_api.py` (was 500).
   The 500-char `add_word` guard is unchanged — only the `explain_grammar` truncation
   (`[:_MAX_WORD_LEN]`) and the Quick Look icon trigger share this new ceiling. ✅
+- [x] M28-12c · Scrollable overlay content: both Quick Look (content.js) and YouTube subtitle
+  overlay (overlay.js) now use a flex-column card structure with a scrollable `.lx-ql-scroll` /
+  `.lx-yt-scroll` inner layer and a pinned `.lx-ql-footer` / `.lx-yt-footer` holding action
+  buttons. `.lx-ql-card`: `max-height:80vh`; `.lx-yt-card`: `max-height:70vh`. Grammar block
+  `max-height` removed — scroll container handles overflow. Scroll-to-bottom triggered after
+  grammar explanation renders. ✅
 
 **Phase 6 — Verification**
 

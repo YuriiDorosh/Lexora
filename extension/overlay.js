@@ -78,6 +78,9 @@ const _OVERLAY_CSS = `
   .lx-yt-card {
     min-width: 280px;
     max-width: 400px;
+    max-height: 70vh;
+    display: flex;
+    flex-direction: column;
     background: rgba(10, 15, 30, 0.93);
     backdrop-filter: blur(20px) saturate(180%);
     -webkit-backdrop-filter: blur(20px) saturate(180%);
@@ -111,6 +114,7 @@ const _OVERLAY_CSS = `
     flex: 1;
     font-size: 15px; font-weight: 700;
     color: #e0e7ff; letter-spacing: 0.2px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; word-break: break-word;
   }
 
   .lx-yt-close {
@@ -123,7 +127,25 @@ const _OVERLAY_CSS = `
   }
   .lx-yt-close:hover { color:#fff; background: rgba(255,255,255,0.1); }
 
-  .lx-yt-body { padding: 10px 14px 12px; }
+  .lx-yt-body {
+    display: flex; flex-direction: column; flex: 1; overflow: hidden; padding: 0;
+  }
+
+  .lx-yt-scroll {
+    overflow-y: auto; flex: 1; padding: 10px 14px 6px;
+    scrollbar-width: thin; scrollbar-color: rgba(99,102,241,0.4) transparent;
+  }
+  .lx-yt-scroll::-webkit-scrollbar { width: 4px; }
+  .lx-yt-scroll::-webkit-scrollbar-track { background: transparent; }
+  .lx-yt-scroll::-webkit-scrollbar-thumb {
+    background: rgba(99,102,241,0.4); border-radius: 4px;
+  }
+
+  .lx-yt-footer {
+    padding: 4px 14px 12px;
+    border-top: 1px solid rgba(255,255,255,0.06);
+    flex-shrink: 0;
+  }
 
   .lx-yt-loading {
     color: rgba(255,255,255,0.4); font-size: 13px;
@@ -154,7 +176,7 @@ const _OVERLAY_CSS = `
     font-style: italic; padding: 4px 0 8px;
   }
 
-  .lx-yt-actions { display:flex; gap:8px; margin-top:4px; }
+  .lx-yt-actions { display:flex; gap:8px; margin-top:0; }
 
   .lx-yt-add-btn {
     flex:1; padding:7px 12px;
@@ -197,7 +219,7 @@ const _OVERLAY_CSS = `
   }
 
   .lx-yt-explain-btn {
-    display:block; width:100%; margin-top:8px; padding:6px 0;
+    display:block; width:100%; margin-top:6px; padding:6px 0;
     background: rgba(139,92,246,0.15);
     border: 1px solid rgba(139,92,246,0.4);
     border-radius:8px; color:#c4b5fd; font-size:12px; font-weight:600;
@@ -213,7 +235,6 @@ const _OVERLAY_CSS = `
     border-left: 3px solid #7c3aed;
     border-radius: 0 8px 8px 0;
     font-size:12px; line-height:1.6; color:#ddd6fe;
-    max-height:200px; overflow-y:auto;
   }
   .lx-yt-grammar-block.lx-visible { display:block; }
 `;
@@ -457,15 +478,19 @@ function _showOverlay(word, wasPaused, timestamp, lang, video, response) {
         <button class="lx-yt-close" id="lx-yt-close" title="Close">×</button>
       </div>
       <div class="lx-yt-body">
-        ${bodyHtml}
-        ${showActions ? `
-        <div class="lx-yt-actions">
-          <button class="lx-yt-add-btn" id="lx-yt-add">➕ Add to Vocabulary</button>
-          <button class="lx-yt-resume-btn" id="lx-yt-resume">▶ Resume</button>
+        <div class="lx-yt-scroll">
+          ${bodyHtml}
+          ${showActions ? `<div class="lx-yt-grammar-block" id="lx-yt-grammar"></div>` : ''}
         </div>
-        <button class="lx-yt-explain-btn" id="lx-yt-explain">Explain Grammar</button>
-        <div class="lx-yt-grammar-block" id="lx-yt-grammar"></div>
-        <div class="lx-yt-status" id="lx-yt-status"></div>` : ''}
+        ${showActions ? `
+        <div class="lx-yt-footer">
+          <div class="lx-yt-actions">
+            <button class="lx-yt-add-btn" id="lx-yt-add">➕ Add to Vocabulary</button>
+            <button class="lx-yt-resume-btn" id="lx-yt-resume">▶ Resume</button>
+          </div>
+          <button class="lx-yt-explain-btn" id="lx-yt-explain">Explain Grammar</button>
+          <div class="lx-yt-status" id="lx-yt-status"></div>
+        </div>` : ''}
       </div>
     </div>
   `;
@@ -520,6 +545,8 @@ function _showOverlay(word, wasPaused, timestamp, lang, video, response) {
         grammarBlock.classList.add('lx-visible');
         explainBtn.textContent = 'Explain Grammar';
         explainBtn.disabled = false;
+        const scrollEl = overlay.querySelector('.lx-yt-scroll');
+        if (scrollEl) scrollEl.scrollTop = scrollEl.scrollHeight;
       });
     });
   }

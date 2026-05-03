@@ -261,6 +261,9 @@ const _QL_CSS = `
     position: absolute;
     width: 300px;
     max-width: calc(100vw - 24px);
+    max-height: 80vh;
+    display: flex;
+    flex-direction: column;
     background: rgba(10, 14, 28, 0.93);
     backdrop-filter: blur(20px) saturate(180%);
     -webkit-backdrop-filter: blur(20px) saturate(180%);
@@ -301,7 +304,7 @@ const _QL_CSS = `
   .lx-ql-word {
     flex: 1;
     font-size: 14px; font-weight: 700; color: #f1f5f9;
-    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; word-break: break-word;
   }
 
   .lx-ql-close {
@@ -313,7 +316,25 @@ const _QL_CSS = `
   }
   .lx-ql-close:hover { color: #fff; }
 
-  .lx-ql-body { padding: 10px 14px 14px; }
+  .lx-ql-body {
+    display: flex; flex-direction: column; flex: 1; overflow: hidden; padding: 0;
+  }
+
+  .lx-ql-scroll {
+    overflow-y: auto; flex: 1; padding: 10px 14px 6px;
+    scrollbar-width: thin; scrollbar-color: rgba(99,102,241,0.4) transparent;
+  }
+  .lx-ql-scroll::-webkit-scrollbar { width: 4px; }
+  .lx-ql-scroll::-webkit-scrollbar-track { background: transparent; }
+  .lx-ql-scroll::-webkit-scrollbar-thumb {
+    background: rgba(99,102,241,0.4); border-radius: 4px;
+  }
+
+  .lx-ql-footer {
+    padding: 4px 14px 12px;
+    border-top: 1px solid rgba(255,255,255,0.06);
+    flex-shrink: 0;
+  }
 
   .lx-ql-loading, .lx-ql-no-def {
     font-size: 12px; color: rgba(255,255,255,0.42);
@@ -346,7 +367,7 @@ const _QL_CSS = `
     vertical-align: middle; letter-spacing: 0.3px;
   }
 
-  .lx-ql-actions { display: flex; gap: 6px; margin-top: 10px; }
+  .lx-ql-actions { display: flex; gap: 6px; margin-top: 0; }
 
   .lx-ql-add-btn {
     all: unset;
@@ -379,7 +400,7 @@ const _QL_CSS = `
   }
 
   .lx-ql-explain-btn {
-    margin-top: 8px; width: 100%; padding: 6px 0;
+    margin-top: 6px; width: 100%; padding: 6px 0;
     background: rgba(139,92,246,0.15);
     border: 1px solid rgba(139,92,246,0.4);
     border-radius: 8px; color: #c4b5fd; font-size: 12px; font-weight: 600;
@@ -396,7 +417,6 @@ const _QL_CSS = `
     border-left: 3px solid #7c3aed;
     border-radius: 0 8px 8px 0;
     font-size: 12px; line-height: 1.6; color: #ddd6fe;
-    max-height: 200px; overflow-y: auto;
   }
   .lx-ql-grammar-block.lx-visible { display: block; }
 `;
@@ -563,14 +583,18 @@ function _renderQlOverlay(word, anchorRect, response) {
         <button class="lx-ql-close" id="lx-ql-close" title="Close">×</button>
       </div>
       <div class="lx-ql-body">
-        ${bodyHtml}
+        <div class="lx-ql-scroll">
+          ${bodyHtml}
+          ${showActions ? `<div class="lx-ql-grammar-block" id="lx-ql-grammar"></div>` : ''}
+        </div>
         ${showActions ? `
-          <div class="lx-ql-actions">
-            <button class="lx-ql-add-btn" id="lx-ql-add">➕ Add to Vocabulary</button>
+          <div class="lx-ql-footer">
+            <div class="lx-ql-actions">
+              <button class="lx-ql-add-btn" id="lx-ql-add">➕ Add to Vocabulary</button>
+            </div>
+            <button class="lx-ql-explain-btn" id="lx-ql-explain">Explain Grammar</button>
+            <div class="lx-ql-status" id="lx-ql-status"></div>
           </div>
-          <button class="lx-ql-explain-btn" id="lx-ql-explain">Explain Grammar</button>
-          <div class="lx-ql-grammar-block" id="lx-ql-grammar"></div>
-          <div class="lx-ql-status" id="lx-ql-status"></div>
         ` : ''}
       </div>
     </div>
@@ -615,6 +639,8 @@ function _renderQlOverlay(word, anchorRect, response) {
         grammarBlock.classList.add('lx-visible');
         explainBtn.textContent = 'Explain Grammar';
         explainBtn.disabled = false;
+        const scrollEl = shadow.querySelector('.lx-ql-scroll');
+        if (scrollEl) scrollEl.scrollTop = scrollEl.scrollHeight;
       });
     });
   }
