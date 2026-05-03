@@ -202,18 +202,34 @@ const LANG_NAMES = { en: 'English', uk: 'Ukrainian', el: 'Greek', pl: 'Polish' }
 
 **Step 4 — Web Application & UI**
 
-- [ ] M29-S4-01 · Vocabulary entry detail (`portal_vocabulary.xml`) — verify
-  Polish translations render with no "null" placeholders.
-- [ ] M29-S4-02 · PvP arena (`portal_arena.xml`) — verify Polish appears in
-  practice/native dropdowns after Step 1.
-- [ ] M29-S4-03 · Translator page (`/translator`) — verify Polish flag and
-  language appear in selectors; round-trip translation works.
-- [ ] M29-S4-04 · Anki upload form — verify Polish appears as a source/target
-  language option (driven by `language.lang` seed from S1-01).
-- [ ] M29-S4-05 · Profile page (`/my/profile`) — verify Polish appears as a
-  checkable `learning_languages` option.
-- [ ] M29-S4-06 · Phrasebook (`/phrasebook`) — verify Polish tab is hidden when
-  no Polish phrases exist (graceful fallback rule).
+**Test fixture (created via Odoo shell, user_id=2):**
+- `language.entry` id=6326 · `source_text='książka'` · `source_language='pl'`
+- 3 completed `language.translation` rows: `en→book` (id=4366),
+  `uk→книга` (id=4365), `el→βιβλίο` (id=4364)
+- `pvp_eligible=True`
+
+- [x] M29-S4-00 · Polish test fixture seeded — entry id=6326 with 3 translations.
+- [ ] M29-S4-01 · `/my/vocabulary/6326` — verify the Polish entry detail page
+  renders all 3 translation rows (en/uk/el) cleanly; `Source language` field
+  shows "Polish"; no `null` placeholders. Re-translate / Re-enrich buttons
+  must accept Polish as source.
+- [ ] M29-S4-02 · `/my/arena` — verify Polish appears in
+  `practice_language` and `native_language` dropdowns of the New Challenge
+  form. Open challenges filtered by `practice_language='pl'` should be visible
+  to users who have Polish in their learning languages.
+- [ ] M29-S4-03 · `/translator` — verify 🇵🇱 flag + "Polish" name appear in
+  source and target language selectors; `apple (en→pl)` returns `jabłko`;
+  Add to Vocabulary button creates a `pl` entry.
+- [ ] M29-S4-04 · `/my/anki` — verify Polish appears in the source-language
+  and destination-language dropdowns (driven by `language.lang` seed; should
+  be auto-included after S1-01).
+- [ ] M29-S4-05 · `/my/profile` — verify Polish appears as a checkable
+  option under `learning_languages`; saving with Polish checked → profile's
+  `learning_languages` includes the `lang_pl` record.
+- [ ] M29-S4-06 · `/phrasebook` — verify Polish tab is **hidden** when no
+  Polish phrases exist for a scenario (graceful fallback rule). The
+  `phrasebook_data.py` dataset has no `pl` keys, so all six scenarios should
+  cleanly omit the 🇵🇱 tab rather than show a broken/empty tab.
 
 **Step 5 — Documentation & Cleanup**
 
