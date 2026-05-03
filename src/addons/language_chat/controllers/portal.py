@@ -17,17 +17,17 @@ from odoo.http import request
 
 _logger = logging.getLogger(__name__)
 
-LANG_NAMES = {'en': 'English', 'uk': 'Ukrainian', 'el': 'Greek'}
-PUBLIC_CHANNELS = ('english', 'ukrainian', 'greek')
+LANG_NAMES = {'en': 'English', 'uk': 'Ukrainian', 'el': 'Greek', 'pl': 'Polish'}
+PUBLIC_CHANNELS = ('english', 'ukrainian', 'greek', 'polish')
 
 
 def _try_detect_language(text: str):
-    """Return 'en', 'uk', 'el', or None using langdetect."""
+    """Return 'en', 'uk', 'el', 'pl', or None using langdetect."""
     try:
         from langdetect import detect_langs
         results = detect_langs(text)
         best = results[0] if results else None
-        if best and best.prob >= 0.7 and best.lang in ('en', 'uk', 'el'):
+        if best and best.prob >= 0.7 and best.lang in ('en', 'uk', 'el', 'pl'):
             return best.lang
     except Exception:
         pass
@@ -154,7 +154,7 @@ class ChatPortal(http.Controller):
 
         uid = request.env.user.id
 
-        if not source_language or source_language not in ('en', 'uk', 'el'):
+        if not source_language or source_language not in ('en', 'uk', 'el', 'pl'):
             source_language = _try_detect_language(text)
 
         if not source_language:

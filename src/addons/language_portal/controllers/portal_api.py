@@ -9,7 +9,7 @@ from odoo.http import request
 
 _logger = logging.getLogger(__name__)
 
-_ALLOWED_LANGUAGES = ('en', 'uk', 'el')
+_ALLOWED_LANGUAGES = ('en', 'uk', 'el', 'pl')
 _MAX_WORD_LEN = 1000
 _MAX_CONTEXT_LEN = 2000
 _MAX_URL_LEN = 2048
@@ -115,7 +115,7 @@ class LexoraApiController(http.Controller):
 
         Request body (JSON):
             word              (str, required)  — the source text
-            source_language   (str, optional)  — en / uk / el (auto-detected if omitted)
+            source_language   (str, optional)  — en / uk / el / pl (auto-detected if omitted)
             translation       (str, optional)  — user-supplied translation
             context_sentence  (str, optional)  — surrounding sentence for Sentence Builder
             source_url        (str, optional)  — originating page URL
@@ -329,7 +329,7 @@ class LexoraApiController(http.Controller):
 
         uid = _resolve_uid()
         lang = (lang or 'en').strip().lower()
-        if lang not in ('en', 'uk', 'el'):
+        if lang not in ('en', 'uk', 'el', 'pl'):
             lang = 'en'
 
         try:
@@ -562,7 +562,7 @@ class LexoraApiController(http.Controller):
 
         Request body (JSON):
             phrase    (str, required)  — the phrase or sentence to explain
-            language  (str, optional)  — language hint: en / uk / el (default 'en')
+            language  (str, optional)  — language hint: en / uk / el / pl (default 'en')
 
         Response:
             {"status": "ok",          "explanation": "..."}

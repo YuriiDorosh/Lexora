@@ -11,7 +11,7 @@ _logger = logging.getLogger(__name__)
 GRADE_LABELS = {0: 'Again', 1: 'Hard', 2: 'Good', 3: 'Easy'}
 LEADERBOARD_PAGE_SIZE = 20
 
-LANG_NAMES = {'en': 'English', 'uk': 'Ukrainian', 'el': 'Greek'}
+LANG_NAMES = {'en': 'English', 'uk': 'Ukrainian', 'el': 'Greek', 'pl': 'Polish'}
 
 REASON_LABELS = {
     'duel_win':      'Duel Win',

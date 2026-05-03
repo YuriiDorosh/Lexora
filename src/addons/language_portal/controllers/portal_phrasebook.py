@@ -34,12 +34,12 @@ class PhrasebookPortal(http.Controller):
         if scenario not in phrasebook:
             return request.not_found()
         data = phrasebook[scenario]
-        active_lang = lang if lang in ('en', 'uk', 'el') else 'en'
+        active_lang = lang if lang in ('en', 'uk', 'el', 'pl') else 'en'
         return request.render('language_portal.portal_phrasebook_scenario', {
             'scenario_key': scenario,
             'scenario_label': data['label'],
             'scenario_icon': data['icon'],
             'phrases': data['phrases'],
             'active_lang': active_lang,
-            'lang_labels': {'en': 'English', 'uk': 'Ukrainian', 'el': 'Greek'},
+            'lang_labels': {'en': 'English', 'uk': 'Ukrainian', 'el': 'Greek', 'pl': 'Polish'},
         })

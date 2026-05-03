@@ -17,8 +17,8 @@ _logger = logging.getLogger(__name__)
 
 TRANSLATION_SVC = os.environ.get("TRANSLATION_SERVICE_URL", "http://translation-service:8000")
 
-LANG_NAMES = {"en": "English", "uk": "Ukrainian", "el": "Greek"}
-LANG_FLAGS = {"en": "🇬🇧", "uk": "🇺🇦", "el": "🇬🇷"}
+LANG_NAMES = {"en": "English", "uk": "Ukrainian", "el": "Greek", "pl": "Polish"}
+LANG_FLAGS = {"en": "🇬🇧", "uk": "🇺🇦", "el": "🇬🇷", "pl": "🇵🇱"}
 
 
 class TranslatorController(http.Controller):

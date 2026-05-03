@@ -13,7 +13,7 @@
                 <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
                     <h1 class="h2 fw-bold mb-0">📰 Articles</h1>
                     <div class="d-flex gap-2 flex-wrap">
-                        <t t-foreach="[('en','English'),('uk','Ukrainian'),('el','Greek')]" t-as="lp">
+                        <t t-foreach="[('en','English'),('uk','Ukrainian'),('el','Greek'),('pl','Polish')]" t-as="lp">
                             <a t-attf-href="/posts?lang=#{lp[0]}"
                                t-att-class="'btn btn-sm ' + ('btn-primary' if lang_filter == lp[0] else 'btn-outline-secondary')">
                                 <t t-esc="lp[1]"/>
@@ -442,7 +442,7 @@
                             <div class="mb-3">
                                 <label class="form-label fw-semibold">Language *</label>
                                 <select name="language" class="form-select">
-                                    <t t-foreach="[('en','English'),('uk','Ukrainian'),('el','Greek')]"
+                                    <t t-foreach="[('en','English'),('uk','Ukrainian'),('el','Greek'),('pl','Polish')]"
                                        t-as="lp">
                                         <option t-att-value="lp[0]"
                                                 t-att-selected="'selected' if (post_data.get('language') or (post.language if post else 'en')) == lp[0] else None">

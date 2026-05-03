@@ -1,8 +1,8 @@
 # Lexora — Implementation Plan (MVP)
 
-> Version: 1.6 (M27–M28 Browser Extension — Review & Grammar — Complete)
+> Version: 1.7 (M29 — Polish Language Support — In Progress)
 > Last updated: 2026-05-03
-> Status: M0–M25 complete; M26 postponed (resource constraints); M27–M28 complete
+> Status: M0–M25 complete; M26 postponed (resource constraints); M27–M28 complete; M29 in progress
 
 ---
 
@@ -56,6 +56,7 @@
 | M26 | AI Helpdesk — RAG Auto-Reply | ⏸ Postponed | Requires pgvector + llama-cpp + fastembed (~2.5 GiB RAM on top of existing stack); postponed until a higher-RAM server is available |
 | M27 | Browser Extension — Review in the Wild | ✅ Complete | Known vocabulary highlighted on any webpage; SRS-aware tooltip with simultaneous 🇺🇦/🇬🇷 translations; 15-min cached word list; MutationObserver debounced re-scan |
 | M28 | Browser Extension — Grammar Explainer | ✅ Complete | "Explain Grammar" button in Quick Look + YouTube overlays; Qwen 1.5B via Odoo proxy; draggable scrollable overlays with `!important` flex enforcement |
+| M29 | Polish Language Support (System-Wide) | 🔧 In Progress | Add Polish (`pl` / 🇵🇱) as a first-class language across DB selectors, controllers, FastAPI services (`deep_translator` `pl-PL`, `edge-tts` `pl-PL-ZofiaNeural`, `espeak-ng pl`, LLM `LANG_NAMES`), browser extension (Latin-diacritic detection heuristic, Quick Look 🇵🇱 row, New Tab card), and portal templates. Graceful fallback when content is missing |
 
 ---
 
@@ -1637,4 +1638,149 @@ M0 → M1 → M2 → M3
 M28 is the current stable baseline — all extension milestones M22–M28 are complete.
 M27 required M22 (API infrastructure) + M9 (SRS review data); M28 required M22 +
 M4b (LLM service). M26 is built on `m26_ai_helpdesk` but postponed due to RAM.
-The next milestone (M29) will be planned separately.
+M29 (Polish language support) is a horizontal expansion — touches every layer
+but introduces no new endpoints or flows.
+
+---
+
+## M29 — Polish Language Support (System-Wide)
+
+**Goal:** Add Polish (`pl` / 🇵🇱) as a first-class supported language alongside the
+existing English (`en`), Ukrainian (`uk`), and Greek (`el`). After M29, the user
+can pick `pl` as a `source_language`, `target_language`, `practice_language`, or
+`native_language` anywhere in the app — vocabulary entries, translations, PvP
+duels, posts, idioms, scenarios, and chat all accept Polish equally.
+
+**Scope:** Pure horizontal expansion. No new endpoints, no new models, no new
+async services. The only logic change is a single Latin-diacritic regex added to
+the extension's `_detectLang()` heuristic so Polish input is routed correctly
+when Cyrillic and Greek are absent.
+
+### Architecture decisions
+
+- **Polish flag emoji:** 🇵🇱 (U+1F1F5 U+1F1F1).
+- **MyMemory locale:** `pl-PL` (standard ISO; verified via `deep_translator`'s
+  `MyMemoryTranslator` language list).
+- **Edge TTS voice:** `pl-PL-ZofiaNeural` (female, consistent with the existing
+  uk/el female-voice convention). Fallback: `espeak-ng -v pl`.
+- **`langdetect`:** ships Polish out of the box (`pl` is in its supported set).
+  No extra dependency.
+- **Extension `_detectLang()`:** add `if (/[ąćęłńóśźżĄĆĘŁŃÓŚŹŻ]/.test(text)) return 'pl';`
+  **before** the `'en'` fallback. The Cyrillic and Greek branches stay first.
+- **Graceful content fallback:** for static datasets that don't yet have Polish
+  content (`phrasebook_data.py`, `cloze_exercises.py`), the UI hides the
+  language tab/option when no Polish entries exist — no `null` placeholders,
+  no broken cards. The data structures accept `pl` keys; populating them is a
+  content task that can run in parallel with the schema rollout.
+
+### Step-by-step work plan
+
+**Step 1 — Database & backend (Odoo / Python)**
+1. `language_words/data/language_lang.xml`: add `<record id="lang_pl">` block.
+2. All `Selection` field definitions across addons (8 sites) — add
+   `('pl', 'Polish')`. Files: `language_words/models/language_lang.py`,
+   `language_words/models/language_word_of_day.py`, `language_pvp/models/language_duel.py`,
+   `language_portal/models/language_post.py`, `language_portal/models/language_idiom.py`,
+   `language_portal/models/language_scenario.py`,
+   `language_portal/models/language_scenario_session.py`.
+3. All controller `LANG_NAMES` dicts and validation tuples (~25 sites across
+   `language_words`, `language_translation`, `language_portal`,
+   `language_pvp`, `language_chat`, `language_learning`) — add `'pl'`.
+4. `language_portal/controllers/portal_translator.py`: add `LANG_FLAGS['pl'] = '🇵🇱'`.
+5. QWeb template hardcoded language tuples — add `('pl', 'Polish')` (or
+   `('pl', '🇵🇱 Polish')` for the idiom view).
+6. `language_anki_jobs`: no changes (the import service is language-agnostic;
+   user picks source/target language at upload time, and the dropdown is
+   driven by `language.lang`).
+
+**Step 2 — LLM prompts & AI services**
+1. `services/translation/main.py`: extend `_MYMEMORY_LOCALES` with `"pl": "pl-PL"`.
+   Google's `GoogleTranslator` already accepts bare `pl` — no change there.
+2. `services/audio/main.py`: extend `_EDGE_VOICES` with
+   `"pl": "pl-PL-ZofiaNeural"` and `_ESPEAK_LANGS` with `"pl": "pl"`.
+3. `services/llm/main.py`: extend `LANG_NAMES` with `"pl": "Polish"`. The
+   enrichment system prompt is language-agnostic ("Output in the SAME language
+   as the input term"), so no prompt rewrite is needed — Polish input
+   automatically yields Polish enrichment output.
+4. `POST /explain-grammar`: same — system prompt says "Reply in the same
+   language as the phrase." No code change.
+5. `POST /roleplay`: scenario `target_language` Selection field gets `'pl'`
+   (already covered by Step 1). No code change.
+
+**Step 3 — Browser extension**
+1. `extension/content.js` `_detectLang()`: add Polish-diacritic branch.
+2. `extension/newtab.js`: extend `LANG_FLAGS` and `LANG_NAMES` with `pl`.
+3. `extension/content.js` Quick Look overlay: extend the `data-trans-pl`
+   attribute write + the `🇵🇱 PL` row render. Hide the row if `data-trans-pl`
+   is empty.
+4. `extension/overlay.js` YouTube subtitle overlay: same — render the Polish
+   translation row when the API returns it.
+5. `extension/content.js` highlight tooltip: same `data-trans-pl` + 🇵🇱 row.
+6. `language_portal/controllers/portal_api.py` `get_learned_words`: extend the
+   `translations` dict to include `pl` when present (already structured as
+   `{lang: text}`, so this is automatic once the model has `pl` translations).
+
+**Step 4 — Web UI (portal templates)**
+1. Vocabulary entry detail page: existing template iterates
+   `entry.translation_ids` — Polish appears automatically once the Selection
+   field accepts `pl`.
+2. PvP arena: `practice_language` and `native_language` dropdowns — covered
+   by the duel model Selection update in Step 1.
+3. Translator page (`/translator`): the `LANG_FLAGS` and `LANG_NAMES` updates
+   in Step 1 + a one-line addition to the `<select>` tuples in
+   `portal_translator.xml`.
+4. Anki import upload form: language selector reads `language.lang` records,
+   so Polish appears once the seed XML lands in Step 1.
+5. Profile page (`/my/profile`): `learning_languages` is a Many2many to
+   `language.lang`, so Polish auto-appears as a checkable option.
+
+**Step 5 — Documentation & verification**
+1. PLAN.md row → ✅ Complete; status header updated.
+2. TASKS.md milestone block archived.
+3. README.md: add Polish to "Supported Languages" (or equivalent) section;
+   update implementation status table with M29 row.
+4. ADR-029: record the `pl-PL-ZofiaNeural` and `pl-PL` MyMemory locale picks.
+
+### Verification
+
+```bash
+# Schema migration
+docker exec odoo odoo --config /etc/odoo/odoo.conf \
+  -d lexora --update language_words,language_translation,language_pvp,\
+language_portal,language_chat,language_learning --stop-after-init --no-http
+
+# Confirm pl seeded
+docker exec -i postgres psql -U odoo -d lexora -c \
+  "SELECT code, name FROM language_lang WHERE code='pl';"
+# → pl | Polish
+
+# Translation service: pl in both directions
+curl -X POST http://localhost:8001/translate \
+  -H "Content-Type: application/json" \
+  -d '{"text":"apple","source":"en","target":"pl"}'
+# → {"status":"ok","result":"jabłko"}
+
+curl -X POST http://localhost:8001/translate \
+  -H "Content-Type: application/json" \
+  -d '{"text":"jabłko","source":"pl","target":"en"}'
+# → {"status":"ok","result":"apple"}
+
+# Audio service: pl TTS via edge-tts
+docker exec rabbitmq rabbitmqadmin --username=guest --password=guest \
+  publish exchange=amq.default routing_key=audio.generation.requested \
+  payload='{"job_id":"m29-pl-tts","event_type":"audio.generation.requested",\
+"payload":{"source_text":"dzień dobry","language":"pl","entry_id":1}}' \
+  properties='{"content_type":"application/json","delivery_mode":2}'
+# audio service log: "edge-tts: voice=pl-PL-ZofiaNeural ... produced N bytes"
+
+# Portal: add entry "jabłko" (pl) → translation auto-queues for the user's
+# learning languages → stored translations include en/uk/el/pl as configured
+
+# Extension: navigate to a Polish-language page → known Polish words highlighted
+# (assumes the user has Polish vocabulary). Hover → 🇺🇦/🇬🇷/🇵🇱 rows in tooltip.
+```
+
+**Acceptance:** Polish entries flow through translation, enrichment, audio, and
+PvP without errors. Browser extension shows Polish translations alongside
+existing languages. Portal templates render Polish without "null" placeholders
+where Polish content is absent (graceful hide).

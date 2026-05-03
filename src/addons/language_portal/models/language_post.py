@@ -22,7 +22,7 @@ class LanguagePost(models.Model):
                                 default=lambda self: self.env.user,
                                 ondelete='set null')
     language = fields.Selection(
-        [('en', 'English'), ('uk', 'Ukrainian'), ('el', 'Greek')],
+        [('en', 'English'), ('uk', 'Ukrainian'), ('el', 'Greek'), ('pl', 'Polish')],
         default='en', required=True,
     )
     published_date = fields.Datetime()

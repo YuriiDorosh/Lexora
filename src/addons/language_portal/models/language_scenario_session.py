@@ -11,7 +11,7 @@ class LanguageScenarioSession(models.Model):
     user_id = fields.Many2one("res.users", required=True, ondelete="cascade", index=True)
     scenario_id = fields.Many2one("language.scenario", required=True, ondelete="cascade")
     target_language = fields.Selection(
-        [("en", "English"), ("uk", "Ukrainian"), ("el", "Greek")],
+        [("en", "English"), ("uk", "Ukrainian"), ("el", "Greek"), ("pl", "Polish")],
         required=True,
     )
     chat_history = fields.Text(default="[]")

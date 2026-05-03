@@ -1,7 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
     <data noupdate="1">
-        <!-- Seed the three MVP-supported languages (SPEC §1). -->
+        <!-- Seed supported languages. MVP started with en/uk/el (SPEC §1);
+             Polish (pl) added in M29 as a first-class language. -->
 
         <record id="lang_en" model="language.lang">
             <field name="code">en</field>
@@ -16,6 +17,11 @@
         <record id="lang_el" model="language.lang">
             <field name="code">el</field>
             <field name="name">Greek</field>
+        </record>
+
+        <record id="lang_pl" model="language.lang">
+            <field name="code">pl</field>
+            <field name="name">Polish</field>
         </record>
 
     </data>

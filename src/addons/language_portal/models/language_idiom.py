@@ -12,7 +12,7 @@ class LanguageIdiom(models.Model):
     example = fields.Text()
     origin_note = fields.Text()
     language = fields.Selection(
-        [('en', 'English'), ('uk', 'Ukrainian'), ('el', 'Greek')],
+        [('en', 'English'), ('uk', 'Ukrainian'), ('el', 'Greek'), ('pl', 'Polish')],
         required=True, index=True,
     )
     category = fields.Selection([

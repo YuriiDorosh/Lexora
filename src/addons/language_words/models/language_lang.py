@@ -4,13 +4,14 @@ LANGUAGE_SELECTION = [
     ('en', 'English'),
     ('uk', 'Ukrainian'),
     ('el', 'Greek'),
+    ('pl', 'Polish'),
 ]
 
 
 class LanguageLang(models.Model):
     """Supported language lookup table.
 
-    Seeded with three records (en/uk/el) via data XML.
+    Seeded with four records (en/uk/el/pl) via data XML.
     Used for Many2many on language.user.profile.learning_languages
     and as a reusable reference across modules.
     """
