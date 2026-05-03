@@ -99,6 +99,8 @@ const _OVERLAY_CSS = `
     gap: 10px;
     padding: 12px 14px 10px;
     border-bottom: 1px solid rgba(255,255,255,0.07);
+    cursor: move;
+    user-select: none;
   }
 
   .lx-yt-logo {
@@ -391,6 +393,47 @@ function _removeOverlay() {
   document.getElementById(_OVERLAY_ID)?.remove();
 }
 
+// ── draggable card (YouTube overlay) ──────────────────────────────────────
+// The overlay starts with bottom/transform CSS positioning; on first drag
+// mousedown we convert to top/left so arithmetic stays straightforward.
+
+function _makeDraggable(overlayEl) {
+  const handle = overlayEl.querySelector('.lx-yt-card-header');
+  if (!handle) return;
+
+  let dragging = false, startX = 0, startY = 0, originLeft = 0, originTop = 0;
+
+  handle.addEventListener('mousedown', (e) => {
+    if (e.button !== 0) return;
+    dragging = true;
+    const rect = overlayEl.getBoundingClientRect();
+    // Anchor to top/left so drag math is simple
+    overlayEl.style.bottom    = 'auto';
+    overlayEl.style.transform = 'none';
+    overlayEl.style.left      = rect.left + 'px';
+    overlayEl.style.top       = rect.top  + 'px';
+    startX     = e.clientX;
+    startY     = e.clientY;
+    originLeft = rect.left;
+    originTop  = rect.top;
+    e.preventDefault();
+    e.stopPropagation();
+  });
+
+  const onMove = (e) => {
+    if (!dragging) return;
+    const newLeft = Math.max(0, Math.min(window.innerWidth  - overlayEl.offsetWidth,  originLeft + e.clientX - startX));
+    const newTop  = Math.max(0, Math.min(window.innerHeight - overlayEl.offsetHeight, originTop  + e.clientY - startY));
+    overlayEl.style.left = newLeft + 'px';
+    overlayEl.style.top  = newTop  + 'px';
+  };
+
+  const onUp = () => { dragging = false; };
+
+  document.addEventListener('mousemove', onMove);
+  document.addEventListener('mouseup',   onUp);
+}
+
 function _onWordClick(e) {
   e.stopPropagation();
   e.preventDefault();
@@ -504,6 +547,7 @@ function _showOverlay(word, wasPaused, timestamp, lang, video, response) {
   `;
 
   document.body.appendChild(overlay);
+  _makeDraggable(overlay);
 
   overlay.querySelector('#lx-yt-close')?.addEventListener('click', (e) => {
     e.stopPropagation();

@@ -289,6 +289,8 @@ const _QL_CSS = `
     gap: 8px;
     padding: 12px 14px 8px;
     border-bottom: 1px solid rgba(255,255,255,0.07);
+    cursor: move;
+    user-select: none;
   }
 
   .lx-ql-logo {
@@ -609,6 +611,7 @@ function _renderQlOverlay(word, anchorRect, response) {
   `;
 
   document.body.appendChild(host);
+  _makeQlDraggable(shadow);
 
   shadow.getElementById('lx-ql-close')?.addEventListener('click', (e) => {
     e.stopPropagation();
@@ -680,6 +683,40 @@ function _renderQlOverlay(word, anchorRect, response) {
       );
     });
   }
+}
+
+// ── draggable card (Quick Look) ────────────────────────────────────────────
+
+function _makeQlDraggable(shadow) {
+  const card   = shadow.querySelector('.lx-ql-card');
+  const handle = shadow.querySelector('.lx-ql-header');
+  if (!card || !handle) return;
+
+  let dragging = false, startX = 0, startY = 0, originLeft = 0, originTop = 0;
+
+  handle.addEventListener('mousedown', (e) => {
+    if (e.button !== 0) return;
+    dragging   = true;
+    startX     = e.clientX;
+    startY     = e.clientY;
+    originLeft = parseInt(card.style.left, 10) || 0;
+    originTop  = parseInt(card.style.top,  10) || 0;
+    e.preventDefault();
+    e.stopPropagation();
+  });
+
+  const onMove = (e) => {
+    if (!dragging) return;
+    const newLeft = Math.max(0, Math.min(window.innerWidth  - card.offsetWidth,  originLeft + e.clientX - startX));
+    const newTop  = Math.max(0, Math.min(window.innerHeight - card.offsetHeight, originTop  + e.clientY - startY));
+    card.style.left = newLeft + 'px';
+    card.style.top  = newTop  + 'px';
+  };
+
+  const onUp = () => { dragging = false; };
+
+  document.addEventListener('mousemove', onMove);
+  document.addEventListener('mouseup',   onUp);
 }
 
 function _openQlOverlay(word, anchorRect) {

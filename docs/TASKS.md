@@ -183,6 +183,17 @@ explanation rendered inline in the overlay — no page navigation.
   buttons. `.lx-ql-card`: `max-height:80vh`; `.lx-yt-card`: `max-height:70vh`. Grammar block
   `max-height` removed — scroll container handles overflow. Scroll-to-bottom triggered after
   grammar explanation renders. ✅
+- [x] M28-12d · Fix(UI): `!important` added to all structural flex/overflow properties in both
+  overlays (`max-height`, `display`, `flex-direction`, `overflow`, `flex: 1 1 auto`,
+  `min-height: 0`, `flex-shrink`) so YouTube's stylesheet cannot override the sandwich layout.
+  Committed as fa8fbd4. ✅
+- [x] M28-17 · UX: Draggable overlay window — both Quick Look (`content.js`) and YouTube
+  subtitle overlay (`overlay.js`) are now draggable by their header bars. CSS adds
+  `cursor: move; user-select: none` to `.lx-ql-header` / `.lx-yt-card-header`.
+  `_makeQlDraggable(shadow)` (Shadow DOM, `position:absolute` card) and
+  `_makeDraggable(overlayEl)` (page DOM, converts bottom/transform → top/left on first drag)
+  handle viewport-clamped repositioning via `document` mousemove/mouseup listeners.
+  Prevents accidental text selection with `e.preventDefault()` on mousedown. ✅
 
 **Phase 6 — Verification**
 
