@@ -261,9 +261,9 @@ const _QL_CSS = `
     position: absolute;
     width: 300px;
     max-width: calc(100vw - 24px);
-    max-height: 80vh;
-    display: flex;
-    flex-direction: column;
+    max-height: 80vh !important;
+    display: flex !important;
+    flex-direction: column !important;
     background: rgba(10, 14, 28, 0.93);
     backdrop-filter: blur(20px) saturate(180%);
     -webkit-backdrop-filter: blur(20px) saturate(180%);
@@ -273,7 +273,7 @@ const _QL_CSS = `
                 inset 0 1px 0 rgba(255,255,255,0.07);
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter', sans-serif;
     color: #e2e8f0;
-    overflow: hidden;
+    overflow: hidden !important;
     pointer-events: all;
     animation: lx-ql-pop 0.18s cubic-bezier(0.34,1.56,0.64,1) both;
   }
@@ -317,11 +317,19 @@ const _QL_CSS = `
   .lx-ql-close:hover { color: #fff; }
 
   .lx-ql-body {
-    display: flex; flex-direction: column; flex: 1; overflow: hidden; padding: 0;
+    display: flex !important;
+    flex-direction: column !important;
+    flex: 1 1 auto !important;
+    overflow: hidden !important;
+    min-height: 0 !important;
+    padding: 0;
   }
 
   .lx-ql-scroll {
-    overflow-y: auto; flex: 1; padding: 10px 14px 6px;
+    overflow-y: auto !important;
+    flex: 1 1 auto !important;
+    min-height: 0 !important;
+    padding: 10px 14px 6px;
     scrollbar-width: thin; scrollbar-color: rgba(99,102,241,0.4) transparent;
   }
   .lx-ql-scroll::-webkit-scrollbar { width: 4px; }
@@ -333,7 +341,7 @@ const _QL_CSS = `
   .lx-ql-footer {
     padding: 4px 14px 12px;
     border-top: 1px solid rgba(255,255,255,0.06);
-    flex-shrink: 0;
+    flex-shrink: 0 !important;
   }
 
   .lx-ql-loading, .lx-ql-no-def {

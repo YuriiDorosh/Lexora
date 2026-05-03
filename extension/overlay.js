@@ -78,9 +78,9 @@ const _OVERLAY_CSS = `
   .lx-yt-card {
     min-width: 280px;
     max-width: 400px;
-    max-height: 70vh;
-    display: flex;
-    flex-direction: column;
+    max-height: 70vh !important;
+    display: flex !important;
+    flex-direction: column !important;
     background: rgba(10, 15, 30, 0.93);
     backdrop-filter: blur(20px) saturate(180%);
     -webkit-backdrop-filter: blur(20px) saturate(180%);
@@ -90,7 +90,7 @@ const _OVERLAY_CSS = `
       0 16px 48px rgba(0,0,0,0.65),
       0 3px 10px rgba(0,0,0,0.45),
       inset 0 1px 0 rgba(255,255,255,0.08);
-    overflow: hidden;
+    overflow: hidden !important;
   }
 
   .lx-yt-card-header {
@@ -128,11 +128,19 @@ const _OVERLAY_CSS = `
   .lx-yt-close:hover { color:#fff; background: rgba(255,255,255,0.1); }
 
   .lx-yt-body {
-    display: flex; flex-direction: column; flex: 1; overflow: hidden; padding: 0;
+    display: flex !important;
+    flex-direction: column !important;
+    flex: 1 1 auto !important;
+    overflow: hidden !important;
+    min-height: 0 !important;
+    padding: 0;
   }
 
   .lx-yt-scroll {
-    overflow-y: auto; flex: 1; padding: 10px 14px 6px;
+    overflow-y: auto !important;
+    flex: 1 1 auto !important;
+    min-height: 0 !important;
+    padding: 10px 14px 6px;
     scrollbar-width: thin; scrollbar-color: rgba(99,102,241,0.4) transparent;
   }
   .lx-yt-scroll::-webkit-scrollbar { width: 4px; }
@@ -144,7 +152,7 @@ const _OVERLAY_CSS = `
   .lx-yt-footer {
     padding: 4px 14px 12px;
     border-top: 1px solid rgba(255,255,255,0.06);
-    flex-shrink: 0;
+    flex-shrink: 0 !important;
   }
 
   .lx-yt-loading {
