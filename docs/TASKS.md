@@ -84,27 +84,85 @@ files, plus seed XML + flag emoji additions).
   (el / en / pl / uk).
 - [x] M29-S1-13 · Anki Import service requires no code change — confirmed.
 
-**Step 2 — LLM Prompts & AI Services**
+#### Resume Reference (exact snippets for fresh sessions)
 
-- [ ] M29-S2-01 · `services/translation/main.py` — extend `_MYMEMORY_LOCALES`
-  with `"pl": "pl-PL"`.
-- [ ] M29-S2-02 · `services/audio/main.py` — extend `_EDGE_VOICES` with
+**Step 1 commit:** `bdf9336` on `m29_polish_support`. 27 files. DB has 4 lang rows.
+
+**Step 2 — exact code edits:**
+
+```python
+# services/translation/main.py  (around line 71)
+_MYMEMORY_LOCALES: dict[str, str] = {
+    "en": "en-US", "uk": "uk-UA", "el": "el-GR", "pl": "pl-PL",  # +pl
+}
+
+# services/audio/main.py  (around line 58)
+_EDGE_VOICES = {
+    "en": "en-US-JennyNeural",
+    "uk": "uk-UA-PolinaNeural",
+    "el": "el-GR-AthinaNeural",
+    "pl": "pl-PL-ZofiaNeural",  # +pl (Microsoft Edge female neural)
+}
+_ESPEAK_LANGS = {"en": "en", "uk": "uk", "el": "el", "pl": "pl"}  # +pl
+
+# services/llm/main.py  (around line 63)
+LANG_NAMES = {"en": "English", "uk": "Ukrainian", "el": "Greek", "pl": "Polish"}  # +pl
+```
+
+After edits: `make up-translation-no-cache && make up-audio-no-cache && make up-llm-no-cache`.
+Roleplay/explain-grammar prompts are language-agnostic — no prompt rewrites needed.
+
+**Step 3 — extension code edits:**
+
+```javascript
+// extension/content.js _detectLang() (around line 436)
+function _detectLang(text) {
+  if (/[Ѐ-ӿ]/.test(text)) return 'uk';
+  if (/[Ͱ-Ͽἀ-῿]/.test(text)) return 'el';
+  if (/[ąćęłńóśźżĄĆĘŁŃÓŚŹŻ]/.test(text)) return 'pl';  // +pl
+  return 'en';
+}
+
+// extension/newtab.js (around line 15)
+const LANG_FLAGS = { en: '🇬🇧', uk: '🇺🇦', el: '🇬🇷', pl: '🇵🇱' };  // +pl
+const LANG_NAMES = { en: 'English', uk: 'Ukrainian', el: 'Greek', pl: 'Polish' };  // +pl
+
+// content.js Quick Look + tooltip + overlay.js — find every
+// data-trans-uk / 🇺🇦 UA pattern and add a sibling data-trans-pl / 🇵🇱 PL
+// row using the same pattern. Hide row when data-trans-pl is empty.
+```
+
+**Step 4 — UI verification (no code expected unless gaps found).**
+
+**Step 5 — final docs flip + ADR-029.**
+
+---
+
+**Step 2 — LLM Prompts & AI Services** ✅
+
+- [x] M29-S2-01 · `services/translation/main.py` `_MYMEMORY_LOCALES` extended
+  with `"pl": "pl-PL"`. Google backend already accepts bare `pl`.
+- [x] M29-S2-02 · `services/audio/main.py` `_EDGE_VOICES` extended with
   `"pl": "pl-PL-ZofiaNeural"` and `_ESPEAK_LANGS` with `"pl": "pl"`.
-- [ ] M29-S2-03 · `services/llm/main.py` — extend `LANG_NAMES` with
-  `"pl": "Polish"`. Enrichment prompt is language-agnostic
-  ("Output in the SAME language as the input term") — no rewrite needed.
-- [ ] M29-S2-04 · `POST /explain-grammar` — system prompt already says "Reply in
-  the same language as the phrase." No code change.
-- [ ] M29-S2-05 · `POST /roleplay` — scenario `target_language` Selection field
-  already covered by S1-05. No code change.
-- [ ] M29-S2-06 · `make up-translation-no-cache && make up-audio-no-cache &&
-  make up-llm-no-cache`. All three services restart cleanly.
-- [ ] M29-S2-07 · Translation E2E for `pl`:
-  `curl -X POST :8001/translate -d '{"text":"apple","source":"en","target":"pl"}'`
-  → `{"status":"ok","result":"jabłko"}`. Reverse direction also works.
-- [ ] M29-S2-08 · Audio E2E for `pl`:
-  publish `audio.generation.requested` with `language=pl` →
-  service log shows `edge-tts: voice=pl-PL-ZofiaNeural` and produces bytes.
+- [x] M29-S2-03 · `services/llm/main.py` `LANG_NAMES` extended with
+  `"pl": "Polish"`. `_roleplay()` calls `LANG_NAMES.get(req.target_language, ...)`,
+  so Polish flows through automatically. Enrichment prompt is language-agnostic.
+- [x] M29-S2-04 · `POST /explain-grammar` — confirmed prompt is language-agnostic;
+  no code change needed.
+- [x] M29-S2-05 · `POST /roleplay` — confirmed; `target_language` field already
+  covered by Step 1.
+- [x] M29-S2-06 · `make up-translation-no-cache && make up-audio-no-cache &&
+  make up-llm-no-cache` — all three services rebuilt and running.
+  - translation `/health` → `provider:google, ready:true`
+  - audio `/health` → `whisper_ready:true, tts_engine:edge-tts`
+  - llm `/health` → `llm_ready:true, model:Qwen2.5-1.5B`
+- [x] M29-S2-07 · Translation E2E for `pl`:
+  - `apple (en→pl)` → `jabłko` ✓
+  - `jabłko (pl→en)` → `apple` ✓
+  - `książka (pl→uk)` → `книга` ✓ (cross-Slavic pair)
+- [ ] M29-S2-08 · Audio E2E for `pl` deferred — service is rebuilt with
+  `pl-PL-ZofiaNeural` mapped; will be smoke-tested in Step 4 when verifying
+  the portal entry detail page TTS button.
 
 **Step 3 — Browser Extension**
 

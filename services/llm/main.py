@@ -60,7 +60,7 @@ LLM_N_THREADS = int(os.getenv("LLM_N_THREADS", "0"))  # 0 = auto
 LLM_MAX_TOKENS = int(os.getenv("LLM_MAX_TOKENS", "512"))
 LLM_AUTO_DOWNLOAD = os.getenv("LLM_AUTO_DOWNLOAD", "1") == "1"
 
-LANG_NAMES = {"en": "English", "uk": "Ukrainian", "el": "Greek"}
+LANG_NAMES = {"en": "English", "uk": "Ukrainian", "el": "Greek", "pl": "Polish"}
 
 # ---------------------------------------------------------------------------
 # Model loading (CPU-only, ADR-027)
