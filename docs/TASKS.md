@@ -17,7 +17,7 @@
 
 ### M27 — Browser Extension: Review in the Wild
 
-**Status:** Implementation complete; pending verification and commit.
+**Status:** Complete and verified. Committed as d596807 on `m27_review_in_the_wild`.
 **Branch:** `m27_review_in_the_wild` (created from `m26_ai_helpdesk`)
 
 **Scope:** Passive vocabulary reinforcement on any webpage. The content script
@@ -96,14 +96,14 @@ local cache to avoid per-page API calls.
 
 **Phase 5 — Verification**
 
-- [ ] M27-17 · Load extension; navigate to any English Wikipedia article.
+- [x] M27-17 · Load extension; navigate to any English Wikipedia article.
   Verify: known words underlined (if user has vocabulary); tooltip appears on hover;
-  "Reveal" shows translation; cache prevents second API call within 15 min.
-- [ ] M27-18 · Add a new word via popup → navigate to a page containing that word →
-  reload extension (or wait for cache TTL) → new word is highlighted.
-- [ ] M27-19 · User not logged in: no highlighting (graceful silent failure).
-- [ ] M27-20 · YouTube with subtitles active: subtitle words NOT double-highlighted;
-  Quick Look overlay still works independently.
+  "Reveal" shows translation; cache prevents second API call within 15 min. ✅
+- [x] M27-18 · Add a new word via popup → navigate to a page containing that word →
+  reload extension (or wait for cache TTL) → new word is highlighted. ✅
+- [x] M27-19 · User not logged in: no highlighting (graceful silent failure). ✅
+- [x] M27-20 · YouTube with subtitles active: subtitle words NOT double-highlighted;
+  Quick Look overlay still works independently. ✅
 - [x] M27-21 · Commit: `feat(M27): Review in the Wild — page highlighting + SRS tooltip` ✅
   Committed as d596807 on branch `m27_review_in_the_wild`.
 - [x] M27-22 · Multi-language tooltip fix: `get_learned_words` now returns `translations: {uk, el}` dict
@@ -115,7 +115,7 @@ local cache to avoid per-page API calls.
 
 ### M28 — Browser Extension: One-Click Grammar Explainer
 
-**Status:** Implementation complete and verified. Ready for final commit.
+**Status:** Complete and verified. Committed as 4dfd3ed on `m28_grammar_explainer`.
 **Branch:** `m28_grammar_explainer` (created from `m27_review_in_the_wild`)
 
 **Scope:** "Explain Grammar" button added to the existing Quick Look overlay (M24
@@ -196,12 +196,13 @@ explanation rendered inline in the overlay — no page navigation.
 
 **Phase 6 — Verification**
 
-- [ ] M28-13 · Select any text on any webpage → Quick Look overlay → "Explain Grammar"
-  button visible → click → "Explaining…" → after ~15 s → explanation renders.
-- [ ] M28-14 · YouTube subtitle word click → overlay → same button works.
+- [x] M28-13 · Select any text on any webpage → Quick Look overlay → "Explain Grammar"
+  button visible → click → "Explaining…" → after ~15 s → explanation renders. ✅
+- [x] M28-14 · YouTube subtitle word click → overlay → same button works. ✅
 - [x] M28-15 · LLM service smoke tests confirmed ready (`llm_ready:true`); stub path returns
   `"LLM not ready — try again in 30 s."` when model is not loaded (verified via code inspection). ✅
-- [ ] M28-16 · Commit: `feat(M28): one-click grammar explainer via Qwen LLM`
+- [x] M28-16 · Commit: `feat(M28): one-click grammar explainer via Qwen LLM` ✅
+  Committed as 4dfd3ed on branch `m28_grammar_explainer`.
 
 ---
 
