@@ -164,25 +164,41 @@ const LANG_NAMES = { en: 'English', uk: 'Ukrainian', el: 'Greek', pl: 'Polish' }
   `pl-PL-ZofiaNeural` mapped; will be smoke-tested in Step 4 when verifying
   the portal entry detail page TTS button.
 
-**Step 3 — Browser Extension**
+**Step 3 — Browser Extension** ✅
 
-- [ ] M29-S3-01 · `extension/content.js` `_detectLang()` — add
-  `if (/[ąćęłńóśźżĄĆĘŁŃÓŚŹŻ]/.test(text)) return 'pl';` immediately before
-  the `'en'` fallback line.
-- [ ] M29-S3-02 · `extension/newtab.js` — extend `LANG_FLAGS` with
-  `pl: '🇵🇱'` and `LANG_NAMES` with `pl: 'Polish'`.
-- [ ] M29-S3-03 · `extension/content.js` Quick Look overlay — extend the
-  `data-trans-pl` attribute write + the `🇵🇱 PL` row render. Hide row if empty.
-- [ ] M29-S3-04 · `extension/overlay.js` YouTube subtitle overlay — same
-  `data-trans-pl` + 🇵🇱 row pattern.
-- [ ] M29-S3-05 · `extension/content.js` highlight tooltip
-  (`_showReviewTooltip`) — same `data-trans-pl` + 🇵🇱 row.
-- [ ] M29-S3-06 · `language_portal/controllers/portal_api.py`
-  `get_learned_words` — confirm `translations` dict includes `pl` when
-  present in DB (already structured as `{lang: text}`, so this is automatic
-  once Step 1 lands).
-- [ ] M29-S3-07 · Reload extension in Chrome; navigate to a Polish-language
-  page → tooltip shows 🇺🇦/🇬🇷/🇵🇱 rows when all three translations exist.
+- [x] M29-S3-01 · `extension/content.js:438` `_detectLang()` — added
+  `if (/[ąćęłńóśźżĄĆĘŁŃÓŚŹŻ]/.test(text)) return 'pl';` between the Greek
+  branch and the `'en'` fallback. Cyrillic→uk and Greek→el branches stay
+  first (script-exclusive), so Polish input only matches when no other
+  Slavic/Greek script is present, then triggers on any Polish-specific
+  diacritic.
+- [x] M29-S3-02 · `extension/newtab.js:15-16` — `LANG_FLAGS` and `LANG_NAMES`
+  both extended with `pl: '🇵🇱'` / `pl: 'Polish'`. Daily-card render
+  picks up flag + name automatically when API returns a Polish entry.
+- [x] M29-S3-03 · `extension/content.js:254` `_QL_LANG_NAMES` — added
+  `pl: 'PL'`. The Quick Look overlay's translations loop
+  (`response.translations.map(t => ...)` at line 575-580) is polymorphic on
+  `t.target_language`, so Polish rows auto-render with the correct label
+  once the dict knows about `pl`. No row-injection code needed.
+- [x] M29-S3-04 · `extension/overlay.js:484` `_LANG_NAMES` — added
+  `pl: 'Polish'`. YouTube overlay's `_showOverlay()` loop (line 503-505)
+  is also polymorphic on `t.target_language` → auto-renders Polish.
+- [x] M29-S3-05 · `extension/content.js:906` `_wrapMatchesInNode` — added
+  `span.setAttribute('data-trans-pl', (entry.translations && entry.translations.pl) || '')`.
+  `extension/content.js:973` `_showReviewTooltip` — added
+  `if (entry.translations.pl) transLines.push(\`🇵🇱 ${escHtml(entry.translations.pl)}\`)`.
+  Tooltip now shows 🇺🇦/🇬🇷/🇵🇱 simultaneously, hiding any flag whose
+  translation string is empty (graceful fallback rule from M29 architecture
+  decisions).
+- [x] M29-S3-06 · `language_portal/controllers/portal_api.py`
+  `get_learned_words` — confirmed: returns `translations: {lang_code: text}`
+  dict structure (M27-22 contract). Polish entries flow through automatically
+  once `language.translation` records with `target_language='pl'` exist.
+  No code change required.
+- [ ] M29-S3-07 · Manual: reload extension in Chrome; navigate to a Polish
+  Wikipedia page with known Polish vocabulary → tooltip shows 🇺🇦/🇬🇷/🇵🇱
+  rows where all three translations exist; Quick Look + YouTube overlay
+  display Polish translation row. **Deferred to user-side smoke test.**
 
 **Step 4 — Web Application & UI**
 

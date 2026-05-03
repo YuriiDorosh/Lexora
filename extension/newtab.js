@@ -12,8 +12,8 @@
 
 const DEFAULT_BASE_URL = 'http://localhost:5433';
 
-const LANG_FLAGS = { en: '🇬🇧', uk: '🇺🇦', el: '🇬🇷' };
-const LANG_NAMES = { en: 'English', uk: 'Ukrainian', el: 'Greek' };
+const LANG_FLAGS = { en: '🇬🇧', uk: '🇺🇦', el: '🇬🇷', pl: '🇵🇱' };
+const LANG_NAMES = { en: 'English', uk: 'Ukrainian', el: 'Greek', pl: 'Polish' };
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 

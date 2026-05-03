@@ -481,7 +481,7 @@ function _onWordClick(e) {
   );
 }
 
-const _LANG_NAMES = { en: 'English', uk: 'Ukrainian', el: 'Greek' };
+const _LANG_NAMES = { en: 'English', uk: 'Ukrainian', el: 'Greek', pl: 'Polish' };
 
 function _showOverlay(word, wasPaused, timestamp, lang, video, response) {
   _removeOverlay();
