@@ -124,15 +124,36 @@ Works in all four supported languages (en/uk/el/pl).
     arrays; UI never wedges. (Documented limitation, not a blocker —
     upgradeable via Qwen2.5-3B in ADR-027 revisit.)
 
-**Step 3 — Audio sync transcription** (`/transcribe-sync`)
+**Step 3 — Audio sync transcription** (`/transcribe-sync`) ✅
 
-- [ ] M30-S3-01 · `services/audio/main.py` — `POST /transcribe-sync`
-  multipart endpoint. Uses the loaded `_whisper_model`. Returns
-  `{transcript, duration, language}`. Returns HTTP 503 if not ready;
-  HTTP 413 if audio > 90 s.
-- [ ] M30-S3-02 · `make up-audio-no-cache`; `/health` confirms
-  `whisper_ready:true`.
-- [ ] M30-S3-03 · Curl smoke test with a sample webm/wav file.
+- [x] M30-S3-01 · `services/audio/main.py` — `POST /transcribe-sync`
+  multipart endpoint. Reuses the already-loaded `_whisper_model`.
+  Accepts `audio` (UploadFile) + `language` (Form, defaults to
+  `"auto"` for Whisper's auto-detection). Returns
+  `{status, transcript, duration, language}` with `language` reflecting
+  what Whisper actually detected (useful for the UI to show 🇵🇱 etc.
+  even if the user didn't pick a language up front).
+  - 503 when `_whisper_ready=False` (model still loading)
+  - 413 when uploaded bytes > `AUDIO_SYNC_MAX_BYTES` (15 MB hard guard)
+    OR when probed duration > `AUDIO_SYNC_MAX_SECONDS` (90 s soft cap)
+  - 415 when upload is empty
+  - Both caps env-configurable via the audio compose file.
+- [x] M30-S3-02 · `services/audio/requirements.txt` — added
+  `python-multipart==0.0.20` (FastAPI's `File`/`Form` parsers
+  require it; first rebuild crashed without it).
+- [x] M30-S3-03 · `docker_compose/audio/docker-compose.yml` —
+  `AUDIO_SYNC_MAX_SECONDS=90` and `AUDIO_SYNC_MAX_BYTES=15728640`
+  added under `environment:`.
+- [x] M30-S3-04 · `make up-audio-no-cache` → `/health` reports
+  `whisper_ready:true`. `/openapi.json` lists `/transcribe-sync`.
+- [x] M30-S3-05 · Smoke tests:
+  - en (`espeak-ng "Yesterday I went to the park..."` → 105 KB WAV) →
+    Whisper returned the exact phrase in 2.4 s of audio. ✓
+  - pl (`espeak-ng "Wczoraj poszłam do parku..."`) → Polish detected,
+    transcript is structurally Polish (espeak-ng's robotic synthesis
+    causes near-miss substitutions that human speech wouldn't trigger).
+  - empty upload → HTTP 415 `{"detail": "Empty audio upload."}` ✓
+  - language="auto" → Whisper auto-detected `pl` from the same audio. ✓
 
 **Step 4 — Portal POST endpoints + UI**
 
