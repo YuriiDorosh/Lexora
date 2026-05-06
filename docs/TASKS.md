@@ -210,6 +210,28 @@ Works in all four supported languages (en/uk/el/pl).
   `status=completed, target_language=en, has_transcript=t,
    has_improved=t`.
 
+**Step 4 fix-pass (post-browser-smoke)**:
+
+- [x] M30-S4-fix-01 · `t-attf-class="badge #{ {dict}.get(...) }"` did
+  not parse in Odoo 18's QWeb compiler (Python tokenizer reports
+  "unexpected EOF in multi-line statement" because the inner braces
+  break the `#{...}` interpolation). Replaced both occurrences in
+  `views/portal_speaking.xml` (index recent-sessions list line 134
+  and detail status pill line 436) with the idiomatic
+  `t-att-class="'badge ' + {dict}.get(s.status, 'bg-secondary')"`
+  form. Compile-test of both templates now passes
+  (`env['ir.qweb']._compile(...)` → no exception).
+- [x] M30-S4-fix-02 · `data/website_menus.xml` `menu_speaking_coach`
+  now uses the explicit cross-module ref
+  `parent_id="language_portal.menu_practice_group"` even though the
+  parent record lives in the same file. Defensive: matches the
+  convention used by `language_learning/data/website_menus.xml` and
+  removes any future ambiguity if these records get split into
+  separate files. DB confirms the menu is correctly mounted under
+  Practice (id=82); the user's "missing menu" symptom was a side
+  effect of the QWeb 500 — clicking the menu errored and made the
+  link look broken.
+
 **Step 5 — Verification + docs**
 
 - [ ] M30-S5-01 · End-to-end record/transcribe/analyze for all 4 languages

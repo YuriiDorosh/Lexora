@@ -58,11 +58,14 @@
             <field name="user_not_logged">False</field>
         </record>
 
-        <!-- M30: Speaking Coach -->
+        <!-- M30: Speaking Coach.
+             parent_id uses the cross-module prefix even though menu_practice_group
+             is defined in this same file — keeps the reference unambiguous and
+             matches the convention used by sibling modules' menus. -->
         <record id="menu_speaking_coach" model="website.menu">
             <field name="name">Speaking Coach</field>
             <field name="url">/my/speaking</field>
-            <field name="parent_id" ref="menu_practice_group"/>
+            <field name="parent_id" ref="language_portal.menu_practice_group"/>
             <field name="sequence">26</field>
             <field name="user_logged">True</field>
             <field name="user_not_logged">False</field>

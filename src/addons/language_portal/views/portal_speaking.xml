@@ -131,7 +131,7 @@
                                                 <span>·</span>
                                                 <span t-esc="s.create_date and s.create_date.strftime('%Y-%m-%d %H:%M')"/>
                                                 <span>·</span>
-                                                <span t-attf-class="badge #{ {'completed':'bg-success','failed':'bg-danger','pending':'bg-secondary','transcribing':'bg-info','analyzing':'bg-warning text-dark'}.get(s.status, 'bg-secondary') }"
+                                                <span t-att-class="'badge ' + {'completed':'bg-success','failed':'bg-danger','pending':'bg-secondary','transcribing':'bg-info','analyzing':'bg-warning text-dark'}.get(s.status, 'bg-secondary')"
                                                       t-esc="s.status"/>
                                             </div>
                                         </li>
@@ -433,7 +433,7 @@
                     <div class="lx-translator-card p-4 rounded-4 mt-3 mb-4">
                         <div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-3">
                             <h3 class="text-white mb-0" t-esc="session.topic or 'Untitled session'"/>
-                            <span t-attf-class="badge #{ {'completed':'bg-success','failed':'bg-danger','pending':'bg-secondary','transcribing':'bg-info','analyzing':'bg-warning text-dark'}.get(session.status, 'bg-secondary') }"
+                            <span t-att-class="'badge ' + {'completed':'bg-success','failed':'bg-danger','pending':'bg-secondary','transcribing':'bg-info','analyzing':'bg-warning text-dark'}.get(session.status, 'bg-secondary')"
                                   t-esc="session.status"/>
                         </div>
                         <div class="small text-white-50 mb-3">
