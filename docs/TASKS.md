@@ -83,24 +83,46 @@ Works in all four supported languages (en/uk/el/pl).
   `GET /my/speaking` returns HTTP 303 (auth redirect, expected).
   `language_speaking_session` table exists in Postgres with 0 rows.
 
-**Step 2 — LLM endpoints** (`/generate-topic` + `/analyze-speech`)
+**Step 2 — LLM endpoints** (`/generate-topic` + `/analyze-speech`) ✅
 
-- [ ] M30-S2-01 · `services/llm/main.py` — `POST /generate-topic` sync
-  endpoint. Pydantic `GenerateTopicRequest(language: str)`. System prompt:
-  "Generate one short open-ended conversation starter at B1 difficulty in
-  the requested language. Reply with exactly one sentence — no preamble,
-  no list."
-- [ ] M30-S2-02 · `services/llm/main.py` — `POST /analyze-speech` sync
-  endpoint. Pydantic `AnalyzeSpeechRequest(transcript, language, topic?)`.
-  System prompt enforces 3-key JSON output:
-  `{"corrections":[{"wrong":..,"correct":..,"note":..}],"synonyms":[{"original":..,"suggestion":..,"reason":..}],"improved":"..."}`.
-  Uses `response_format={"type":"json_object"}`, `max_tokens=512`,
-  `temperature=0.4`, `repeat_penalty=1.1`. Stub fallback returns empty
-  lists + identity `improved` when `_llm_ready=False`.
-- [ ] M30-S2-03 · `make up-llm-no-cache` → `/health` still
-  `llm_ready:true`.
-- [ ] M30-S2-04 · Curl smoke test: `/generate-topic` (4 languages),
-  `/analyze-speech` (en sample with intentional errors).
+- [x] M30-S2-01 · `services/llm/main.py` — `POST /generate-topic` sync
+  endpoint. `GenerateTopicRequest(language)`. System prompt minimal
+  (per M18-FIX-09 1.5B prompt-engineering rule: <100 words, no numbered
+  lists). User message uses a **language-specific few-shot anchor**
+  (`_TOPIC_EXAMPLES` dict per language) — naming the language alone was
+  not enough for the 1.5B model to reliably reply in the right script;
+  the few-shot anchor closes that gap. `max_tokens=80, temperature=0.8,
+  repeat_penalty=1.1`. Stub fallback returns a language-appropriate
+  placeholder when `_llm_ready=False`.
+- [x] M30-S2-02 · `services/llm/main.py` — `POST /analyze-speech` sync
+  endpoint. `AnalyzeSpeechRequest(transcript, language, topic?)`. System
+  prompt enforces 3-key JSON output:
+  `{corrections: [{wrong, correct, note}], synonyms: [{original,
+  suggestion, reason}], improved: "..."}`.
+  `response_format={"type":"json_object"}`, `max_tokens=512,
+  temperature=0.4, repeat_penalty=1.1`. Uses `_parse_enrichment_json`
+  (the tolerant JSON parser shared with `/enrich`). Defensive
+  `_coerce_list` normalises each list entry to a dict of `str` values.
+  Caps transcript at 4000 chars. Stub fallback returns empty lists +
+  identity `improved` when `_llm_ready=False`.
+- [x] M30-S2-03 · `make up-llm-no-cache` → `/health` reports
+  `llm_ready:true`. `/openapi.json` lists both new routes.
+- [x] M30-S2-04 · Smoke tested:
+  - `/generate-topic` for all 4 langs returns topics in the correct
+    script (en/uk/el/pl). 1.5B Slavic/Greek quality remains the
+    documented weakness from ADR-027 but the language is correct.
+  - `/analyze-speech` with English transcript "Yesterday I goes to
+    the park... We was walking..." returns 2 grammar corrections
+    (`I goes → I went`; `We was → We were`), 2 synonym suggestions
+    (`wether → weather`; `thing → things`), and a clean rewrite
+    in `improved`.
+  - `/analyze-speech` with Polish transcript exercised the
+    `parse_error: true` graceful fallback path — the 1.5B model
+    occasionally emits Python-style single quotes inside JSON strings
+    on Slavic input, which fails strict JSON parsing. The fallback
+    correctly returns the original transcript as `improved` with empty
+    arrays; UI never wedges. (Documented limitation, not a blocker —
+    upgradeable via Qwen2.5-3B in ADR-027 revisit.)
 
 **Step 3 — Audio sync transcription** (`/transcribe-sync`)
 

@@ -550,3 +550,196 @@ def explain_grammar_endpoint(req: GrammarExplainRequest):
     explanation = _explain_grammar(req.phrase.strip(), req.language)
     status = "ok" if explanation and not explanation.startswith("LLM not ready") else "unavailable"
     return {"status": status, "explanation": explanation}
+
+
+# =============================================================================
+# M30 — AI Speaking Coach: topic generation + speech analysis
+# =============================================================================
+#
+# Two sync endpoints used by /my/speaking:
+#   POST /generate-topic   → one B1 conversation starter in the requested language
+#   POST /analyze-speech   → grammar corrections + synonym suggestions + improved
+#                            version of a transcribed speech sample (JSON-only)
+#
+# Both endpoints share the language-agnostic pattern from /roleplay and
+# /explain-grammar: LANG_NAMES.get(req.language, req.language) puts the human
+# language name in the prompt; the model replies in that language.
+# Stub fallback when _llm_ready=False so the portal never wedges.
+# =============================================================================
+
+
+class GenerateTopicRequest(BaseModel):
+    language: str = "en"
+
+
+_TOPIC_SYSTEM_PROMPT = (
+    "You generate ONE short open-ended speaking-practice topic per request. "
+    "Output exactly one sentence (8-15 words). No preamble, no list, no quotes."
+)
+
+# Few-shot anchor per language. The 1.5B model needs this to reliably reply
+# in the right script — naming the language alone is not enough.
+_TOPIC_EXAMPLES = {
+    "en": "Example: What is the best advice you have ever received?",
+    "uk": "Приклад: Яка найкорисніша порада, яку ви отримали в житті?",
+    "el": "Παράδειγμα: Ποιά είναι η πιο πολύτιμη συμβουλή που έχεις πάρει;",
+    "pl": "Przykład: Jaka jest najlepsza rada, jaką kiedykolwiek otrzymałeś?",
+}
+
+
+def _generate_topic(language: str) -> str:
+    lang_name = LANG_NAMES.get(language, language or "English")
+
+    if not _llm_ready or _llm is None:
+        # Stub: language-appropriate placeholder so the UI flows cleanly
+        # while the model is still loading.
+        stubs = {
+            "en": "Describe your favourite season and why you enjoy it.",
+            "uk": "Розкажіть про вашу улюблену пору року та чому вона вам подобається.",
+            "el": "Περιγράψτε την αγαπημένη σας εποχή και γιατί σας αρέσει.",
+            "pl": "Opowiedz o swojej ulubionej porze roku i dlaczego ją lubisz.",
+        }
+        return stubs.get(language, stubs["en"])
+
+    example = _TOPIC_EXAMPLES.get(language, _TOPIC_EXAMPLES["en"])
+    user_content = (
+        f"Write a new B1-level speaking topic in {lang_name}. Use the same "
+        f"language and script as the example below, but pick a DIFFERENT subject. "
+        f"Output ONLY the new topic — no example, no translation.\n\n"
+        f"{example}\n\n"
+        f"New topic in {lang_name}:"
+    )
+
+    messages = [
+        {"role": "system", "content": _TOPIC_SYSTEM_PROMPT},
+        {"role": "user",   "content": user_content},
+    ]
+    try:
+        result = _llm.create_chat_completion(
+            messages=messages,
+            max_tokens=80,
+            temperature=0.8,
+            repeat_penalty=1.1,
+        )
+        topic = result["choices"][0]["message"]["content"].strip()
+        # Strip surrounding quotes the model sometimes adds.
+        if topic.startswith(('"', "“", "«")) and topic.endswith(('"', "”", "»")):
+            topic = topic[1:-1].strip()
+        return topic or "Tell me about your favourite memory."
+    except Exception as exc:
+        _logger.error("generate-topic failed: %s", exc)
+        return "Tell me about your favourite memory."
+
+
+@app.post("/generate-topic")
+def generate_topic_endpoint(req: GenerateTopicRequest):
+    topic = _generate_topic(req.language)
+    return {"status": "ok", "topic": topic, "language": req.language}
+
+
+# -----------------------------------------------------------------------------
+
+
+class AnalyzeSpeechRequest(BaseModel):
+    transcript: str
+    language: str = "en"
+    topic: str | None = None
+
+
+_ANALYZE_SYSTEM_PROMPT = (
+    "You are a language-learning coach analysing a student's spoken response. "
+    "Reply with a JSON object (and ONLY a JSON object — no preamble, no markdown) "
+    "in this exact shape:\n"
+    "{\n"
+    '  "corrections": [{"wrong": "...", "correct": "...", "note": "..."}],\n'
+    '  "synonyms":    [{"original": "...", "suggestion": "...", "reason": "..."}],\n'
+    '  "improved":    "..."\n'
+    "}\n"
+    "Rules:\n"
+    "1. corrections: at most 5 grammar / tense / agreement fixes. Skip minor "
+    "things; focus on what a B1 learner most needs.\n"
+    "2. synonyms: at most 5 better word choices. For each, include the original "
+    "word, a stronger or more natural replacement, and a one-sentence reason.\n"
+    "3. improved: a single rewritten version of the student's response that fixes "
+    "all corrections and adopts the suggested synonyms. Keep the same meaning.\n"
+    "4. ALL string values must be in the same language as the student's transcript.\n"
+    "5. If the transcript has no errors, return empty arrays and copy the original "
+    "into 'improved' unchanged."
+)
+
+
+def _analyze_speech(transcript: str, language: str, topic: str | None) -> dict:
+    """Return {corrections, synonyms, improved}. Stub on _llm_ready=False."""
+    if not _llm_ready or _llm is None:
+        return {
+            "corrections": [],
+            "synonyms": [],
+            "improved": transcript,
+            "stub": True,
+        }
+
+    lang_name = LANG_NAMES.get(language, language or "English")
+    user_lines = [f"Student transcript (in {lang_name}):", transcript.strip()]
+    if topic:
+        user_lines.insert(0, f"Topic: {topic.strip()}")
+    user_content = "\n\n".join(user_lines)
+
+    messages = [
+        {"role": "system", "content": _ANALYZE_SYSTEM_PROMPT},
+        {"role": "user",   "content": user_content},
+    ]
+
+    try:
+        result = _llm.create_chat_completion(
+            messages=messages,
+            max_tokens=512,
+            temperature=0.4,
+            repeat_penalty=1.1,
+            response_format={"type": "json_object"},
+        )
+        raw = result["choices"][0]["message"]["content"].strip()
+    except Exception as exc:
+        _logger.error("analyze-speech generation failed: %s", exc)
+        return {"corrections": [], "synonyms": [], "improved": transcript, "error": str(exc)}
+
+    try:
+        parsed = _parse_enrichment_json(raw)  # tolerant JSON parser shared with /enrich
+    except Exception as exc:
+        _logger.error("analyze-speech JSON parse failed: %s — raw=%r", exc, raw[:200])
+        return {"corrections": [], "synonyms": [], "improved": transcript, "parse_error": True}
+
+    corrections = parsed.get("corrections") or []
+    synonyms    = parsed.get("synonyms")    or []
+    improved    = parsed.get("improved")    or transcript
+
+    # Defensive normalisation — make sure each list entry is a dict with str values.
+    def _coerce_list(items, keys):
+        out = []
+        if not isinstance(items, list):
+            return out
+        for it in items[:5]:
+            if not isinstance(it, dict):
+                continue
+            row = {k: str(it.get(k, "") or "").strip() for k in keys}
+            if any(row.values()):
+                out.append(row)
+        return out
+
+    return {
+        "corrections": _coerce_list(corrections, ("wrong", "correct", "note")),
+        "synonyms":    _coerce_list(synonyms,    ("original", "suggestion", "reason")),
+        "improved":    str(improved).strip() if improved else transcript,
+    }
+
+
+@app.post("/analyze-speech")
+def analyze_speech_endpoint(req: AnalyzeSpeechRequest):
+    transcript = (req.transcript or "").strip()
+    if not transcript:
+        return {"status": "error", "message": "Empty transcript",
+                "corrections": [], "synonyms": [], "improved": ""}
+    if len(transcript) > 4000:
+        transcript = transcript[:4000]
+    result = _analyze_speech(transcript, req.language, req.topic)
+    result["status"] = "ok"
+    return result
