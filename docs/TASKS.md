@@ -15,6 +15,146 @@
 
 ## Current Milestone
 
+### M30 — AI Speaking Coach & Oral Practice
+
+**Status:** In progress.
+**Branch:** `m30_speaking_coach` (created from `m29_polish_support`)
+**Started:** 2026-05-06
+
+**Scope:** A new `/my/speaking` portal where users record themselves speaking on a
+topic, see their speech transcribed by Faster-Whisper (sync), and receive AI
+feedback (grammar corrections, synonym suggestions, "improved" version) generated
+by Qwen2.5-1.5B. Sessions persist in a new `language.speaking.session` model.
+Works in all four supported languages (en/uk/el/pl).
+
+**Architecture decisions (locked at M30 start):**
+- **Sync over async.** Recording → transcription → analysis is synchronous so
+  the user sees the transcript ~10 s after Stop and feedback ~20 s later.
+  No new RabbitMQ queue. Two new sync endpoints on existing FastAPI services.
+  Same pattern as M17 Roleplay (`/roleplay`) and M28 Grammar Explainer
+  (`/explain-grammar`).
+- **Two new endpoints, no new services.** `POST /generate-topic` +
+  `POST /analyze-speech` on the LLM service; `POST /transcribe-sync` on the
+  audio service.
+- **JSON contract for `/analyze-speech`.** `response_format={"type":"json_object"}`
+  with three top-level keys: `corrections` (list), `synonyms` (list),
+  `improved` (str). Stub fallback when `_llm_ready=False` so the queue never wedges.
+- **Audio cap.** 90 s soft limit on `/transcribe-sync`. Past that, HTTP 413
+  rejection with a friendly message.
+- **Privacy.** `audio_attachment_id` is private to the owner (record rule).
+  Transcripts and feedback also private. No sharing for MVP.
+
+#### Sub-steps
+
+**Step 1 — Foundation (model + portal page stub)** ✅
+
+- [x] M30-S1-01 · Branch `m30_speaking_coach` created from
+  `m29_polish_support`. PLAN.md (v1.9), TASKS.md, and README.md roadmap
+  updated (M30 = AI Speaking Coach, M31 = ELO, etc).
+- [x] M30-S1-02 · `language.speaking.session` model
+  (`language_portal/models/language_speaking_session.py`). Imports
+  canonical `LANGUAGE_SELECTION` from `language_words.models.language_lang`
+  per ADR-029 — auto-tracks the four-language set. Helpers:
+  `create_for_user`, `write_transcript`, `write_feedback`, `mark_failed`,
+  `_corrections_list`, `_synonyms_list`.
+- [x] M30-S1-03 · `language_portal/models/__init__.py` updated.
+- [x] M30-S1-04 · `language_portal/security/ir.model.access.csv` — two
+  rows: Language Users + Admins, full CRUD.
+- [x] M30-S1-05 · `language_portal/security/record_rules.xml` —
+  `rule_speaking_session_owner` restricts non-admin Language Users to
+  their own rows (`user_id = user.id`).
+- [x] M30-S1-06 · `portal_speaking.py` controller. Routes:
+  `GET /my/speaking` (page), `GET /my/speaking/<id>` (detail),
+  stubbed `POST /my/speaking/topic`, `/transcribe`, `/analyze` returning
+  `{"status":"pending","message":"..."}` so the JS layer can be wired up
+  in parallel with the service-side work in Steps 2-4.
+- [x] M30-S1-07 · `views/portal_speaking.xml` — two templates
+  (`portal_speaking_index`, `portal_speaking_detail`). Premium dark
+  theme matching M17 Roleplay / M18.5 header. Index template has
+  language selector, topic textarea + Generate button, Record/Stop
+  buttons, transcript preview, Analyze button, recent sessions list.
+- [x] M30-S1-08 · `language_portal/__manifest__.py` — `views/portal_speaking.xml`
+  registered.
+- [x] M30-S1-09 · `data/website_menus.xml` — "Speaking Coach" entry under
+  Practice group (sequence=26, between Sentence Builder=24 and
+  Grammar Pro=25).
+- [x] M30-S1-10 · `--update language_portal --stop-after-init --no-http`
+  → "Modules loaded." 0 errors. After `docker restart odoo`,
+  `GET /my/speaking` returns HTTP 303 (auth redirect, expected).
+  `language_speaking_session` table exists in Postgres with 0 rows.
+
+**Step 2 — LLM endpoints** (`/generate-topic` + `/analyze-speech`)
+
+- [ ] M30-S2-01 · `services/llm/main.py` — `POST /generate-topic` sync
+  endpoint. Pydantic `GenerateTopicRequest(language: str)`. System prompt:
+  "Generate one short open-ended conversation starter at B1 difficulty in
+  the requested language. Reply with exactly one sentence — no preamble,
+  no list."
+- [ ] M30-S2-02 · `services/llm/main.py` — `POST /analyze-speech` sync
+  endpoint. Pydantic `AnalyzeSpeechRequest(transcript, language, topic?)`.
+  System prompt enforces 3-key JSON output:
+  `{"corrections":[{"wrong":..,"correct":..,"note":..}],"synonyms":[{"original":..,"suggestion":..,"reason":..}],"improved":"..."}`.
+  Uses `response_format={"type":"json_object"}`, `max_tokens=512`,
+  `temperature=0.4`, `repeat_penalty=1.1`. Stub fallback returns empty
+  lists + identity `improved` when `_llm_ready=False`.
+- [ ] M30-S2-03 · `make up-llm-no-cache` → `/health` still
+  `llm_ready:true`.
+- [ ] M30-S2-04 · Curl smoke test: `/generate-topic` (4 languages),
+  `/analyze-speech` (en sample with intentional errors).
+
+**Step 3 — Audio sync transcription** (`/transcribe-sync`)
+
+- [ ] M30-S3-01 · `services/audio/main.py` — `POST /transcribe-sync`
+  multipart endpoint. Uses the loaded `_whisper_model`. Returns
+  `{transcript, duration, language}`. Returns HTTP 503 if not ready;
+  HTTP 413 if audio > 90 s.
+- [ ] M30-S3-02 · `make up-audio-no-cache`; `/health` confirms
+  `whisper_ready:true`.
+- [ ] M30-S3-03 · Curl smoke test with a sample webm/wav file.
+
+**Step 4 — Portal POST endpoints + UI**
+
+- [ ] M30-S4-01 · `/my/speaking/topic` — JSON-RPC route, calls LLM
+  `/generate-topic`. Returns `{topic, language}`.
+- [ ] M30-S4-02 · `/my/speaking/transcribe` — multipart route. Reads
+  audio + topic + language from form-data, POSTs to audio
+  `/transcribe-sync`, creates `language.speaking.session` row with
+  `status='analyzing'` and the returned transcript, optionally stores
+  the audio as `ir.attachment` linked via `audio_attachment_id`.
+  Returns `{session_id, transcript, duration}`.
+- [ ] M30-S4-03 · `/my/speaking/analyze` — JSON-RPC route. Reads
+  `session_id`, fetches the session, POSTs to LLM `/analyze-speech`,
+  persists `feedback_corrections` / `feedback_synonyms` /
+  `feedback_improved`, sets `status='completed'`. Returns the feedback.
+- [ ] M30-S4-04 · `/my/speaking/<id>` — GET route, full session detail
+  page (transcript + 3-section feedback panel).
+- [ ] M30-S4-05 · `views/portal_speaking.xml` UI — dark glassmorphism:
+  topic card with "Generate Topic" button, recorder card with
+  Record/Stop buttons, transcript preview (read-only textarea), feedback
+  card (3 collapsible sections), recent sessions list.
+- [ ] M30-S4-06 · Recorder JS — MediaRecorder API, prefers
+  `audio/webm;codecs=opus` (same pattern as M6 Audio recording).
+  90 s timeout, friendly error if mic permission denied.
+
+**Step 5 — Verification + docs**
+
+- [ ] M30-S5-01 · End-to-end record/transcribe/analyze for all 4 languages
+  (en/uk/el/pl). Browser-side smoke.
+- [ ] M30-S5-02 · ADR-030 in `docs/DECISIONS.md` — sync-over-async
+  decision, JSON contract for `/analyze-speech`, audio cap, prompt
+  engineering notes for Qwen2.5-1.5B.
+- [ ] M30-S5-03 · `docs/PLAN.md` flip M30 row → ✅ Complete; bump version.
+- [ ] M30-S5-04 · `docs/TASKS.md` archive M30 block.
+- [ ] M30-S5-05 · `README.md` — M30 row in implementation status; remove
+  M30 from roadmap.
+- [ ] M30-S5-06 · Commit + push to `m30_speaking_coach`.
+
+#### Blockers
+
+(none)
+
+---
+
 ### M29 — Polish Language Support (System-Wide Expansion)
 
 **Status:** Complete and verified. All 5 steps shipped on `m29_polish_support`.

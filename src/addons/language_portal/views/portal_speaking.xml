@@ -1,0 +1,215 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- ============================================================
+         M30 — AI Speaking Coach landing page  /my/speaking
+         Step 1: foundation only — Record/Generate/Analyze actions are
+         wired as no-ops until M30 Step 4 ships the real handlers.
+    ============================================================ -->
+    <template id="portal_speaking_index" name="Speaking Coach">
+        <t t-call="portal.frontend_layout">
+            <t t-set="page_name" t-value="'speaking'"/>
+            <div id="wrap" class="oe_structure lx-premium-theme">
+                <div class="container py-4">
+
+                    <!-- ── Hero ───────────────────────────────────── -->
+                    <div class="lx-translator-hero mb-4 p-4 rounded-4">
+                        <h2 class="mb-2 fw-bold text-white">🎤 Speaking Coach</h2>
+                        <p class="text-white-50 mb-0">
+                            Record yourself speaking on a topic. Faster-Whisper transcribes
+                            your words; Qwen suggests grammar fixes, better synonyms, and an
+                            improved version. Works in English, Ukrainian, Greek, and Polish.
+                        </p>
+                    </div>
+
+                    <div class="row g-4">
+
+                        <!-- ── Practice card (left) ──────────────── -->
+                        <div class="col-lg-7">
+                            <div class="lx-translator-card p-4 rounded-4">
+
+                                <!-- Language selector -->
+                                <div class="mb-3">
+                                    <label class="form-label text-white">Practice language</label>
+                                    <select id="speaking-lang" class="form-select lx-lang-select">
+                                        <t t-foreach="languages" t-as="ll">
+                                            <option t-att-value="ll[0]"
+                                                    t-att-selected="'selected' if ll[0] == default_lang else None">
+                                                <t t-esc="ll[1]"/>
+                                            </option>
+                                        </t>
+                                    </select>
+                                </div>
+
+                                <!-- Topic block -->
+                                <div class="mb-3">
+                                    <label class="form-label text-white d-flex justify-content-between align-items-center">
+                                        <span>Topic</span>
+                                        <button id="speaking-topic-btn" type="button"
+                                                class="btn btn-sm btn-outline-light">
+                                            🎲 Generate Topic
+                                        </button>
+                                    </label>
+                                    <textarea id="speaking-topic" rows="2"
+                                              class="form-control lx-translator-textarea"
+                                              placeholder="A topic will appear here, or type your own…"></textarea>
+                                </div>
+
+                                <!-- Recorder -->
+                                <div class="mb-3 d-flex gap-2 flex-wrap align-items-center">
+                                    <button id="speaking-record-btn" type="button"
+                                            class="btn lx-btn">
+                                        ● Record
+                                    </button>
+                                    <button id="speaking-stop-btn" type="button"
+                                            class="btn btn-outline-light" disabled="disabled">
+                                        ■ Stop
+                                    </button>
+                                    <span id="speaking-status" class="text-white-50 small">
+                                        Mic ready. Press Record.
+                                    </span>
+                                </div>
+
+                                <!-- Transcript preview -->
+                                <div class="mb-3">
+                                    <label class="form-label text-white">Transcript</label>
+                                    <textarea id="speaking-transcript" rows="4" readonly="readonly"
+                                              class="form-control lx-result-textarea"
+                                              placeholder="Your transcribed speech will appear here…"></textarea>
+                                </div>
+
+                                <!-- Analyze button -->
+                                <button id="speaking-analyze-btn" type="button"
+                                        class="btn lx-btn lx-btn-primary" disabled="disabled">
+                                    ✨ Analyze My Speech
+                                </button>
+
+                                <!-- Stub notice (removed when Step 4 ships) -->
+                                <div class="alert alert-info small mt-3 mb-0">
+                                    <strong>M30 Step 1 (foundation):</strong> the Generate /
+                                    Record / Analyze flow returns placeholders until the
+                                    LLM endpoints + audio sync transcription land in
+                                    Steps 2-4.
+                                </div>
+
+                            </div>
+                        </div>
+
+                        <!-- ── Recent sessions (right) ────────────── -->
+                        <div class="col-lg-5">
+                            <div class="lx-translator-card p-4 rounded-4">
+                                <h5 class="text-white mb-3">Recent sessions</h5>
+                                <div t-if="not recent_sessions" class="text-white-50">
+                                    No practice yet. Record your first session to see it here.
+                                </div>
+                                <ul t-if="recent_sessions" class="list-unstyled mb-0">
+                                    <t t-foreach="recent_sessions" t-as="s">
+                                        <li class="mb-2 pb-2 border-bottom border-secondary">
+                                            <a t-attf-href="/my/speaking/#{s.id}"
+                                               class="text-white text-decoration-none">
+                                                <strong t-esc="s.topic or 'Untitled session'"/>
+                                            </a>
+                                            <div class="small text-white-50 d-flex gap-2 flex-wrap">
+                                                <span t-esc="s.target_language and s.target_language.upper()"/>
+                                                <span>·</span>
+                                                <span t-esc="s.create_date and s.create_date.strftime('%Y-%m-%d %H:%M')"/>
+                                                <span>·</span>
+                                                <span t-attf-class="badge #{ {'completed':'bg-success','failed':'bg-danger','pending':'bg-secondary','transcribing':'bg-info','analyzing':'bg-warning text-dark'}.get(s.status, 'bg-secondary') }"
+                                                      t-esc="s.status"/>
+                                            </div>
+                                        </li>
+                                    </t>
+                                </ul>
+                            </div>
+                        </div>
+
+                    </div>
+                </div>
+            </div>
+        </t>
+    </template>
+
+    <!-- ============================================================
+         /my/speaking/<id> — Session detail
+    ============================================================ -->
+    <template id="portal_speaking_detail" name="Speaking Session">
+        <t t-call="portal.frontend_layout">
+            <t t-set="page_name" t-value="'speaking'"/>
+            <div id="wrap" class="oe_structure lx-premium-theme">
+                <div class="container py-4">
+
+                    <a href="/my/speaking" class="text-white-50 small text-decoration-none">
+                        ← Back to Speaking Coach
+                    </a>
+
+                    <div class="lx-translator-card p-4 rounded-4 mt-3 mb-4">
+                        <div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-3">
+                            <h3 class="text-white mb-0" t-esc="session.topic or 'Untitled session'"/>
+                            <span t-attf-class="badge #{ {'completed':'bg-success','failed':'bg-danger','pending':'bg-secondary','transcribing':'bg-info','analyzing':'bg-warning text-dark'}.get(session.status, 'bg-secondary') }"
+                                  t-esc="session.status"/>
+                        </div>
+                        <div class="small text-white-50 mb-3">
+                            <span t-esc="(session.target_language or '').upper()"/> ·
+                            <span t-esc="session.create_date and session.create_date.strftime('%Y-%m-%d %H:%M')"/>
+                            <t t-if="session.duration_seconds">
+                                · <span t-esc="'%.1f s' % session.duration_seconds"/>
+                            </t>
+                        </div>
+
+                        <h5 class="text-white">Transcript</h5>
+                        <div class="lx-result-textarea p-3 rounded mb-3">
+                            <t t-esc="session.transcript or '(no transcript yet)'"/>
+                        </div>
+
+                        <t t-if="session.feedback_improved">
+                            <h5 class="text-white">Improved version</h5>
+                            <div class="lx-result-textarea p-3 rounded mb-3"
+                                 t-esc="session.feedback_improved"/>
+                        </t>
+
+                        <t t-if="corrections">
+                            <h5 class="text-white">Corrections</h5>
+                            <ul class="list-unstyled">
+                                <t t-foreach="corrections" t-as="c">
+                                    <li class="mb-2">
+                                        <strong class="text-warning"
+                                                t-esc="c.get('wrong', '')"/>
+                                        →
+                                        <strong class="text-success"
+                                                t-esc="c.get('correct', '')"/>
+                                        <div class="small text-white-50"
+                                             t-esc="c.get('note', '')"/>
+                                    </li>
+                                </t>
+                            </ul>
+                        </t>
+
+                        <t t-if="synonyms">
+                            <h5 class="text-white">Better word choices</h5>
+                            <ul class="list-unstyled">
+                                <t t-foreach="synonyms" t-as="s">
+                                    <li class="mb-2">
+                                        <span class="text-white-50"
+                                              t-esc="s.get('original', '')"/>
+                                        →
+                                        <strong class="text-info"
+                                                t-esc="s.get('suggestion', '')"/>
+                                        <div class="small text-white-50"
+                                             t-esc="s.get('reason', '')"/>
+                                    </li>
+                                </t>
+                            </ul>
+                        </t>
+
+                        <t t-if="session.status == 'failed' and session.error_message">
+                            <div class="alert alert-danger small">
+                                <strong>Failure:</strong> <t t-esc="session.error_message"/>
+                            </div>
+                        </t>
+                    </div>
+                </div>
+            </div>
+        </t>
+    </template>
+
+</odoo>
