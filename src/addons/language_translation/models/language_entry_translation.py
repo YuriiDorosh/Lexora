@@ -10,6 +10,12 @@ from odoo import api, fields, models
 
 _logger = logging.getLogger(__name__)
 
+# M29: every newly created entry auto-translates to all four supported
+# languages (minus the source). This replaces the previous behavior of
+# translating only to the user's profile.learning_languages, so Polish
+# is always covered without requiring users to opt in via their profile.
+_DEFAULT_TARGET_LANGUAGES = ('en', 'uk', 'el', 'pl')
+
 
 class LanguageEntryTranslation(models.Model):
     """Adds translation_ids and post-save enqueue to language.entry."""
@@ -50,17 +56,17 @@ class LanguageEntryTranslation(models.Model):
         return records
 
     def _enqueue_translations(self):
-        """Enqueue translation jobs for each of the owner's learning languages.
+        """Enqueue translation jobs for every supported target language.
 
-        Skips languages that match the entry's source language.
-        If the user has no learning languages set, does nothing.
+        M29 (2026-05-03): we now translate to ALL supported languages
+        (en/uk/el/pl) minus the source — not just the owner's
+        profile.learning_languages. Rationale: Polish (and any future
+        language) should be covered out of the box, and per-user
+        learning_languages can still gate which translations are *shown*
+        in the UI later. This guarantees coverage on the data layer.
         """
-        profile = self.env['language.user.profile']._get_or_create_for_user(self.owner_id)
-        if not profile:
-            return
-
         translation_model = self.env['language.translation']
-        for lang in profile.learning_languages:
-            if lang.code == self.source_language:
+        for code in _DEFAULT_TARGET_LANGUAGES:
+            if code == self.source_language:
                 continue  # don't translate into the source language
-            translation_model._enqueue_single(self, lang.code)
+            translation_model._enqueue_single(self, code)

@@ -22,11 +22,9 @@ from odoo.exceptions import UserError
 
 _logger = logging.getLogger(__name__)
 
-LANGUAGE_SELECTION = [
-    ('en', 'English'),
-    ('uk', 'Ukrainian'),
-    ('el', 'Greek'),
-]
+# M29: import the canonical Selection so enrichment.language stays in lockstep
+# with the rest of the stack (en/uk/el/pl).
+from odoo.addons.language_words.models.language_lang import LANGUAGE_SELECTION  # noqa: E402
 
 
 class LanguageEnrichment(models.Model):

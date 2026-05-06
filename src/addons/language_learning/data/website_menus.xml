@@ -13,12 +13,23 @@
             <field name="user_not_logged">False</field>
         </record>
 
-        <!-- My Profile — child of Tools group (language_portal) -->
+        <!-- My Dashboard — child of Tools group (language_portal) -->
         <record id="menu_navbar_dashboard" model="website.menu">
-            <field name="name">My Profile</field>
+            <field name="name">My Dashboard</field>
             <field name="url">/my/dashboard</field>
             <field name="parent_id" ref="language_portal.menu_tools_group"/>
             <field name="sequence">10</field>
+            <field name="user_logged">True</field>
+            <field name="user_not_logged">False</field>
+        </record>
+
+        <!-- Language Preferences — child of Tools group, M29 added so users
+             can find /my/profile (where Polish appears under learning_languages) -->
+        <record id="menu_navbar_profile" model="website.menu">
+            <field name="name">Language Preferences</field>
+            <field name="url">/my/profile</field>
+            <field name="parent_id" ref="language_portal.menu_tools_group"/>
+            <field name="sequence">15</field>
             <field name="user_logged">True</field>
             <field name="user_not_logged">False</field>
         </record>

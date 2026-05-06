@@ -498,6 +498,7 @@
                                     <option value="en" t-att-selected="'selected' if source_language == 'en' else None">English</option>
                                     <option value="uk" t-att-selected="'selected' if source_language == 'uk' else None">Ukrainian</option>
                                     <option value="el" t-att-selected="'selected' if source_language == 'el' else None">Greek</option>
+                                    <option value="pl" t-att-selected="'selected' if source_language == 'pl' else None">Polish</option>
                                 </select>
                                 <div id="detection_hint" class="form-text text-muted"></div>
                             </div>

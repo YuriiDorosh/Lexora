@@ -638,11 +638,14 @@ def _detect_language(word, user):
 
 
 def _live_translate(word, source_lang, uid, env):
-    """Call the translation service synchronously for up to 2 target languages.
+    """Call the translation service synchronously for every supported target.
 
-    Returns a list of {target_language, translated_text} dicts.
-    Results are NOT stored in the DB — the caller receives them as ephemeral
-    "live" translations and the user can persist them via Add to Vocabulary.
+    M29 (2026-05-03): live translation now covers ALL supported languages
+    (en/uk/el/pl) minus the source — not the user's profile preferences —
+    so Polish always appears in the Quick Look overlay regardless of
+    learning_languages. Results are NOT stored; the caller receives them
+    as ephemeral "live" translations and the user can persist via
+    Add to Vocabulary.
     """
     import requests as _req
 
@@ -650,24 +653,14 @@ def _live_translate(word, source_lang, uid, env):
     _logger.error('_live_translate ENTER — word=%r source=%s uid=%s url=%s',
                   word, source_lang, uid, translate_url)
 
-    # Determine target languages from user profile; fall back to all non-source
-    target_langs = []
-    try:
-        profile = env['language.user.profile'].sudo().search(
-            [('user_id', '=', uid)], limit=1)
-        if profile and profile.learning_languages:
-            target_langs = [l.code for l in profile.learning_languages
-                            if l.code != source_lang]
-        _logger.error('_live_translate profile target_langs=%r', target_langs)
-    except Exception as exc:
-        _logger.error('_live_translate profile lookup FAILED: %s', exc)
-
-    if not target_langs:
-        target_langs = [l for l in _ALLOWED_LANGUAGES if l != source_lang]
-        _logger.error('_live_translate fallback target_langs=%r', target_langs)
+    # Always use the full supported-language set minus source.
+    target_langs = [l for l in _ALLOWED_LANGUAGES if l != source_lang]
+    _logger.error('_live_translate target_langs=%r', target_langs)
 
     results = []
-    for tgt in target_langs[:2]:  # cap at 2 to keep p50 latency under 2 s
+    # Cap at 3 (en/uk/el/pl minus source = 3) — keeps latency bounded but
+    # ensures Polish is never dropped.
+    for tgt in target_langs[:3]:
         try:
             _logger.error('_live_translate POST %s — %s→%s word=%r',
                           translate_url, source_lang, tgt, word)

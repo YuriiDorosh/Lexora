@@ -14,11 +14,12 @@ from odoo.exceptions import UserError
 
 _logger = logging.getLogger(__name__)
 
-LANGUAGE_SELECTION = [
-    ('en', 'English'),
-    ('uk', 'Ukrainian'),
-    ('el', 'Greek'),
-]
+# Canonical source of truth — language_words.models.language_lang.LANGUAGE_SELECTION.
+# Importing here ensures language.translation.target_language stays in lockstep
+# with language.entry.source_language without a duplicated literal.
+# (M29 fix: a local copy of this constant was missing 'pl' and caused
+# "Wrong value for language.translation.target_language: 'pl'" during backfill.)
+from odoo.addons.language_words.models.language_lang import LANGUAGE_SELECTION  # noqa: E402
 
 
 class LanguageTranslation(models.Model):

@@ -200,7 +200,50 @@ const LANG_NAMES = { en: 'English', uk: 'Ukrainian', el: 'Greek', pl: 'Polish' }
   rows where all three translations exist; Quick Look + YouTube overlay
   display Polish translation row. **Deferred to user-side smoke test.**
 
-**Step 4 — Web Application & UI**
+**Step 4 — Web Application & UI** (post-verification fix pass — 6 issues, all resolved)
+
+**Critical bug discovered during backfill:** three modules
+(`language_translation`, `language_enrichment`, `language_audio`) had their
+own local `LANGUAGE_SELECTION = [...]` literals **duplicating** the one in
+`language_words.models.language_lang`. Step 1's grep missed these because
+the Selection fields use `selection=LANGUAGE_SELECTION` (local reference,
+not imported), so the canonical update never reached them. The backfill
+exposed it: `Wrong value for language.translation.target_language: 'pl'`
+on every entry. Fix: replaced all three local literals with
+`from odoo.addons.language_words.models.language_lang import LANGUAGE_SELECTION`.
+Now there's a single source of truth.
+
+**Fixes shipped (all from manual UI verification report):**
+
+1. **Profile link** — `language_learning/data/website_menus.xml`: renamed
+   the misleading "My Profile → /my/dashboard" entry to "My Dashboard",
+   added a new "Language Preferences → /my/profile" entry under Tools
+   group (sequence=15). Users can now find the language-prefs page from
+   the navbar.
+2. **Extension Polish translation** — `language_portal/controllers/portal_api.py`:
+   `_live_translate()` cap raised from `[:2]` → `[:3]` and `learning_languages`
+   gating removed. Now always covers all `_ALLOWED_LANGUAGES` minus source.
+   `_detectLang` regex confirmed correct at `extension/content.js:439`.
+3. **Add Entry form** — `language_words/views/portal_vocabulary.xml:501`:
+   `<option value="pl">Polish</option>` added to the new-entry form select.
+4. **Anki button** — `language_anki_jobs/views/portal_anki.xml`: new template
+   `portal_vocabulary_list_anki_button` inheriting
+   `language_words.portal_vocabulary_list`, injects "📥 Import Anki" button
+   next to "+ Add Entry" via XPath `position="after"`.
+5. **Auto-translate to all 4** — `language_translation/models/language_entry_translation.py`:
+   `_enqueue_translations()` rewritten to iterate over a module-level
+   `_DEFAULT_TARGET_LANGUAGES = ('en','uk','el','pl')` constant instead of
+   `profile.learning_languages`. Every new entry now auto-enqueues 3 target
+   translations (4 minus source).
+6. **Backfill complete** — 1055 active non-Polish entries enqueued and
+   processed by the translation worker. All status='completed'. Sample:
+   `book→książka`, `arrogant→arogancki`, `imminent→nadciągający`.
+7. **Duplicate-Selection fix** —
+   `language_translation/models/language_translation.py`,
+   `language_enrichment/models/language_enrichment.py`,
+   `language_audio/models/language_audio.py`: each had a local
+   `LANGUAGE_SELECTION = [...]` missing 'pl'. All three now import the
+   canonical constant from `language_words.models.language_lang`.
 
 **Test fixture (created via Odoo shell, user_id=2):**
 - `language.entry` id=6326 · `source_text='książka'` · `source_language='pl'`

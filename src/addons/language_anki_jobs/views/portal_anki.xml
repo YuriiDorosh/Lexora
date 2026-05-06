@@ -15,6 +15,18 @@
     </template>
 
     <!-- ============================================================
+         Vocabulary list header — "Import Anki" button (M29 fix)
+         Injects a button next to "+ Add Entry" so users can reach
+         /my/anki without going through the navbar.
+    ============================================================ -->
+    <template id="portal_vocabulary_list_anki_button"
+              inherit_id="language_words.portal_vocabulary_list">
+        <xpath expr="//a[@href='/my/vocabulary/new']" position="after">
+            <a href="/my/anki" class="btn btn-outline-primary btn-sm">📥 Import Anki</a>
+        </xpath>
+    </template>
+
+    <!-- ============================================================
          Upload form  /my/anki
     ============================================================ -->
     <template id="portal_anki_upload" name="Import Anki Deck">
