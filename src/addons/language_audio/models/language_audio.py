@@ -21,11 +21,8 @@ from odoo import api, fields, models
 
 _logger = logging.getLogger(__name__)
 
-LANGUAGE_SELECTION = [
-    ('en', 'English'),
-    ('uk', 'Ukrainian'),
-    ('el', 'Greek'),
-]
+# M29: import canonical Selection so audio.language matches en/uk/el/pl.
+from odoo.addons.language_words.models.language_lang import LANGUAGE_SELECTION  # noqa: E402
 
 AUDIO_TYPE_SELECTION = [
     ('recorded', 'Recorded'),

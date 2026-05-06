@@ -32,7 +32,7 @@ from odoo.http import request
 
 _logger = logging.getLogger(__name__)
 
-LANG_NAMES = {'en': 'English', 'uk': 'Ukrainian', 'el': 'Greek'}
+LANG_NAMES = {'en': 'English', 'uk': 'Ukrainian', 'el': 'Greek', 'pl': 'Polish'}
 _PER_PAGE = 9
 
 
@@ -41,7 +41,7 @@ def _detect_language(text):
         from langdetect import detect_langs
         results = detect_langs(text)
         best = results[0] if results else None
-        if best and best.prob >= 0.7 and best.lang in ('en', 'uk', 'el'):
+        if best and best.prob >= 0.7 and best.lang in ('en', 'uk', 'el', 'pl'):
             return best.lang
     except Exception:
         pass
@@ -134,7 +134,7 @@ class PortalHome(http.Controller):
     def articles_list(self, page=1, lang=None, tag=None, **kw):
         Post = request.env['language.post'].sudo()
         domain = [('status', '=', 'published')]
-        if lang and lang in ('en', 'uk', 'el'):
+        if lang and lang in ('en', 'uk', 'el', 'pl'):
             domain.append(('language', '=', lang))
         if tag:
             tag_rec = request.env['language.post.tag'].sudo().search(
@@ -253,7 +253,7 @@ class PortalHome(http.Controller):
             errors['title'] = 'Title is required.'
         if not body:
             errors['body'] = 'Body is required.'
-        if language not in ('en', 'uk', 'el'):
+        if language not in ('en', 'uk', 'el', 'pl'):
             errors['language'] = 'Invalid language.'
 
         if errors:
@@ -415,7 +415,7 @@ class PortalHome(http.Controller):
         if not post or post.status != 'published':
             return {'status': 'error', 'message': 'Post not found.'}
 
-        if not source_language or source_language not in ('en', 'uk', 'el'):
+        if not source_language or source_language not in ('en', 'uk', 'el', 'pl'):
             source_language = _detect_language(text)
         if not source_language:
             source_language = post.language

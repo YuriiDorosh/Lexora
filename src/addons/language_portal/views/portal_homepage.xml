@@ -278,8 +278,8 @@
                                     <div class="lx-article-card">
                                         <div class="card-body p-4 d-flex flex-column h-100">
                                             <div class="mb-2 d-flex flex-wrap gap-1">
-                                                <span t-att-class="'badge ' + ('bg-primary' if article.language == 'en' else ('bg-warning text-dark' if article.language == 'uk' else 'bg-info text-white'))">
-                                                    <t t-esc="{'en': 'English', 'uk': 'Ukrainian', 'el': 'Greek'}.get(article.language, article.language)"/>
+                                                <span t-att-class="'badge ' + ({'en': 'bg-primary', 'uk': 'bg-warning text-dark', 'el': 'bg-info text-white', 'pl': 'bg-danger text-white'}.get(article.language, 'bg-secondary'))">
+                                                    <t t-esc="{'en': 'English', 'uk': 'Ukrainian', 'el': 'Greek', 'pl': 'Polish'}.get(article.language, article.language)"/>
                                                 </span>
                                                 <t t-foreach="article.tag_ids[:2]" t-as="tag">
                                                     <span class="badge bg-secondary"><t t-esc="tag.name"/></span>
@@ -340,8 +340,8 @@
                             <div class="lx-article-card">
                                 <div class="card-body p-4 d-flex flex-column h-100">
                                     <div class="mb-2 d-flex flex-wrap gap-1">
-                                        <span t-att-class="'badge me-1 ' + ('bg-primary' if post.language == 'en' else ('bg-warning text-dark' if post.language == 'uk' else 'bg-info text-white'))">
-                                            <t t-esc="{'en': 'English', 'uk': 'Ukrainian', 'el': 'Greek'}.get(post.language, post.language)"/>
+                                        <span t-att-class="'badge me-1 ' + ({'en': 'bg-primary', 'uk': 'bg-warning text-dark', 'el': 'bg-info text-white', 'pl': 'bg-danger text-white'}.get(post.language, 'bg-secondary'))">
+                                            <t t-esc="{'en': 'English', 'uk': 'Ukrainian', 'el': 'Greek', 'pl': 'Polish'}.get(post.language, post.language)"/>
                                         </span>
                                         <t t-foreach="post.tag_ids[:2]" t-as="tag">
                                             <span class="badge bg-secondary me-1"><t t-esc="tag.name"/></span>
@@ -398,8 +398,8 @@
 
                         <article>
                             <div class="mb-3 d-flex flex-wrap gap-1">
-                                <span t-att-class="'badge me-1 ' + ('bg-primary' if post.language == 'en' else ('bg-warning text-dark' if post.language == 'uk' else 'bg-info text-white'))">
-                                    <t t-esc="{'en': 'English', 'uk': 'Ukrainian', 'el': 'Greek'}.get(post.language, post.language)"/>
+                                <span t-att-class="'badge me-1 ' + ({'en': 'bg-primary', 'uk': 'bg-warning text-dark', 'el': 'bg-info text-white', 'pl': 'bg-danger text-white'}.get(post.language, 'bg-secondary'))">
+                                    <t t-esc="{'en': 'English', 'uk': 'Ukrainian', 'el': 'Greek', 'pl': 'Polish'}.get(post.language, post.language)"/>
                                 </span>
                                 <t t-foreach="post.tag_ids" t-as="tag">
                                     <span class="badge bg-secondary me-1"><t t-esc="tag.name"/></span>

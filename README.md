@@ -2,7 +2,7 @@
 
 **Powered by [Avantgarde Systems](https://avantgarde.systems)**
 
-> A full-stack language learning ecosystem for English, Ukrainian, and Greek — built on
+> A full-stack language learning ecosystem for English, Ukrainian, Greek, and Polish — built on
 > Odoo 18 Community with spaced repetition science, AI-powered vocabulary intelligence,
 > real-time PvP duels, and a Chrome Extension that turns the entire web into a classroom.
 
@@ -70,7 +70,7 @@ fees, no external databases — just Docker Compose on a CPU-only Linux server.
 | **Auto-translation** | On every save: async `deep_translator` (Google Translate / MyMemory fallback) for all learning languages |
 | **LLM enrichment** | On-demand: Qwen2.5-1.5B Q4_K_M via `llama-cpp-python`; synonyms, antonyms, 3–7 example sentences, explanation — always in the source language |
 | **Anki import** | `.apkg` + `.txt` formats; auto field-mapping; Zstd-compressed modern decks; embedded audio extraction; persistent dedup import log |
-| **Audio** | Browser mic recording + Microsoft Edge TTS (online, zero-RAM, en/uk/el); Whisper `base` STT transcription; all stored in Odoo filestore |
+| **Audio** | Browser mic recording + Microsoft Edge TTS (online, zero-RAM, en/uk/el/pl with `pl-PL-ZofiaNeural`); Whisper `base` STT transcription; all stored in Odoo filestore |
 | **Spaced repetition** | SM-2 algorithm; `/my/practice` flashcard portal; due-card counter on portal home |
 | **PDF export** | Printable cheat sheets: personal vocabulary, Gold Vocabulary by CEFR level, Grammar sections |
 
@@ -79,7 +79,7 @@ fees, no external databases — just Docker Compose on a CPU-only Linux server.
 | Feature | Details |
 |---|---|
 | **Posts & articles** | Draft → moderator review → publish flow; rich-text body; @mention comments |
-| **Public channels** | Language-specific discuss channels (English / Ukrainian / Greek); visible to all registered users |
+| **Public channels** | Language-specific discuss channels (English / Ukrainian / Greek / Polish); visible to all registered users |
 | **Private DMs** | 1-to-1 chat initiated from user profile; "Save to My List" inline popup from any message |
 | **Copy-to-list** | Select text in any post or chat message → floating popup → creates `language.entry` + auto-queues translation |
 
@@ -170,7 +170,7 @@ Every word in a YouTube subtitle track becomes clickable.
 Additionally, a **Quick Look overlay** (Shadow DOM, fully isolated CSS) activates on
 any text selection ≥ 2 characters across all pages. A floating "L" icon appears at the
 right edge of the selection; clicking it opens the same definition overlay with
-language auto-detection via Unicode block ranges (Cyrillic → uk, Greek → el, else en).
+language auto-detection via Unicode block ranges (Cyrillic → uk, Greek → el, Polish-diacritics `[ąćęłńóśźż]` → pl, else en).
 
 ### M25 — Premium New Tab Dashboard
 
@@ -201,8 +201,8 @@ Every webpage becomes a passive vocabulary review surface.
   receive a coloured dotted underline (`border-bottom: 2px dotted`) colour-keyed by SRS
   state: **indigo** = due for review, **green** = in learning, **amber** = new.
 - **SRS-aware tooltip**: hovering a highlighted word shows a glassmorphism card with
-  the word, SRS age ("Reviewed 3 days ago"), and — simultaneously — the Ukrainian 🇺🇦 and
-  Greek 🇬🇷 translations rendered side by side.
+  the word, SRS age ("Reviewed 3 days ago"), and — simultaneously — the Ukrainian 🇺🇦,
+  Greek 🇬🇷, and Polish 🇵🇱 translations rendered side by side.
 - **Multi-language support**: `GET /lexora_api/get_learned_words` returns a
   `translations: {"uk": "...", "el": "..."}` dict. The content script stores
   `data-trans-uk` / `data-trans-el` attributes on each `<span>` so the tooltip renders
@@ -301,8 +301,8 @@ by the local Qwen 1.5B model.
 - **Library:** `deep_translator==1.11.4` (MIT)
 - **Primary provider:** `GoogleTranslator` (free, no API key, sub-second latency)
 - **Fallback provider:** `MyMemoryTranslator` (auto-engaged on primary error)
-- **Languages:** `en`, `uk`, `el` — all 6 directional pairs handled directly, no
-  two-hop routing
+- **Languages:** `en`, `uk`, `el`, `pl` — all 12 directional pairs handled directly, no
+  two-hop routing (M29: Polish added with `pl-PL` MyMemory locale)
 - **Sync endpoint:** `POST /translate` for the AI Translator portal tool
 - **Config:** `TRANSLATE_PROVIDER`, `TRANSLATE_FALLBACK_PROVIDER`,
   `TRANSLATE_TIMEOUT_SECONDS` — swap to DeepL or Google Cloud in one env-var change
@@ -678,6 +678,7 @@ Key variables in `.env` (see `env.example` for the full list):
 | M26 | ⏸ Postponed | AI Helpdesk RAG — requires ≥16 GiB RAM; preserved on `m26_ai_helpdesk` |
 | M27 | ✅ Complete | Known vocabulary highlighted on any webpage; SRS-aware tooltip with simultaneous 🇺🇦/🇬🇷 translations; 15-min local cache; MutationObserver re-scan |
 | M28 | ✅ Complete | "Explain Grammar" in Quick Look + YouTube overlays; Qwen 1.5B via Odoo proxy; draggable scrollable overlays |
+| M29 | ✅ Complete | Polish (`pl` / 🇵🇱) as a first-class language across DB, services, extension, portal; 1055 entries backfilled; canonical `LANGUAGE_SELECTION` import enforced (ADR-029) |
 
 ---
 
@@ -688,10 +689,10 @@ generated by a local pgvector + Qwen2.5-1.5B RAG pipeline. Complete implementati
 exists on `m26_ai_helpdesk` branch. Blocked by server RAM constraints (requires ≥16 GiB).
 
 **Potential future milestones:**
-- M29: ELO rating system for PvP matchmaking
-- M30: Multi-language expansion (Polish, Spanish, German)
-- M31: Collaborative vocabulary lists / class rooms
-- M32: Mobile PWA / React Native companion
+- M30: ELO rating system for PvP matchmaking
+- M31: Multi-language expansion (Spanish, German — Polish landed in M29)
+- M32: Collaborative vocabulary lists / class rooms
+- M33: Mobile PWA / React Native companion
 
 ---
 

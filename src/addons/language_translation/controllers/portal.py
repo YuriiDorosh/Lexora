@@ -7,7 +7,7 @@ from odoo.http import request
 
 _logger = logging.getLogger(__name__)
 
-SUPPORTED_LANG_CODES = {'en', 'uk', 'el'}
+SUPPORTED_LANG_CODES = {'en', 'uk', 'el', 'pl'}
 
 
 class TranslationPortal(http.Controller):

@@ -25,7 +25,7 @@
               <!-- Language tabs -->
               <div class="col-12 mb-2">
                 <div class="d-flex gap-2 flex-wrap">
-                  <t t-foreach="[('en','🇬🇧 English'), ('uk','🇺🇦 Ukrainian'), ('el','🇬🇷 Greek')]" t-as="lp">
+                  <t t-foreach="[('en','🇬🇧 English'), ('uk','🇺🇦 Ukrainian'), ('el','🇬🇷 Greek'), ('pl','🇵🇱 Polish')]" t-as="lp">
                     <a t-attf-href="/idioms?lang=#{lp[0]}#{active_category and '&amp;category=' + active_category or ''}#{active_level and '&amp;level=' + active_level or ''}"
                        t-attf-style="display:inline-block;padding:6px 14px;border-radius:8px;text-decoration:none;font-size:0.875rem;font-weight:600;#{active_lang == lp[0] and 'background:linear-gradient(90deg,#3b82f6,#1d4ed8);color:#fff;border:none' or 'background:rgba(255,255,255,0.07);color:#94a3b8;border:1px solid rgba(255,255,255,0.15)'}">
                       <t t-esc="lp[1]"/>

@@ -17,7 +17,7 @@ class LanguageScenario(models.Model):
         required=True,
     )
     target_language = fields.Selection(
-        [("en", "English"), ("uk", "Ukrainian"), ("el", "Greek")],
+        [("en", "English"), ("uk", "Ukrainian"), ("el", "Greek"), ("pl", "Polish")],
         default="en",
         required=True,
     )

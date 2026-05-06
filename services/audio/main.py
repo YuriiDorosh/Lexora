@@ -59,10 +59,11 @@ _EDGE_VOICES = {
     "en": "en-US-JennyNeural",
     "uk": "uk-UA-PolinaNeural",
     "el": "el-GR-AthinaNeural",
+    "pl": "pl-PL-ZofiaNeural",
 }
 
 # espeak-ng language codes
-_ESPEAK_LANGS = {"en": "en", "uk": "uk", "el": "el"}
+_ESPEAK_LANGS = {"en": "en", "uk": "uk", "el": "el", "pl": "pl"}
 
 # ---------------------------------------------------------------------------
 # Global state

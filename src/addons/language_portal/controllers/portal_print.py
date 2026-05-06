@@ -14,7 +14,7 @@ from odoo.http import request, Response
 
 _logger = logging.getLogger(__name__)
 
-_LANG_NAMES = {'en': 'English', 'uk': 'Ukrainian', 'el': 'Greek'}
+_LANG_NAMES = {'en': 'English', 'uk': 'Ukrainian', 'el': 'Greek', 'pl': 'Polish'}
 
 _PAPERFORMAT_ARGS = {
     'data-report-margin-top': 12,

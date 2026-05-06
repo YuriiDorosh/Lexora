@@ -27,12 +27,13 @@ _logger = logging.getLogger(__name__)
 
 ITEMS_PER_PAGE = 20
 
-LANG_NAMES = {'en': 'English', 'uk': 'Ukrainian', 'el': 'Greek'}
+LANG_NAMES = {'en': 'English', 'uk': 'Ukrainian', 'el': 'Greek', 'pl': 'Polish'}
 
 SUPPORTED_LANGS = [
     {'code': 'en', 'name': 'English'},
     {'code': 'uk', 'name': 'Ukrainian'},
     {'code': 'el', 'name': 'Greek'},
+    {'code': 'pl', 'name': 'Polish'},
 ]
 
 # Valid filterby / sortby values — used to reject tampered query params.
@@ -41,7 +42,7 @@ _VALID_SORTS   = frozenset({'newest', 'az', 'difficulty'})
 
 
 def _try_detect_language(text: str):
-    """Return 'en', 'uk', 'el', or None.
+    """Return 'en', 'uk', 'el', 'pl', or None.
 
     Uses langdetect with a confidence threshold of 0.7.
     Returns None for short/ambiguous text so the UI falls back to the
@@ -59,7 +60,7 @@ def _try_detect_language(text: str):
         if results:
             top = results[0]
             lang_code = top.lang.split('-')[0].lower()  # 'en-US' → 'en'
-            if top.prob >= 0.7 and lang_code in ('en', 'uk', 'el'):
+            if top.prob >= 0.7 and lang_code in ('en', 'uk', 'el', 'pl'):
                 return lang_code
     except Exception:
         _logger.debug('Language detection failed for text=%r', text[:50], exc_info=True)
@@ -106,7 +107,7 @@ class VocabularyPortal(CustomerPortal):
             default_src = post.get('default_source_language') or False
             learning_codes = request.httprequest.form.getlist('learning_languages')
             is_shared_list = bool(post.get('is_shared_list'))
-            valid_codes = {'en', 'uk', 'el'}
+            valid_codes = {'en', 'uk', 'el', 'pl'}
 
             if native and native not in valid_codes:
                 error = 'Invalid native language.'

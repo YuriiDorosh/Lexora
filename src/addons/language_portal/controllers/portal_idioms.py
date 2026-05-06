@@ -19,7 +19,7 @@ _CATEGORY_LABELS = {
     'communication': 'Communication',
 }
 
-_LANG_LABELS = {'en': 'English', 'uk': 'Ukrainian', 'el': 'Greek'}
+_LANG_LABELS = {'en': 'English', 'uk': 'Ukrainian', 'el': 'Greek', 'pl': 'Polish'}
 
 
 class IdiomsController(http.Controller):
@@ -29,7 +29,7 @@ class IdiomsController(http.Controller):
         Idiom = request.env['language.idiom'].sudo()
 
         domain = []
-        lang = lang if lang in ('en', 'uk', 'el') else 'en'
+        lang = lang if lang in ('en', 'uk', 'el', 'pl') else 'en'
         domain.append(('language', '=', lang))
 
         if category and category in _CATEGORY_LABELS:
@@ -42,7 +42,7 @@ class IdiomsController(http.Controller):
 
         idioms = Idiom.search(domain, order='level asc, expression asc')
 
-        available_langs = ['en', 'uk', 'el']
+        available_langs = ['en', 'uk', 'el', 'pl']
         lang_counts = {lc: Idiom.search_count([('language', '=', lc)]) for lc in available_langs}
 
         return request.render('language_portal.portal_idioms_index', {

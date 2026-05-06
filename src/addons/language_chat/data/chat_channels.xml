@@ -24,4 +24,11 @@
         <field name="group_public_id" ref="language_security.group_language_user"/>
     </record>
 
+    <record id="channel_polish" model="discuss.channel">
+        <field name="name">polish</field>
+        <field name="channel_type">channel</field>
+        <field name="description">Polish language learning community. Ćwicz i dziel się wskazówkami!</field>
+        <field name="group_public_id" ref="language_security.group_language_user"/>
+    </record>
+
 </odoo>

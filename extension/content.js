@@ -251,7 +251,7 @@ const _QL_ICON_ID  = 'lx-ql-icon';
 const _QL_MIN_LEN  = 2;
 const _QL_MAX_LEN  = 1000;
 
-const _QL_LANG_NAMES = { en: 'EN', uk: 'UK', el: 'EL' };
+const _QL_LANG_NAMES = { en: 'EN', uk: 'UK', el: 'EL', pl: 'PL' };
 
 // Shadow DOM stylesheet — isolated from the host page
 const _QL_CSS = `
@@ -436,6 +436,7 @@ const _QL_CSS = `
 function _detectLang(text) {
   if (/[Ѐ-ӿ]/.test(text)) return 'uk';
   if (/[Ͱ-Ͽἀ-῿]/.test(text)) return 'el';
+  if (/[ąćęłńóśźżĄĆĘŁŃÓŚŹŻ]/.test(text)) return 'pl';
   return 'en';
 }
 
@@ -902,6 +903,7 @@ function _wrapMatchesInNode(textNode, wordMap) {
       span.setAttribute('data-word',     entry.word);
       span.setAttribute('data-trans-uk', (entry.translations && entry.translations.uk) || '');
       span.setAttribute('data-trans-el', (entry.translations && entry.translations.el) || '');
+      span.setAttribute('data-trans-pl', (entry.translations && entry.translations.pl) || '');
       span.setAttribute('data-days',     entry.days_ago != null ? String(entry.days_ago) : '');
       span.textContent = part;
       fragment.appendChild(span);
@@ -968,6 +970,7 @@ function _showReviewTooltip(entry, anchorEl) {
   if (entry.translations) {
     if (entry.translations.uk) transLines.push(`🇺🇦 ${escHtml(entry.translations.uk)}`);
     if (entry.translations.el) transLines.push(`🇬🇷 ${escHtml(entry.translations.el)}`);
+    if (entry.translations.pl) transLines.push(`🇵🇱 ${escHtml(entry.translations.pl)}`);
   }
 
   tt.innerHTML = `

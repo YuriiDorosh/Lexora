@@ -15,6 +15,298 @@
 
 ## Current Milestone
 
+### M29 — Polish Language Support (System-Wide Expansion)
+
+**Status:** Complete and verified. All 5 steps shipped on `m29_polish_support`.
+Commits: `bdf9336` (S1) · `a0c25ad` (S2) · `2efed85` (S3) · `47e391d` (S4 fixture)
+· `80d62e3` (S4 fix-pass) · this commit (S5 docs flip).
+**Branch:** `m29_polish_support` (created from `m28_grammar_explainer`)
+**Started:** 2026-05-03
+
+**Scope:** Add Polish (`pl` / 🇵🇱) as a first-class language alongside the existing
+English (`en`), Ukrainian (`uk`), and Greek (`el`). Touches every layer (DB,
+controllers, FastAPI services, browser extension, portal templates) but introduces
+no new endpoints or flows — pure horizontal expansion.
+
+**Architecture decisions (locked at M29 start):**
+- Polish flag emoji: 🇵🇱
+- MyMemory locale: `pl-PL` (verified via `deep_translator`'s supported list)
+- Edge TTS voice: `pl-PL-ZofiaNeural` (female, consistent with uk/el convention)
+  Fallback: `espeak-ng -v pl`
+- `langdetect` ships Polish out of the box — no extra dependency
+- Extension `_detectLang()` adds a Polish-diacritic regex
+  (`/[ąćęłńóśźżĄĆĘŁŃÓŚŹŻ]/`) **before** the `'en'` fallback
+- Graceful fallback: hide Polish tabs/rows when content is missing rather than
+  show `null` — applies to phrasebook, idioms, cloze, tooltips
+
+**Audit total:** 41 distinct touch-points across the repo (8 Selection fields,
+~25 controller dicts, 7 QWeb templates, 4 service-level dicts, 2 extension
+files, plus seed XML + flag emoji additions).
+
+#### Sub-steps
+
+**Step 1 — Database & Backend (Odoo / Python)** ✅
+
+- [x] M29-S1-01 · `language_words/data/language_lang.xml` — `lang_pl` record added.
+- [x] M29-S1-02 · `language_words/models/language_lang.py` — `LANGUAGE_SELECTION`
+  extended with `('pl', 'Polish')`. This auto-propagates to
+  `language.entry.source_language`, `language.translation.target_language`,
+  and `language.user.profile.default_source_language` (all use the constant).
+- [x] M29-S1-03 · `language_words/models/language_word_of_day.py` —
+  `SUPPORTED_LANGS` and Selection field both updated.
+- [x] M29-S1-04 · `language_pvp/models/language_duel.py` — both
+  `practice_language` and `native_language` Selection fields updated.
+- [x] M29-S1-05 · `language_portal/models/language_post.py`,
+  `language_idiom.py`, `language_scenario.py`, `language_scenario_session.py`
+  — all four Selection fields updated.
+- [x] M29-S1-06 · `language_translation/controllers/portal.py`
+  `SUPPORTED_LANG_CODES` set updated.
+- [x] M29-S1-07 · `language_words/controllers/portal.py` — `LANG_NAMES`,
+  `SUPPORTED_LANGS`, langdetect tuple, `valid_codes` set, and docstring updated.
+- [x] M29-S1-08 · `language_portal/controllers/portal.py` (4 sites),
+  `portal_idioms.py` (3 sites), `portal_phrasebook.py` (2 sites),
+  `portal_print.py` (1 site), `portal_translator.py` (`LANG_NAMES`+`LANG_FLAGS`
+  with 🇵🇱), `portal_api.py` (4 sites) — all updated.
+- [x] M29-S1-09 · `language_pvp/controllers/portal.py` (3 sites),
+  `language_chat/controllers/portal.py` (3 sites + new `polish` channel
+  in `chat_channels.xml`), `language_learning/controllers/portal.py`
+  (1 site) — all updated.
+- [x] M29-S1-10 · QWeb templates — `language_words/views/portal_vocabulary.xml`
+  (2 sites, `replace_all`), `portal_idioms.xml` (1 site, with 🇵🇱 flag),
+  `portal_phrasebook.xml` (1 site), `portal_posts.xml` (2 sites),
+  `portal_homepage.xml` (3 sites — also added `'pl': 'bg-danger text-white'`
+  badge class for visual differentiation) — all updated.
+- [x] M29-S1-11 · `--update language_words,language_translation,language_pvp,
+  language_portal,language_chat,language_learning,language_anki_jobs
+  --stop-after-init --no-http` → "Modules loaded." 0 errors related to M29.
+  (Pre-existing warnings about `lexora.ticket`/`team.helpdesk` from the
+  postponed M26 module are unrelated.)
+- [x] M29-S1-12 · DB sanity:
+  `SELECT code, name FROM language_lang ORDER BY code;` returns 4 rows
+  (el / en / pl / uk).
+- [x] M29-S1-13 · Anki Import service requires no code change — confirmed.
+
+#### Resume Reference (exact snippets for fresh sessions)
+
+**Step 1 commit:** `bdf9336` on `m29_polish_support`. 27 files. DB has 4 lang rows.
+
+**Step 2 — exact code edits:**
+
+```python
+# services/translation/main.py  (around line 71)
+_MYMEMORY_LOCALES: dict[str, str] = {
+    "en": "en-US", "uk": "uk-UA", "el": "el-GR", "pl": "pl-PL",  # +pl
+}
+
+# services/audio/main.py  (around line 58)
+_EDGE_VOICES = {
+    "en": "en-US-JennyNeural",
+    "uk": "uk-UA-PolinaNeural",
+    "el": "el-GR-AthinaNeural",
+    "pl": "pl-PL-ZofiaNeural",  # +pl (Microsoft Edge female neural)
+}
+_ESPEAK_LANGS = {"en": "en", "uk": "uk", "el": "el", "pl": "pl"}  # +pl
+
+# services/llm/main.py  (around line 63)
+LANG_NAMES = {"en": "English", "uk": "Ukrainian", "el": "Greek", "pl": "Polish"}  # +pl
+```
+
+After edits: `make up-translation-no-cache && make up-audio-no-cache && make up-llm-no-cache`.
+Roleplay/explain-grammar prompts are language-agnostic — no prompt rewrites needed.
+
+**Step 3 — extension code edits:**
+
+```javascript
+// extension/content.js _detectLang() (around line 436)
+function _detectLang(text) {
+  if (/[Ѐ-ӿ]/.test(text)) return 'uk';
+  if (/[Ͱ-Ͽἀ-῿]/.test(text)) return 'el';
+  if (/[ąćęłńóśźżĄĆĘŁŃÓŚŹŻ]/.test(text)) return 'pl';  // +pl
+  return 'en';
+}
+
+// extension/newtab.js (around line 15)
+const LANG_FLAGS = { en: '🇬🇧', uk: '🇺🇦', el: '🇬🇷', pl: '🇵🇱' };  // +pl
+const LANG_NAMES = { en: 'English', uk: 'Ukrainian', el: 'Greek', pl: 'Polish' };  // +pl
+
+// content.js Quick Look + tooltip + overlay.js — find every
+// data-trans-uk / 🇺🇦 UA pattern and add a sibling data-trans-pl / 🇵🇱 PL
+// row using the same pattern. Hide row when data-trans-pl is empty.
+```
+
+**Step 4 — UI verification (no code expected unless gaps found).**
+
+**Step 5 — final docs flip + ADR-029.**
+
+---
+
+**Step 2 — LLM Prompts & AI Services** ✅
+
+- [x] M29-S2-01 · `services/translation/main.py` `_MYMEMORY_LOCALES` extended
+  with `"pl": "pl-PL"`. Google backend already accepts bare `pl`.
+- [x] M29-S2-02 · `services/audio/main.py` `_EDGE_VOICES` extended with
+  `"pl": "pl-PL-ZofiaNeural"` and `_ESPEAK_LANGS` with `"pl": "pl"`.
+- [x] M29-S2-03 · `services/llm/main.py` `LANG_NAMES` extended with
+  `"pl": "Polish"`. `_roleplay()` calls `LANG_NAMES.get(req.target_language, ...)`,
+  so Polish flows through automatically. Enrichment prompt is language-agnostic.
+- [x] M29-S2-04 · `POST /explain-grammar` — confirmed prompt is language-agnostic;
+  no code change needed.
+- [x] M29-S2-05 · `POST /roleplay` — confirmed; `target_language` field already
+  covered by Step 1.
+- [x] M29-S2-06 · `make up-translation-no-cache && make up-audio-no-cache &&
+  make up-llm-no-cache` — all three services rebuilt and running.
+  - translation `/health` → `provider:google, ready:true`
+  - audio `/health` → `whisper_ready:true, tts_engine:edge-tts`
+  - llm `/health` → `llm_ready:true, model:Qwen2.5-1.5B`
+- [x] M29-S2-07 · Translation E2E for `pl`:
+  - `apple (en→pl)` → `jabłko` ✓
+  - `jabłko (pl→en)` → `apple` ✓
+  - `książka (pl→uk)` → `книга` ✓ (cross-Slavic pair)
+- [ ] M29-S2-08 · Audio E2E for `pl` deferred — service is rebuilt with
+  `pl-PL-ZofiaNeural` mapped; will be smoke-tested in Step 4 when verifying
+  the portal entry detail page TTS button.
+
+**Step 3 — Browser Extension** ✅
+
+- [x] M29-S3-01 · `extension/content.js:438` `_detectLang()` — added
+  `if (/[ąćęłńóśźżĄĆĘŁŃÓŚŹŻ]/.test(text)) return 'pl';` between the Greek
+  branch and the `'en'` fallback. Cyrillic→uk and Greek→el branches stay
+  first (script-exclusive), so Polish input only matches when no other
+  Slavic/Greek script is present, then triggers on any Polish-specific
+  diacritic.
+- [x] M29-S3-02 · `extension/newtab.js:15-16` — `LANG_FLAGS` and `LANG_NAMES`
+  both extended with `pl: '🇵🇱'` / `pl: 'Polish'`. Daily-card render
+  picks up flag + name automatically when API returns a Polish entry.
+- [x] M29-S3-03 · `extension/content.js:254` `_QL_LANG_NAMES` — added
+  `pl: 'PL'`. The Quick Look overlay's translations loop
+  (`response.translations.map(t => ...)` at line 575-580) is polymorphic on
+  `t.target_language`, so Polish rows auto-render with the correct label
+  once the dict knows about `pl`. No row-injection code needed.
+- [x] M29-S3-04 · `extension/overlay.js:484` `_LANG_NAMES` — added
+  `pl: 'Polish'`. YouTube overlay's `_showOverlay()` loop (line 503-505)
+  is also polymorphic on `t.target_language` → auto-renders Polish.
+- [x] M29-S3-05 · `extension/content.js:906` `_wrapMatchesInNode` — added
+  `span.setAttribute('data-trans-pl', (entry.translations && entry.translations.pl) || '')`.
+  `extension/content.js:973` `_showReviewTooltip` — added
+  `if (entry.translations.pl) transLines.push(\`🇵🇱 ${escHtml(entry.translations.pl)}\`)`.
+  Tooltip now shows 🇺🇦/🇬🇷/🇵🇱 simultaneously, hiding any flag whose
+  translation string is empty (graceful fallback rule from M29 architecture
+  decisions).
+- [x] M29-S3-06 · `language_portal/controllers/portal_api.py`
+  `get_learned_words` — confirmed: returns `translations: {lang_code: text}`
+  dict structure (M27-22 contract). Polish entries flow through automatically
+  once `language.translation` records with `target_language='pl'` exist.
+  No code change required.
+- [ ] M29-S3-07 · Manual: reload extension in Chrome; navigate to a Polish
+  Wikipedia page with known Polish vocabulary → tooltip shows 🇺🇦/🇬🇷/🇵🇱
+  rows where all three translations exist; Quick Look + YouTube overlay
+  display Polish translation row. **Deferred to user-side smoke test.**
+
+**Step 4 — Web Application & UI** (post-verification fix pass — 6 issues, all resolved)
+
+**Critical bug discovered during backfill:** three modules
+(`language_translation`, `language_enrichment`, `language_audio`) had their
+own local `LANGUAGE_SELECTION = [...]` literals **duplicating** the one in
+`language_words.models.language_lang`. Step 1's grep missed these because
+the Selection fields use `selection=LANGUAGE_SELECTION` (local reference,
+not imported), so the canonical update never reached them. The backfill
+exposed it: `Wrong value for language.translation.target_language: 'pl'`
+on every entry. Fix: replaced all three local literals with
+`from odoo.addons.language_words.models.language_lang import LANGUAGE_SELECTION`.
+Now there's a single source of truth.
+
+**Fixes shipped (all from manual UI verification report):**
+
+1. **Profile link** — `language_learning/data/website_menus.xml`: renamed
+   the misleading "My Profile → /my/dashboard" entry to "My Dashboard",
+   added a new "Language Preferences → /my/profile" entry under Tools
+   group (sequence=15). Users can now find the language-prefs page from
+   the navbar.
+2. **Extension Polish translation** — `language_portal/controllers/portal_api.py`:
+   `_live_translate()` cap raised from `[:2]` → `[:3]` and `learning_languages`
+   gating removed. Now always covers all `_ALLOWED_LANGUAGES` minus source.
+   `_detectLang` regex confirmed correct at `extension/content.js:439`.
+3. **Add Entry form** — `language_words/views/portal_vocabulary.xml:501`:
+   `<option value="pl">Polish</option>` added to the new-entry form select.
+4. **Anki button** — `language_anki_jobs/views/portal_anki.xml`: new template
+   `portal_vocabulary_list_anki_button` inheriting
+   `language_words.portal_vocabulary_list`, injects "📥 Import Anki" button
+   next to "+ Add Entry" via XPath `position="after"`.
+5. **Auto-translate to all 4** — `language_translation/models/language_entry_translation.py`:
+   `_enqueue_translations()` rewritten to iterate over a module-level
+   `_DEFAULT_TARGET_LANGUAGES = ('en','uk','el','pl')` constant instead of
+   `profile.learning_languages`. Every new entry now auto-enqueues 3 target
+   translations (4 minus source).
+6. **Backfill complete** — 1055 active non-Polish entries enqueued and
+   processed by the translation worker. All status='completed'. Sample:
+   `book→książka`, `arrogant→arogancki`, `imminent→nadciągający`.
+7. **Duplicate-Selection fix** —
+   `language_translation/models/language_translation.py`,
+   `language_enrichment/models/language_enrichment.py`,
+   `language_audio/models/language_audio.py`: each had a local
+   `LANGUAGE_SELECTION = [...]` missing 'pl'. All three now import the
+   canonical constant from `language_words.models.language_lang`.
+
+**Test fixture (created via Odoo shell, user_id=2):**
+- `language.entry` id=6326 · `source_text='książka'` · `source_language='pl'`
+- 3 completed `language.translation` rows: `en→book` (id=4366),
+  `uk→книга` (id=4365), `el→βιβλίο` (id=4364)
+- `pvp_eligible=True`
+
+- [x] M29-S4-00 · Polish test fixture seeded — entry id=6326 with 3 translations.
+- [ ] M29-S4-01 · `/my/vocabulary/6326` — verify the Polish entry detail page
+  renders all 3 translation rows (en/uk/el) cleanly; `Source language` field
+  shows "Polish"; no `null` placeholders. Re-translate / Re-enrich buttons
+  must accept Polish as source.
+- [ ] M29-S4-02 · `/my/arena` — verify Polish appears in
+  `practice_language` and `native_language` dropdowns of the New Challenge
+  form. Open challenges filtered by `practice_language='pl'` should be visible
+  to users who have Polish in their learning languages.
+- [ ] M29-S4-03 · `/translator` — verify 🇵🇱 flag + "Polish" name appear in
+  source and target language selectors; `apple (en→pl)` returns `jabłko`;
+  Add to Vocabulary button creates a `pl` entry.
+- [ ] M29-S4-04 · `/my/anki` — verify Polish appears in the source-language
+  and destination-language dropdowns (driven by `language.lang` seed; should
+  be auto-included after S1-01).
+- [ ] M29-S4-05 · `/my/profile` — verify Polish appears as a checkable
+  option under `learning_languages`; saving with Polish checked → profile's
+  `learning_languages` includes the `lang_pl` record.
+- [ ] M29-S4-06 · `/phrasebook` — verify Polish tab is **hidden** when no
+  Polish phrases exist for a scenario (graceful fallback rule). The
+  `phrasebook_data.py` dataset has no `pl` keys, so all six scenarios should
+  cleanly omit the 🇵🇱 tab rather than show a broken/empty tab.
+
+**Step 5 — Documentation & Cleanup** ✅
+
+- [x] M29-S5-01 · ADR-029 in `docs/DECISIONS.md` — three sub-decisions
+  recorded: (29a) Polish vendor identifiers (🇵🇱 / `pl-PL` /
+  `pl-PL-ZofiaNeural` / `[ąćęłńóśźżĄĆĘŁŃÓŚŹŻ]` regex);
+  (29b) canonical `LANGUAGE_SELECTION` import + post-mortem of the
+  duplicate-literal bug found during backfill;
+  (29c) auto-translate to all 4 supported languages (decoupled from
+  `profile.learning_languages`).
+- [x] M29-S5-02 · `docs/PLAN.md` v1.7 → v1.8; M29 overview row flipped
+  → ✅ Complete; status header updated.
+- [x] M29-S5-03 · `docs/TASKS.md` — M29 block annotated as complete
+  (Steps 1–5 all ✅); next session's "Current Milestone" slot is open.
+- [x] M29-S5-04 · `README.md` — multiple updates:
+  - Tagline: "English, Ukrainian, Greek, **and Polish**"
+  - Audio table: Edge TTS line mentions `pl-PL-ZofiaNeural`
+  - Public channels list adds Polish
+  - `_detectLang` Unicode-range note adds Polish-diacritic branch
+  - Tooltip section adds 🇵🇱 row
+  - Translation service §: `en/uk/el/pl` (12 directional pairs)
+  - Implementation status table: M29 row added
+  - Roadmap: M29 removed from "future" list; remaining items renumbered
+- [ ] M29-S5-05 · Commit + push to `m29_polish_support` — pending this
+  final commit.
+
+#### Blockers
+
+(none)
+
+---
+
 ### M27 — Browser Extension: Review in the Wild
 
 **Status:** Complete and verified. Committed as d596807 on `m27_review_in_the_wild`.

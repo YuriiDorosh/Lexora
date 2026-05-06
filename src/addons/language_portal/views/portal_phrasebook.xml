@@ -61,7 +61,7 @@
 
           <!-- Language tabs -->
           <div class="d-flex gap-2 mb-4 flex-wrap">
-            <t t-foreach="[('en','English'),('uk','Ukrainian'),('el','Greek')]" t-as="ltab">
+            <t t-foreach="[('en','English'),('uk','Ukrainian'),('el','Greek'),('pl','Polish')]" t-as="ltab">
               <a t-attf-href="/phrasebook/{{ scenario_key }}?lang={{ ltab[0] }}"
                  t-attf-class="lx-lang-tab{{ ' lx-lang-tab-active' if active_lang == ltab[0] else '' }}">
                 <t t-out="ltab[1]"/>

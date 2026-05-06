@@ -19,7 +19,7 @@ from odoo.addons.portal.controllers.portal import pager as portal_pager
 
 _logger = logging.getLogger(__name__)
 
-LANG_NAMES = {'en': 'English', 'uk': 'Ukrainian', 'el': 'Greek'}
+LANG_NAMES = {'en': 'English', 'uk': 'Ukrainian', 'el': 'Greek', 'pl': 'Polish'}
 
 
 class ArenaPortal(CustomerPortal):
@@ -57,7 +57,7 @@ class ArenaPortal(CustomerPortal):
         learning_langs = (
             [l.code for l in profile.learning_languages]
             if profile and profile.learning_languages
-            else ['en', 'uk', 'el']
+            else ['en', 'uk', 'el', 'pl']
         )
 
         open_challenges = Duel.search([
@@ -88,7 +88,7 @@ class ArenaPortal(CustomerPortal):
             'recent_history': recent_history,
             'lang_names': LANG_NAMES,
             'uid': uid,
-            'languages': [('en', 'English'), ('uk', 'Ukrainian'), ('el', 'Greek')],
+            'languages': [('en', 'English'), ('uk', 'Ukrainian'), ('el', 'Greek'), ('pl', 'Polish')],
         })
 
     # ------------------------------------------------------------------

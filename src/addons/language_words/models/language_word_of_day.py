@@ -4,7 +4,7 @@ from odoo import api, fields, models
 
 _logger = logging.getLogger(__name__)
 
-SUPPORTED_LANGS = ['en', 'uk', 'el']
+SUPPORTED_LANGS = ['en', 'uk', 'el', 'pl']
 
 
 class LanguageWordOfDay(models.Model):
@@ -14,7 +14,7 @@ class LanguageWordOfDay(models.Model):
     _rec_name = 'word_text'
 
     language = fields.Selection(
-        [('en', 'English'), ('uk', 'Ukrainian'), ('el', 'Greek')],
+        [('en', 'English'), ('uk', 'Ukrainian'), ('el', 'Greek'), ('pl', 'Polish')],
         required=True, index=True,
     )
     entry_id = fields.Many2one('language.entry', ondelete='set null')

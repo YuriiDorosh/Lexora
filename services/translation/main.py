@@ -72,6 +72,7 @@ _MYMEMORY_LOCALES: dict[str, str] = {
     "en": "en-US",
     "uk": "uk-UA",
     "el": "el-GR",
+    "pl": "pl-PL",
 }
 
 
