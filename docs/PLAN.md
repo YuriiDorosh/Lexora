@@ -1,8 +1,8 @@
 # Lexora — Implementation Plan (MVP)
 
-> Version: 1.9 (M30 — AI Speaking Coach — In Progress)
+> Version: 2.0 (M30 — AI Speaking Coach — Complete)
 > Last updated: 2026-05-06
-> Status: M0–M25 complete; M26 postponed (resource constraints); M27–M29 complete; M30 in progress
+> Status: M0–M25 complete; M26 postponed (resource constraints); M27–M30 complete
 
 ---
 
@@ -57,7 +57,7 @@
 | M27 | Browser Extension — Review in the Wild | ✅ Complete | Known vocabulary highlighted on any webpage; SRS-aware tooltip with simultaneous 🇺🇦/🇬🇷 translations; 15-min cached word list; MutationObserver debounced re-scan |
 | M28 | Browser Extension — Grammar Explainer | ✅ Complete | "Explain Grammar" button in Quick Look + YouTube overlays; Qwen 1.5B via Odoo proxy; draggable scrollable overlays with `!important` flex enforcement |
 | M29 | Polish Language Support (System-Wide) | ✅ Complete | Polish (`pl` / 🇵🇱) is a first-class language across DB selectors, controllers, FastAPI services (`pl-PL` MyMemory locale, `pl-PL-ZofiaNeural` Edge TTS, `espeak-ng pl`, LLM `LANG_NAMES`), browser extension (Polish-diacritic detection regex, Quick Look + tooltip 🇵🇱 row, New Tab card), portal templates, and Anki/profile/translator forms. Auto-translates all new entries to en/uk/el/pl. 1055 existing entries backfilled. Canonical `LANGUAGE_SELECTION` import enforced across translation/enrichment/audio (ADR-029) |
-| M30 | AI Speaking Coach & Oral Practice | 🔧 In Progress | `/my/speaking` portal with topic generation, browser mic recording, Faster-Whisper transcription (sync), and LLM (Qwen2.5-1.5B) feedback (corrections / synonyms / improved version). New `language.speaking.session` model persists transcripts + feedback per user for progress tracking. Works in en/uk/el/pl |
+| M30 | AI Speaking Coach & Oral Practice | ✅ Complete | `/my/speaking` portal with topic generation, browser mic recording, Faster-Whisper sync transcription, and Qwen2.5-1.5B feedback (corrections / synonyms / improved version). `language.speaking.session` persists transcripts + feedback per user. 4-language support; 90 s soft cap; sync HTTP pipeline (no RabbitMQ) per ADR-030 |
 
 ---
 

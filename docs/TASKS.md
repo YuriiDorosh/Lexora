@@ -15,9 +15,20 @@
 
 ## Current Milestone
 
+(none — M30 closed on 2026-05-06; next milestone TBD)
+
+---
+
+## Completed Milestones (M30)
+
 ### M30 — AI Speaking Coach & Oral Practice
 
-**Status:** In progress.
+**Status:** Complete and verified. Six commits on `m30_speaking_coach`:
+`9d84b99` (S1 foundation) · `a550f86` (S2 LLM endpoints) ·
+`d0b85e2` (S3 audio sync) · `3260e1d` (S4 portal pipeline) ·
+`82d6cfa` (S4 fix-pass-1: QWeb badge + menu cross-ref) ·
+`6d698ba` (S4 fix-pass-2: menu hook + light theme + 90 s hint) ·
+this commit (S5 docs flip).
 **Branch:** `m30_speaking_coach` (created from `m29_polish_support`)
 **Started:** 2026-05-06
 
@@ -271,18 +282,33 @@ Works in all four supported languages (en/uk/el/pl).
   limit.` Matches the `AUDIO_SYNC_MAX_SECONDS=90` cap on the audio
   service.
 
-**Step 5 — Verification + docs**
+**Step 5 — Verification + docs** ✅
 
-- [ ] M30-S5-01 · End-to-end record/transcribe/analyze for all 4 languages
-  (en/uk/el/pl). Browser-side smoke.
-- [ ] M30-S5-02 · ADR-030 in `docs/DECISIONS.md` — sync-over-async
-  decision, JSON contract for `/analyze-speech`, audio cap, prompt
-  engineering notes for Qwen2.5-1.5B.
-- [ ] M30-S5-03 · `docs/PLAN.md` flip M30 row → ✅ Complete; bump version.
-- [ ] M30-S5-04 · `docs/TASKS.md` archive M30 block.
-- [ ] M30-S5-05 · `README.md` — M30 row in implementation status; remove
-  M30 from roadmap.
-- [ ] M30-S5-06 · Commit + push to `m30_speaking_coach`.
+- [x] M30-S5-01 · Browser smoke confirmed by user: transcription and
+  LLM analysis flow works end-to-end; UI is readable; menu mounted
+  correctly under Practice.
+- [x] M30-S5-02 · ADR-030 in `docs/DECISIONS.md` covers four
+  sub-decisions: (30a) sync pipeline rationale and pattern-reuse rule,
+  (30b) three-key JSON contract + tolerant parser + defensive
+  `_coerce_list`, (30c) audio cap (duration + bytes, env-configurable),
+  (30d) per-language few-shot anchor for `/generate-topic`. Also
+  records the four lessons that fed back into the codebase
+  (canonical Selection import, `post_update_hook` discipline, QWeb
+  interpolation gotcha, flexbox sandwich reuse) and three revisit
+  triggers.
+- [x] M30-S5-03 · `docs/PLAN.md` v1.9 → v2.0; M30 row flipped to ✅;
+  status header reflects M0–M30 complete.
+- [x] M30-S5-04 · `docs/TASKS.md` Step 5 marked complete; M30 block
+  rotated out of "Current Milestone" (now empty until M31 starts).
+- [x] M30-S5-05 · `README.md` — Practice Modes table gains "AI Speaking
+  Coach" row; LLM service section adds `/generate-topic` and
+  `/analyze-speech` to the sync-endpoints list; audio service section
+  adds `/transcribe-sync` with cap details and the `pl-PL-ZofiaNeural`
+  voice; M30 row added to implementation status table; M30 removed
+  from the roadmap; M35 added as a future "phoneme-level pronunciation
+  scoring" extension.
+- [ ] M30-S5-06 · Commit + push to `m30_speaking_coach` — pending this
+  final commit.
 
 #### Blockers
 
