@@ -471,3 +471,62 @@ The other option — Argos Translate — carries its own well-known quality prob
 - If users report inaccurate translations: evaluate DeepL as a paid drop-in. Its quality for Slavic/Greek is generally better than free Google.
 - If a privacy-sensitive or air-gapped deployment emerges: fork a separate offline translation service; the online path remains the default for the hosted product.
 - If `deep_translator` itself goes unmaintained: `translators` is the second-choice library; the `_translate()` function is small enough to swap in a morning.
+
+---
+
+## ADR-029: Polish (`pl`) as a first-class language; canonical Selection import; auto-translate to all supported languages
+
+**Status:** Accepted (M29, 2026-05-03)
+
+**Context:** Lexora MVP shipped with three languages — English (`en`), Ukrainian (`uk`), Greek (`el`). M29 adds Polish (`pl` / 🇵🇱) as a fully-integrated fourth language across DB, controllers, FastAPI services, browser extension, and portal templates. Three sub-decisions were locked during implementation.
+
+### Sub-decision 29a: Polish vendor identifiers
+
+| Concern | Choice | Rationale |
+|---|---|---|
+| Flag emoji | 🇵🇱 (U+1F1F5 U+1F1F1) | Standard regional indicator pair |
+| MyMemory locale | `pl-PL` | Required region-tag format (verified in `deep_translator` supported list) |
+| Edge TTS voice | `pl-PL-ZofiaNeural` | Female neural, consistent with `uk-UA-PolinaNeural` / `el-GR-AthinaNeural` convention |
+| espeak-ng fallback | `-v pl` | Standard ISO code, works out of the box |
+| `langdetect` | Native `pl` support | No new dependency required |
+| Extension diacritic regex | `/[ąćęłńóśźżĄĆĘŁŃÓŚŹŻ]/` (BEFORE the `'en'` fallback) | Cyrillic→uk and Greek→el branches stay first (script-exclusive); Polish triggers only when no other Slavic/Greek script is present |
+
+Google's `GoogleTranslator` (the default provider in `services/translation/main.py`) accepts the bare `pl` code — no provider-side change needed. The MyMemory locale only matters when the fallback path activates.
+
+### Sub-decision 29b: Canonical `LANGUAGE_SELECTION` import (post-mortem, the bug that almost broke M29)
+
+**The bug:** Three modules — `language_translation`, `language_enrichment`, `language_audio` — each defined their own local `LANGUAGE_SELECTION = [...]` literal at module level. Their Selection fields used `selection=LANGUAGE_SELECTION` (local reference, not import). When M29 Step 1 added `('pl', 'Polish')` to the canonical constant in `language_words.models.language_lang`, the three local copies stayed at three entries. The bug stayed dormant until the M29 backfill tried to create `language.translation` rows with `target_language='pl'` and Odoo's Selection validator rejected every one with `Wrong value for language.translation.target_language: 'pl'`.
+
+**The fix:** All three local literals replaced with:
+
+```python
+from odoo.addons.language_words.models.language_lang import LANGUAGE_SELECTION
+```
+
+This makes `language_words.models.language_lang.LANGUAGE_SELECTION` the **single source of truth** for the four-language Selection across all five modules that consume it (`language_words`, `language_translation`, `language_enrichment`, `language_audio`, plus the inline `[(...)]` literals in `language_pvp.models.language_duel`, `language_portal.models.language_post`, `language_idiom`, `language_scenario`, `language_scenario_session`, `language_words.models.language_word_of_day`).
+
+**Rule for future language additions:** any new `Selection` field that should track the supported-language set MUST `from odoo.addons.language_words.models.language_lang import LANGUAGE_SELECTION` — never copy the literal locally. The remaining inline `[(...), ...]` literals in PvP/portal/idiom/scenario/word-of-day models are tolerated but flagged in `docs/TASKS.md` for a future cleanup pass; they were updated by hand during M29 Step 1 and don't currently drift.
+
+**Why it happened:** the duplicates predate M29 (translation/enrichment/audio were authored standalone in M3/M4/M6 before the canonical constant became the convention). Step 1 used a `grep '('en', 'uk', 'el')'` sweep that picked up _value_ tuples but not _named-constant references_. A future-proof grep would also search for `LANGUAGE_SELECTION = \[`.
+
+### Sub-decision 29c: Auto-translate every new entry to all 4 supported languages (changed from `profile.learning_languages`)
+
+**Before M29:** `language.entry.create()` enqueued translations only for the languages listed in the owner's `language.user.profile.learning_languages` (Many2many → `language.lang`). If a user hadn't ticked Polish on their profile, new entries never got Polish translations.
+
+**After M29:** `_enqueue_translations()` in `language_translation.models.language_entry_translation` iterates over a module-level `_DEFAULT_TARGET_LANGUAGES = ('en', 'uk', 'el', 'pl')` constant minus the source language. The user's `profile.learning_languages` no longer gates the translation request — it can still gate which translations are *displayed* in the UI (out of scope for M29).
+
+**Same change applied to `_live_translate()`** in `language_portal/controllers/portal_api.py` (the synchronous path used by the browser extension's Quick Look overlay): `[:2]` cap raised to `[:3]` and the `profile.learning_languages` lookup removed. Now the extension always shows all three non-source translations.
+
+**Rationale:** Polish (and any future language) should be covered out of the box. The previous design coupled translation _coverage_ with user _preferences_ — adding a language meant 100% of existing users had to update their profile to actually see it. The new design separates the two concerns: data layer covers everything, presentation layer can filter later.
+
+**Trade-off:** every entry creation now enqueues 3 translation jobs instead of N (where N = profile size, typically 1-2). RabbitMQ + Google Translate handle this comfortably (~1 s per call). Cost on the dev host is negligible; production should monitor Google API rate limits if entry creation volume spikes.
+
+### Backfill discipline
+
+The M29 backfill enqueued 1055 Polish translations for active non-Polish entries via the existing `_enqueue_single` (idempotent — re-runs are safe). All 1055 drained to `status='completed'` via the standard RabbitMQ → Translation Service → cron-drain pipeline (ADR-023). Sample results were correct: `book → książka`, `arrogant → arogancki`, `imminent → nadciągający`. No special migration tooling needed — the existing translation infrastructure handled the bulk task.
+
+### Revisit triggers
+
+- If a fifth language is added: extend `LANGUAGE_SELECTION` in `language_words.models.language_lang` and `_DEFAULT_TARGET_LANGUAGES` in `language_entry_translation`. Cleanup pass on the inline `[(...)]` literals in PvP/portal models is also overdue.
+- If translation API rate-limits become a problem under high entry-creation volume: revert sub-decision 29c partially — keep `_DEFAULT_TARGET_LANGUAGES` for the data layer but throttle/queue the actual translation requests.
+- If users want per-language opt-out: re-introduce `profile.learning_languages` as a *display* filter, not a translation filter.

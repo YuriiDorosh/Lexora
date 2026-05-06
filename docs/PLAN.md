@@ -1,8 +1,8 @@
 # Lexora — Implementation Plan (MVP)
 
-> Version: 1.7 (M29 — Polish Language Support — In Progress)
-> Last updated: 2026-05-03
-> Status: M0–M25 complete; M26 postponed (resource constraints); M27–M28 complete; M29 in progress
+> Version: 1.8 (M29 — Polish Language Support — Complete)
+> Last updated: 2026-05-06
+> Status: M0–M25 complete; M26 postponed (resource constraints); M27–M29 complete
 
 ---
 
@@ -56,7 +56,7 @@
 | M26 | AI Helpdesk — RAG Auto-Reply | ⏸ Postponed | Requires pgvector + llama-cpp + fastembed (~2.5 GiB RAM on top of existing stack); postponed until a higher-RAM server is available |
 | M27 | Browser Extension — Review in the Wild | ✅ Complete | Known vocabulary highlighted on any webpage; SRS-aware tooltip with simultaneous 🇺🇦/🇬🇷 translations; 15-min cached word list; MutationObserver debounced re-scan |
 | M28 | Browser Extension — Grammar Explainer | ✅ Complete | "Explain Grammar" button in Quick Look + YouTube overlays; Qwen 1.5B via Odoo proxy; draggable scrollable overlays with `!important` flex enforcement |
-| M29 | Polish Language Support (System-Wide) | 🔧 In Progress | Add Polish (`pl` / 🇵🇱) as a first-class language across DB selectors, controllers, FastAPI services (`deep_translator` `pl-PL`, `edge-tts` `pl-PL-ZofiaNeural`, `espeak-ng pl`, LLM `LANG_NAMES`), browser extension (Latin-diacritic detection heuristic, Quick Look 🇵🇱 row, New Tab card), and portal templates. Graceful fallback when content is missing |
+| M29 | Polish Language Support (System-Wide) | ✅ Complete | Polish (`pl` / 🇵🇱) is a first-class language across DB selectors, controllers, FastAPI services (`pl-PL` MyMemory locale, `pl-PL-ZofiaNeural` Edge TTS, `espeak-ng pl`, LLM `LANG_NAMES`), browser extension (Polish-diacritic detection regex, Quick Look + tooltip 🇵🇱 row, New Tab card), portal templates, and Anki/profile/translator forms. Auto-translates all new entries to en/uk/el/pl. 1055 existing entries backfilled. Canonical `LANGUAGE_SELECTION` import enforced across translation/enrichment/audio (ADR-029) |
 
 ---
 

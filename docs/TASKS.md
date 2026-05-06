@@ -17,7 +17,9 @@
 
 ### M29 — Polish Language Support (System-Wide Expansion)
 
-**Status:** In progress.
+**Status:** Complete and verified. All 5 steps shipped on `m29_polish_support`.
+Commits: `bdf9336` (S1) · `a0c25ad` (S2) · `2efed85` (S3) · `47e391d` (S4 fixture)
+· `80d62e3` (S4 fix-pass) · this commit (S5 docs flip).
 **Branch:** `m29_polish_support` (created from `m28_grammar_explainer`)
 **Started:** 2026-05-03
 
@@ -274,17 +276,30 @@ Now there's a single source of truth.
   `phrasebook_data.py` dataset has no `pl` keys, so all six scenarios should
   cleanly omit the 🇵🇱 tab rather than show a broken/empty tab.
 
-**Step 5 — Documentation & Cleanup**
+**Step 5 — Documentation & Cleanup** ✅
 
-- [ ] M29-S5-01 · ADR-029 in `docs/DECISIONS.md` — record `pl-PL-ZofiaNeural`
-  Edge TTS pick, `pl-PL` MyMemory locale, and the Polish-diacritic regex
-  in `_detectLang()`.
-- [ ] M29-S5-02 · `docs/PLAN.md` — flip M29 row → ✅ Complete; bump version.
-- [ ] M29-S5-03 · `docs/TASKS.md` — archive M29 block under "Completed
-  Milestones".
-- [ ] M29-S5-04 · `README.md` — add Polish to "Supported Languages" section
-  (or equivalent); add M29 row to the implementation status table.
-- [ ] M29-S5-05 · Commit + push to `m29_polish_support`.
+- [x] M29-S5-01 · ADR-029 in `docs/DECISIONS.md` — three sub-decisions
+  recorded: (29a) Polish vendor identifiers (🇵🇱 / `pl-PL` /
+  `pl-PL-ZofiaNeural` / `[ąćęłńóśźżĄĆĘŁŃÓŚŹŻ]` regex);
+  (29b) canonical `LANGUAGE_SELECTION` import + post-mortem of the
+  duplicate-literal bug found during backfill;
+  (29c) auto-translate to all 4 supported languages (decoupled from
+  `profile.learning_languages`).
+- [x] M29-S5-02 · `docs/PLAN.md` v1.7 → v1.8; M29 overview row flipped
+  → ✅ Complete; status header updated.
+- [x] M29-S5-03 · `docs/TASKS.md` — M29 block annotated as complete
+  (Steps 1–5 all ✅); next session's "Current Milestone" slot is open.
+- [x] M29-S5-04 · `README.md` — multiple updates:
+  - Tagline: "English, Ukrainian, Greek, **and Polish**"
+  - Audio table: Edge TTS line mentions `pl-PL-ZofiaNeural`
+  - Public channels list adds Polish
+  - `_detectLang` Unicode-range note adds Polish-diacritic branch
+  - Tooltip section adds 🇵🇱 row
+  - Translation service §: `en/uk/el/pl` (12 directional pairs)
+  - Implementation status table: M29 row added
+  - Roadmap: M29 removed from "future" list; remaining items renumbered
+- [ ] M29-S5-05 · Commit + push to `m29_polish_support` — pending this
+  final commit.
 
 #### Blockers
 
