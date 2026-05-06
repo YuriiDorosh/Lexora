@@ -155,29 +155,60 @@ Works in all four supported languages (en/uk/el/pl).
   - empty upload → HTTP 415 `{"detail": "Empty audio upload."}` ✓
   - language="auto" → Whisper auto-detected `pl` from the same audio. ✓
 
-**Step 4 — Portal POST endpoints + UI**
+**Step 4 — Portal POST endpoints + UI** ✅
 
-- [ ] M30-S4-01 · `/my/speaking/topic` — JSON-RPC route, calls LLM
-  `/generate-topic`. Returns `{topic, language}`.
-- [ ] M30-S4-02 · `/my/speaking/transcribe` — multipart route. Reads
-  audio + topic + language from form-data, POSTs to audio
-  `/transcribe-sync`, creates `language.speaking.session` row with
-  `status='analyzing'` and the returned transcript, optionally stores
-  the audio as `ir.attachment` linked via `audio_attachment_id`.
-  Returns `{session_id, transcript, duration}`.
-- [ ] M30-S4-03 · `/my/speaking/analyze` — JSON-RPC route. Reads
-  `session_id`, fetches the session, POSTs to LLM `/analyze-speech`,
-  persists `feedback_corrections` / `feedback_synonyms` /
-  `feedback_improved`, sets `status='completed'`. Returns the feedback.
-- [ ] M30-S4-04 · `/my/speaking/<id>` — GET route, full session detail
-  page (transcript + 3-section feedback panel).
-- [ ] M30-S4-05 · `views/portal_speaking.xml` UI — dark glassmorphism:
-  topic card with "Generate Topic" button, recorder card with
-  Record/Stop buttons, transcript preview (read-only textarea), feedback
-  card (3 collapsible sections), recent sessions list.
-- [ ] M30-S4-06 · Recorder JS — MediaRecorder API, prefers
-  `audio/webm;codecs=opus` (same pattern as M6 Audio recording).
-  90 s timeout, friendly error if mic permission denied.
+- [x] M30-S4-01 · `/my/speaking/topic` (JSON-RPC) → calls LLM
+  `/generate-topic`. Validates `language` against `_VALID_LANGS`
+  (en/uk/el/pl), proxies via `requests.post` with 90 s timeout, returns
+  `{status, topic, language}`. Errors are caught and returned as
+  `{status:'error', message}` so the JS can render a friendly fallback.
+- [x] M30-S4-02 · `/my/speaking/transcribe` (multipart, csrf=False).
+  Pre-creates the `language.speaking.session` row in
+  `status='transcribing'` so a mid-flow failure leaves a visible row
+  the user can see + retry. Forwards the `audio` blob to audio service
+  `/transcribe-sync` (120 s timeout), persists transcript via
+  `session.write_transcript()` (also flips status → analyzing), then
+  best-effort stashes the original audio as a private `ir.attachment`
+  linked via `audio_attachment_id`. Returns
+  `{status, session_id, transcript, duration, language}`. Maps audio
+  service HTTP errors (413/415/503) back to the caller verbatim.
+- [x] M30-S4-03 · `/my/speaking/analyze` (JSON-RPC) → calls LLM
+  `/analyze-speech` with the persisted transcript. On success, calls
+  `session.write_feedback()` to persist all three feedback fields and
+  flip status → completed. Surfaces the LLM's `parse_error` flag so
+  the UI can show "limited analysis" if Slavic JSON quoting tripped
+  the parser (Step 2 known limitation).
+- [x] M30-S4-04 · `/my/speaking/<id>` GET — already shipped in Step 1's
+  controller; verified the template renders all fields after Step 4
+  populates them.
+- [x] M30-S4-05 · `views/portal_speaking.xml` UI — feedback panel
+  added below the Analyze button. Three blocks (improved version,
+  corrections, synonyms), each `d-none` by default and shown only when
+  populated. Empty-state hint ("Nothing to fix — your speech looks
+  good!") shown when all three blocks are empty.
+- [x] M30-S4-06 · Recorder JS (inline `<script>` in the index template,
+  IIFE-scoped). MediaRecorder API; tries
+  `audio/webm;codecs=opus → audio/webm → audio/ogg;codecs=opus →
+  audio/ogg` for the codec; explicit error if `getUserMedia` fails.
+  Stop sends a `Blob` to `/my/speaking/transcribe` as `FormData`,
+  then the Analyze button calls `/my/speaking/analyze` with the
+  returned session_id. `setStatus()` helper writes friendly progress
+  messages ("Recording…" / "Transcribing…" / "Analyzing…").
+  Mind that the JS uses XML-safe operators (`&amp;&amp;`, `&lt;`)
+  so the QWeb template parses cleanly.
+
+**Smoke test (Step 4 wiring)**:
+- LLM `/generate-topic` via the controller's `requests.post` path
+  returned: "What is your favorite hobby and why do you enjoy it?" ✓
+- LLM `/analyze-speech` for "I goes to school yesterday and we was
+  happy" returned a structurally valid JSON object; controller persisted
+  via `write_feedback()`; session row id=1 has `status='completed'`,
+  `transcript`, and `feedback_improved` all populated. (The model
+  occasionally emits empty `corrections[]`/`synonyms[]` for short
+  transcripts at temperature=0.4 — a quality nudge, not a wiring bug.)
+- `language_speaking_session` table row 1 confirmed in Postgres:
+  `status=completed, target_language=en, has_transcript=t,
+   has_improved=t`.
 
 **Step 5 — Verification + docs**
 
