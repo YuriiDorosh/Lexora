@@ -232,6 +232,45 @@ Works in all four supported languages (en/uk/el/pl).
   effect of the QWeb 500 — clicking the menu errored and made the
   link look broken.
 
+**Step 4 fix-pass-2 (post browser smoke #2)**:
+
+- [x] M30-S4-fix-03 · Menu STILL invisible because the existing
+  `_fix_library_menu_parents` hook in `language_portal/__init__.py`
+  was silently crashing on `KeyError: 'website.website'`. In this
+  Odoo build the website model is registered as just `'website'`,
+  not `'website.website'`. Other child menus (Sentence Builder,
+  Grammar Pro, Roleplay) only re-parented for website 1 because
+  the original code crashed on website 2's iteration. Two fixes:
+  - `_fix_library_menu_parents` now picks the right model name
+    via `if 'website' in env.registry: env['website'] else
+    env['website.website']`; falls through with a warning if neither
+    exists. After the fix, hook re-parents Speaking Coach id=116
+    under per-website Practice id=80 (website 1) and id=117 under
+    id=81 (website 2). Other previously-broken children get fixed
+    too as a side effect.
+  - `/my/speaking` added to `group_map['#practice']` URL list so the
+    hook knows to re-parent it.
+  - `post_update_hook` now also calls `_fix_library_menu_parents`
+    (previously it only called `_seed_knowledge_hub`), so future
+    `--update` runs auto-re-parent newly added child menus.
+- [x] M30-S4-fix-04 · `views/portal_speaking.xml` swept for
+  dark-theme text classes (light-theme portal made the body white
+  on white). `text-white-50` → `text-muted` (8 sites);
+  `text-white` → `text-body` (10 sites) — order matters because
+  `text-white` is a substring of `text-white-50`. The hero strip
+  (`lx-translator-hero` with intentional dark gradient) keeps
+  `text-white` / `text-white-50` for contrast. `btn-outline-light`
+  → `btn-outline-secondary` for the Stop button and
+  `btn-outline-primary` for Generate Topic so they're visible on
+  light cards. The color-coded badges in the feedback panel
+  (`text-warning`/`text-success`/`text-info`/`text-danger`) are
+  intact since they carry meaning and work on both themes.
+- [x] M30-S4-fix-05 · Time-limit indicator added below the
+  Record/Stop row: a `text-muted small` line reading
+  `⏱ Max recording time: 90 seconds — Whisper auto-stops past this
+  limit.` Matches the `AUDIO_SYNC_MAX_SECONDS=90` cap on the audio
+  service.
+
 **Step 5 — Verification + docs**
 
 - [ ] M30-S5-01 · End-to-end record/transcribe/analyze for all 4 languages

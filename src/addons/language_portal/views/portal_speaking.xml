@@ -12,7 +12,7 @@
             <div id="wrap" class="oe_structure lx-premium-theme">
                 <div class="container py-4">
 
-                    <!-- ── Hero ───────────────────────────────────── -->
+                    <!-- ── Hero (dark gradient banner — keep white text) ── -->
                     <div class="lx-translator-hero mb-4 p-4 rounded-4">
                         <h2 class="mb-2 fw-bold text-white">🎤 Speaking Coach</h2>
                         <p class="text-white-50 mb-0">
@@ -30,7 +30,7 @@
 
                                 <!-- Language selector -->
                                 <div class="mb-3">
-                                    <label class="form-label text-white">Practice language</label>
+                                    <label class="form-label text-body">Practice language</label>
                                     <select id="speaking-lang" class="form-select lx-lang-select">
                                         <t t-foreach="languages" t-as="ll">
                                             <option t-att-value="ll[0]"
@@ -43,10 +43,10 @@
 
                                 <!-- Topic block -->
                                 <div class="mb-3">
-                                    <label class="form-label text-white d-flex justify-content-between align-items-center">
+                                    <label class="form-label text-body d-flex justify-content-between align-items-center">
                                         <span>Topic</span>
                                         <button id="speaking-topic-btn" type="button"
-                                                class="btn btn-sm btn-outline-light">
+                                                class="btn btn-sm btn-outline-primary">
                                             🎲 Generate Topic
                                         </button>
                                     </label>
@@ -56,23 +56,26 @@
                                 </div>
 
                                 <!-- Recorder -->
-                                <div class="mb-3 d-flex gap-2 flex-wrap align-items-center">
+                                <div class="mb-2 d-flex gap-2 flex-wrap align-items-center">
                                     <button id="speaking-record-btn" type="button"
                                             class="btn lx-btn">
                                         ● Record
                                     </button>
                                     <button id="speaking-stop-btn" type="button"
-                                            class="btn btn-outline-light" disabled="disabled">
+                                            class="btn btn-outline-secondary" disabled="disabled">
                                         ■ Stop
                                     </button>
-                                    <span id="speaking-status" class="text-white-50 small">
+                                    <span id="speaking-status" class="text-muted small">
                                         Mic ready. Press Record.
                                     </span>
+                                </div>
+                                <div class="text-muted small mb-3">
+                                    ⏱ Max recording time: 90 seconds — Whisper auto-stops past this limit.
                                 </div>
 
                                 <!-- Transcript preview -->
                                 <div class="mb-3">
-                                    <label class="form-label text-white">Transcript</label>
+                                    <label class="form-label text-body">Transcript</label>
                                     <textarea id="speaking-transcript" rows="4" readonly="readonly"
                                               class="form-control lx-result-textarea"
                                               placeholder="Your transcribed speech will appear here…"></textarea>
@@ -87,24 +90,24 @@
                                 <!-- Inline feedback panel (populated after Analyze) -->
                                 <div id="speaking-feedback" class="mt-4 d-none">
                                     <hr class="border-secondary"/>
-                                    <h5 class="text-white mb-3">Feedback</h5>
+                                    <h5 class="text-body mb-3">Feedback</h5>
 
                                     <div id="speaking-improved-block" class="mb-3 d-none">
-                                        <div class="small text-white-50 mb-1">Improved version</div>
+                                        <div class="small text-muted mb-1">Improved version</div>
                                         <div id="speaking-improved" class="lx-result-textarea p-3 rounded"></div>
                                     </div>
 
                                     <div id="speaking-corrections-block" class="mb-3 d-none">
-                                        <div class="small text-white-50 mb-1">Corrections</div>
+                                        <div class="small text-muted mb-1">Corrections</div>
                                         <ul id="speaking-corrections" class="list-unstyled mb-0"></ul>
                                     </div>
 
                                     <div id="speaking-synonyms-block" class="mb-3 d-none">
-                                        <div class="small text-white-50 mb-1">Better word choices</div>
+                                        <div class="small text-muted mb-1">Better word choices</div>
                                         <ul id="speaking-synonyms" class="list-unstyled mb-0"></ul>
                                     </div>
 
-                                    <div id="speaking-feedback-empty" class="text-white-50 small d-none">
+                                    <div id="speaking-feedback-empty" class="text-muted small d-none">
                                         Nothing to fix — your speech looks good!
                                     </div>
                                 </div>
@@ -115,18 +118,18 @@
                         <!-- ── Recent sessions (right) ────────────── -->
                         <div class="col-lg-5">
                             <div class="lx-translator-card p-4 rounded-4">
-                                <h5 class="text-white mb-3">Recent sessions</h5>
-                                <div t-if="not recent_sessions" class="text-white-50">
+                                <h5 class="text-body mb-3">Recent sessions</h5>
+                                <div t-if="not recent_sessions" class="text-muted">
                                     No practice yet. Record your first session to see it here.
                                 </div>
                                 <ul t-if="recent_sessions" class="list-unstyled mb-0">
                                     <t t-foreach="recent_sessions" t-as="s">
                                         <li class="mb-2 pb-2 border-bottom border-secondary">
                                             <a t-attf-href="/my/speaking/#{s.id}"
-                                               class="text-white text-decoration-none">
+                                               class="text-body text-decoration-none">
                                                 <strong t-esc="s.topic or 'Untitled session'"/>
                                             </a>
-                                            <div class="small text-white-50 d-flex gap-2 flex-wrap">
+                                            <div class="small text-muted d-flex gap-2 flex-wrap">
                                                 <span t-esc="s.target_language and s.target_language.upper()"/>
                                                 <span>·</span>
                                                 <span t-esc="s.create_date and s.create_date.strftime('%Y-%m-%d %H:%M')"/>
@@ -179,7 +182,7 @@
                         statusEl.className = 'small ' + (
                             kind === 'error' ? 'text-danger' :
                             kind === 'busy'  ? 'text-warning' :
-                            kind === 'ok'    ? 'text-success' : 'text-white-50'
+                            kind === 'ok'    ? 'text-success' : 'text-muted'
                         );
                     }
 
@@ -376,7 +379,7 @@
                                 li.innerHTML =
                                     '&lt;strong class="text-warning"&gt;' + escapeHtml(c.wrong || '') + '&lt;/strong&gt; → ' +
                                     '&lt;strong class="text-success"&gt;' + escapeHtml(c.correct || '') + '&lt;/strong&gt;' +
-                                    (c.note ? '&lt;div class="small text-white-50"&gt;' + escapeHtml(c.note) + '&lt;/div&gt;' : '');
+                                    (c.note ? '&lt;div class="small text-muted"&gt;' + escapeHtml(c.note) + '&lt;/div&gt;' : '');
                                 fbCorrUl.appendChild(li);
                             });
                             fbCorrBlk.classList.remove('d-none');
@@ -391,9 +394,9 @@
                                 var li = document.createElement('li');
                                 li.className = 'mb-2';
                                 li.innerHTML =
-                                    '&lt;span class="text-white-50"&gt;' + escapeHtml(s.original || '') + '&lt;/span&gt; → ' +
+                                    '&lt;span class="text-muted"&gt;' + escapeHtml(s.original || '') + '&lt;/span&gt; → ' +
                                     '&lt;strong class="text-info"&gt;' + escapeHtml(s.suggestion || '') + '&lt;/strong&gt;' +
-                                    (s.reason ? '&lt;div class="small text-white-50"&gt;' + escapeHtml(s.reason) + '&lt;/div&gt;' : '');
+                                    (s.reason ? '&lt;div class="small text-muted"&gt;' + escapeHtml(s.reason) + '&lt;/div&gt;' : '');
                                 fbSynUl.appendChild(li);
                             });
                             fbSynBlk.classList.remove('d-none');
@@ -426,17 +429,17 @@
             <div id="wrap" class="oe_structure lx-premium-theme">
                 <div class="container py-4">
 
-                    <a href="/my/speaking" class="text-white-50 small text-decoration-none">
+                    <a href="/my/speaking" class="text-muted small text-decoration-none">
                         ← Back to Speaking Coach
                     </a>
 
                     <div class="lx-translator-card p-4 rounded-4 mt-3 mb-4">
                         <div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-3">
-                            <h3 class="text-white mb-0" t-esc="session.topic or 'Untitled session'"/>
+                            <h3 class="text-body mb-0" t-esc="session.topic or 'Untitled session'"/>
                             <span t-att-class="'badge ' + {'completed':'bg-success','failed':'bg-danger','pending':'bg-secondary','transcribing':'bg-info','analyzing':'bg-warning text-dark'}.get(session.status, 'bg-secondary')"
                                   t-esc="session.status"/>
                         </div>
-                        <div class="small text-white-50 mb-3">
+                        <div class="small text-muted mb-3">
                             <span t-esc="(session.target_language or '').upper()"/> ·
                             <span t-esc="session.create_date and session.create_date.strftime('%Y-%m-%d %H:%M')"/>
                             <t t-if="session.duration_seconds">
@@ -444,19 +447,19 @@
                             </t>
                         </div>
 
-                        <h5 class="text-white">Transcript</h5>
+                        <h5 class="text-body">Transcript</h5>
                         <div class="lx-result-textarea p-3 rounded mb-3">
                             <t t-esc="session.transcript or '(no transcript yet)'"/>
                         </div>
 
                         <t t-if="session.feedback_improved">
-                            <h5 class="text-white">Improved version</h5>
+                            <h5 class="text-body">Improved version</h5>
                             <div class="lx-result-textarea p-3 rounded mb-3"
                                  t-esc="session.feedback_improved"/>
                         </t>
 
                         <t t-if="corrections">
-                            <h5 class="text-white">Corrections</h5>
+                            <h5 class="text-body">Corrections</h5>
                             <ul class="list-unstyled">
                                 <t t-foreach="corrections" t-as="c">
                                     <li class="mb-2">
@@ -465,7 +468,7 @@
                                         →
                                         <strong class="text-success"
                                                 t-esc="c.get('correct', '')"/>
-                                        <div class="small text-white-50"
+                                        <div class="small text-muted"
                                              t-esc="c.get('note', '')"/>
                                     </li>
                                 </t>
@@ -473,16 +476,16 @@
                         </t>
 
                         <t t-if="synonyms">
-                            <h5 class="text-white">Better word choices</h5>
+                            <h5 class="text-body">Better word choices</h5>
                             <ul class="list-unstyled">
                                 <t t-foreach="synonyms" t-as="s">
                                     <li class="mb-2">
-                                        <span class="text-white-50"
+                                        <span class="text-muted"
                                               t-esc="s.get('original', '')"/>
                                         →
                                         <strong class="text-info"
                                                 t-esc="s.get('suggestion', '')"/>
-                                        <div class="small text-white-50"
+                                        <div class="small text-muted"
                                              t-esc="s.get('reason', '')"/>
                                     </li>
                                 </t>
