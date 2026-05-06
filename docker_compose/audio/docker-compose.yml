@@ -25,6 +25,9 @@ services:
       AUDIO_TRANSCRIPTION_ENABLED: ${AUDIO_TRANSCRIPTION_ENABLED:-1}
       # Maximum audio duration (seconds) that will be sent to Whisper
       AUDIO_MAX_DURATION_SECONDS: ${AUDIO_MAX_DURATION_SECONDS:-300}
+      # M30: sync transcription cap for /transcribe-sync (Speaking Coach)
+      AUDIO_SYNC_MAX_SECONDS: ${AUDIO_SYNC_MAX_SECONDS:-90}
+      AUDIO_SYNC_MAX_BYTES: ${AUDIO_SYNC_MAX_BYTES:-15728640}
     volumes:
       - audio_models:/models
     networks:

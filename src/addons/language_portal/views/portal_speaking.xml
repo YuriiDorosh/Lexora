@@ -1,0 +1,506 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- ============================================================
+         M30 — AI Speaking Coach landing page  /my/speaking
+         Step 1: foundation only — Record/Generate/Analyze actions are
+         wired as no-ops until M30 Step 4 ships the real handlers.
+    ============================================================ -->
+    <template id="portal_speaking_index" name="Speaking Coach">
+        <t t-call="portal.frontend_layout">
+            <t t-set="page_name" t-value="'speaking'"/>
+            <div id="wrap" class="oe_structure lx-premium-theme">
+                <div class="container py-4">
+
+                    <!-- ── Hero (dark gradient banner — keep white text) ── -->
+                    <div class="lx-translator-hero mb-4 p-4 rounded-4">
+                        <h2 class="mb-2 fw-bold text-white">🎤 Speaking Coach</h2>
+                        <p class="text-white-50 mb-0">
+                            Record yourself speaking on a topic. Faster-Whisper transcribes
+                            your words; Qwen suggests grammar fixes, better synonyms, and an
+                            improved version. Works in English, Ukrainian, Greek, and Polish.
+                        </p>
+                    </div>
+
+                    <div class="row g-4">
+
+                        <!-- ── Practice card (left) ──────────────── -->
+                        <div class="col-lg-7">
+                            <div class="lx-translator-card p-4 rounded-4">
+
+                                <!-- Language selector -->
+                                <div class="mb-3">
+                                    <label class="form-label text-body">Practice language</label>
+                                    <select id="speaking-lang" class="form-select lx-lang-select">
+                                        <t t-foreach="languages" t-as="ll">
+                                            <option t-att-value="ll[0]"
+                                                    t-att-selected="'selected' if ll[0] == default_lang else None">
+                                                <t t-esc="ll[1]"/>
+                                            </option>
+                                        </t>
+                                    </select>
+                                </div>
+
+                                <!-- Topic block -->
+                                <div class="mb-3">
+                                    <label class="form-label text-body d-flex justify-content-between align-items-center">
+                                        <span>Topic</span>
+                                        <button id="speaking-topic-btn" type="button"
+                                                class="btn btn-sm btn-outline-primary">
+                                            🎲 Generate Topic
+                                        </button>
+                                    </label>
+                                    <textarea id="speaking-topic" rows="2"
+                                              class="form-control lx-translator-textarea"
+                                              placeholder="A topic will appear here, or type your own…"></textarea>
+                                </div>
+
+                                <!-- Recorder -->
+                                <div class="mb-2 d-flex gap-2 flex-wrap align-items-center">
+                                    <button id="speaking-record-btn" type="button"
+                                            class="btn lx-btn">
+                                        ● Record
+                                    </button>
+                                    <button id="speaking-stop-btn" type="button"
+                                            class="btn btn-outline-secondary" disabled="disabled">
+                                        ■ Stop
+                                    </button>
+                                    <span id="speaking-status" class="text-muted small">
+                                        Mic ready. Press Record.
+                                    </span>
+                                </div>
+                                <div class="text-muted small mb-3">
+                                    ⏱ Max recording time: 90 seconds — Whisper auto-stops past this limit.
+                                </div>
+
+                                <!-- Transcript preview -->
+                                <div class="mb-3">
+                                    <label class="form-label text-body">Transcript</label>
+                                    <textarea id="speaking-transcript" rows="4" readonly="readonly"
+                                              class="form-control lx-result-textarea"
+                                              placeholder="Your transcribed speech will appear here…"></textarea>
+                                </div>
+
+                                <!-- Analyze button -->
+                                <button id="speaking-analyze-btn" type="button"
+                                        class="btn lx-btn lx-btn-primary" disabled="disabled">
+                                    ✨ Analyze My Speech
+                                </button>
+
+                                <!-- Inline feedback panel (populated after Analyze) -->
+                                <div id="speaking-feedback" class="mt-4 d-none">
+                                    <hr class="border-secondary"/>
+                                    <h5 class="text-body mb-3">Feedback</h5>
+
+                                    <div id="speaking-improved-block" class="mb-3 d-none">
+                                        <div class="small text-muted mb-1">Improved version</div>
+                                        <div id="speaking-improved" class="lx-result-textarea p-3 rounded"></div>
+                                    </div>
+
+                                    <div id="speaking-corrections-block" class="mb-3 d-none">
+                                        <div class="small text-muted mb-1">Corrections</div>
+                                        <ul id="speaking-corrections" class="list-unstyled mb-0"></ul>
+                                    </div>
+
+                                    <div id="speaking-synonyms-block" class="mb-3 d-none">
+                                        <div class="small text-muted mb-1">Better word choices</div>
+                                        <ul id="speaking-synonyms" class="list-unstyled mb-0"></ul>
+                                    </div>
+
+                                    <div id="speaking-feedback-empty" class="text-muted small d-none">
+                                        Nothing to fix — your speech looks good!
+                                    </div>
+                                </div>
+
+                            </div>
+                        </div>
+
+                        <!-- ── Recent sessions (right) ────────────── -->
+                        <div class="col-lg-5">
+                            <div class="lx-translator-card p-4 rounded-4">
+                                <h5 class="text-body mb-3">Recent sessions</h5>
+                                <div t-if="not recent_sessions" class="text-muted">
+                                    No practice yet. Record your first session to see it here.
+                                </div>
+                                <ul t-if="recent_sessions" class="list-unstyled mb-0">
+                                    <t t-foreach="recent_sessions" t-as="s">
+                                        <li class="mb-2 pb-2 border-bottom border-secondary">
+                                            <a t-attf-href="/my/speaking/#{s.id}"
+                                               class="text-body text-decoration-none">
+                                                <strong t-esc="s.topic or 'Untitled session'"/>
+                                            </a>
+                                            <div class="small text-muted d-flex gap-2 flex-wrap">
+                                                <span t-esc="s.target_language and s.target_language.upper()"/>
+                                                <span>·</span>
+                                                <span t-esc="s.create_date and s.create_date.strftime('%Y-%m-%d %H:%M')"/>
+                                                <span>·</span>
+                                                <span t-att-class="'badge ' + {'completed':'bg-success','failed':'bg-danger','pending':'bg-secondary','transcribing':'bg-info','analyzing':'bg-warning text-dark'}.get(s.status, 'bg-secondary')"
+                                                      t-esc="s.status"/>
+                                            </div>
+                                        </li>
+                                    </t>
+                                </ul>
+                            </div>
+                        </div>
+
+                    </div>
+                </div>
+
+                <!-- ── Speaking Coach JS — recorder + flow controller ── -->
+                <script type="text/javascript">
+                /* eslint-disable */
+                (function () {
+                    'use strict';
+
+                    var langSel    = document.getElementById('speaking-lang');
+                    var topicEl    = document.getElementById('speaking-topic');
+                    var topicBtn   = document.getElementById('speaking-topic-btn');
+                    var recordBtn  = document.getElementById('speaking-record-btn');
+                    var stopBtn    = document.getElementById('speaking-stop-btn');
+                    var statusEl   = document.getElementById('speaking-status');
+                    var transEl    = document.getElementById('speaking-transcript');
+                    var analyzeBtn = document.getElementById('speaking-analyze-btn');
+
+                    var fbPanel    = document.getElementById('speaking-feedback');
+                    var fbImpBlock = document.getElementById('speaking-improved-block');
+                    var fbImproved = document.getElementById('speaking-improved');
+                    var fbCorrBlk  = document.getElementById('speaking-corrections-block');
+                    var fbCorrUl   = document.getElementById('speaking-corrections');
+                    var fbSynBlk   = document.getElementById('speaking-synonyms-block');
+                    var fbSynUl    = document.getElementById('speaking-synonyms');
+                    var fbEmpty    = document.getElementById('speaking-feedback-empty');
+
+                    if (!recordBtn) { return; }
+
+                    var mediaRecorder = null;
+                    var chunks = [];
+                    var currentSessionId = null;
+
+                    function setStatus(msg, kind) {
+                        if (!statusEl) return;
+                        statusEl.textContent = msg;
+                        statusEl.className = 'small ' + (
+                            kind === 'error' ? 'text-danger' :
+                            kind === 'busy'  ? 'text-warning' :
+                            kind === 'ok'    ? 'text-success' : 'text-muted'
+                        );
+                    }
+
+                    function escapeHtml(s) {
+                        return String(s == null ? '' : s)
+                            .replace(/&amp;/g, '&amp;amp;')
+                            .replace(/&lt;/g, '&amp;lt;')
+                            .replace(/&gt;/g, '&amp;gt;')
+                            .replace(/"/g, '&amp;quot;');
+                    }
+
+                    function pickMimeType() {
+                        var candidates = [
+                            'audio/webm;codecs=opus',
+                            'audio/webm',
+                            'audio/ogg;codecs=opus',
+                            'audio/ogg',
+                        ];
+                        for (var i = 0; i &lt; candidates.length; i++) {
+                            if (window.MediaRecorder &amp;&amp;
+                                MediaRecorder.isTypeSupported(candidates[i])) {
+                                return candidates[i];
+                            }
+                        }
+                        return '';
+                    }
+
+                    // ── Generate Topic ─────────────────────────────────
+                    if (topicBtn) {
+                        topicBtn.addEventListener('click', function () {
+                            var lang = langSel ? langSel.value : 'en';
+                            topicBtn.disabled = true;
+                            setStatus('Generating topic…', 'busy');
+                            fetch('/my/speaking/topic', {
+                                method: 'POST',
+                                headers: {'Content-Type': 'application/json'},
+                                credentials: 'include',
+                                body: JSON.stringify({jsonrpc: '2.0', method: 'call',
+                                                      params: {language: lang}}),
+                            })
+                            .then(function (r) { return r.json(); })
+                            .then(function (data) {
+                                topicBtn.disabled = false;
+                                var result = (data &amp;&amp; data.result) || {};
+                                if (result.status === 'ok' &amp;&amp; result.topic) {
+                                    topicEl.value = result.topic;
+                                    setStatus('Topic ready. Press Record.', 'ok');
+                                } else {
+                                    setStatus('Could not generate a topic — write your own.', 'error');
+                                }
+                            })
+                            .catch(function (err) {
+                                topicBtn.disabled = false;
+                                setStatus('Topic generation failed: ' + err, 'error');
+                            });
+                        });
+                    }
+
+                    // ── Record ─────────────────────────────────────────
+                    recordBtn.addEventListener('click', function () {
+                        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                            setStatus('Browser does not support microphone capture.', 'error');
+                            return;
+                        }
+                        navigator.mediaDevices.getUserMedia({audio: true, video: false})
+                            .then(function (stream) {
+                                chunks = [];
+                                var mt = pickMimeType();
+                                var opts = mt ? {mimeType: mt} : undefined;
+                                try {
+                                    mediaRecorder = new MediaRecorder(stream, opts);
+                                } catch (e) {
+                                    mediaRecorder = new MediaRecorder(stream);
+                                }
+                                mediaRecorder.ondataavailable = function (ev) {
+                                    if (ev.data &amp;&amp; ev.data.size &gt; 0) {
+                                        chunks.push(ev.data);
+                                    }
+                                };
+                                mediaRecorder.onstop = function () {
+                                    stream.getTracks().forEach(function (t) { t.stop(); });
+                                    sendRecording(chunks, mediaRecorder.mimeType || 'audio/webm');
+                                };
+                                mediaRecorder.start();
+                                recordBtn.disabled = true;
+                                stopBtn.disabled = false;
+                                setStatus('🔴 Recording — speak now. Press Stop when done.', 'busy');
+                            })
+                            .catch(function (err) {
+                                setStatus('Microphone permission denied: ' + err.name, 'error');
+                            });
+                    });
+
+                    stopBtn.addEventListener('click', function () {
+                        if (mediaRecorder &amp;&amp; mediaRecorder.state !== 'inactive') {
+                            mediaRecorder.stop();
+                            stopBtn.disabled = true;
+                            setStatus('Transcribing… (this may take 10-30 s)', 'busy');
+                        }
+                    });
+
+                    function sendRecording(chunks, mimeType) {
+                        if (!chunks.length) {
+                            setStatus('No audio captured.', 'error');
+                            recordBtn.disabled = false;
+                            return;
+                        }
+                        var blob = new Blob(chunks, {type: mimeType});
+                        var fd = new FormData();
+                        fd.append('audio', blob, 'speech.webm');
+                        fd.append('language', langSel ? langSel.value : 'en');
+                        fd.append('topic', (topicEl &amp;&amp; topicEl.value || '').slice(0, 500));
+
+                        fetch('/my/speaking/transcribe', {
+                            method: 'POST',
+                            body: fd,
+                            credentials: 'include',
+                        })
+                        .then(function (r) { return r.json(); })
+                        .then(function (data) {
+                            recordBtn.disabled = false;
+                            if (data.status === 'ok') {
+                                transEl.value = data.transcript || '';
+                                currentSessionId = data.session_id;
+                                analyzeBtn.disabled = !data.transcript;
+                                setStatus(
+                                    'Transcript ready (' + (data.duration || 0).toFixed(1) +
+                                    ' s, ' + (data.language || '?').toUpperCase() + '). Press Analyze.',
+                                    'ok',
+                                );
+                            } else {
+                                setStatus('Transcription failed: ' +
+                                          (data.message || 'unknown error'), 'error');
+                            }
+                        })
+                        .catch(function (err) {
+                            recordBtn.disabled = false;
+                            setStatus('Upload failed: ' + err, 'error');
+                        });
+                    }
+
+                    // ── Analyze ────────────────────────────────────────
+                    analyzeBtn.addEventListener('click', function () {
+                        if (!currentSessionId) { return; }
+                        analyzeBtn.disabled = true;
+                        setStatus('Analyzing speech with AI… (this may take 20-40 s)', 'busy');
+
+                        fetch('/my/speaking/analyze', {
+                            method: 'POST',
+                            headers: {'Content-Type': 'application/json'},
+                            credentials: 'include',
+                            body: JSON.stringify({jsonrpc: '2.0', method: 'call',
+                                                  params: {session_id: currentSessionId}}),
+                        })
+                        .then(function (r) { return r.json(); })
+                        .then(function (data) {
+                            var result = (data &amp;&amp; data.result) || {};
+                            if (result.status !== 'ok') {
+                                setStatus('Analysis failed: ' +
+                                          (result.message || 'unknown error'), 'error');
+                                analyzeBtn.disabled = false;
+                                return;
+                            }
+                            renderFeedback(result);
+                            setStatus('Analysis complete. Saved to your sessions.', 'ok');
+                        })
+                        .catch(function (err) {
+                            analyzeBtn.disabled = false;
+                            setStatus('Analyze request failed: ' + err, 'error');
+                        });
+                    });
+
+                    function renderFeedback(result) {
+                        fbPanel.classList.remove('d-none');
+
+                        var corrections = result.corrections || [];
+                        var synonyms    = result.synonyms || [];
+                        var improved    = result.improved || '';
+
+                        // Improved version
+                        if (improved &amp;&amp; improved.trim()) {
+                            fbImproved.textContent = improved;
+                            fbImpBlock.classList.remove('d-none');
+                        } else {
+                            fbImpBlock.classList.add('d-none');
+                        }
+
+                        // Corrections
+                        fbCorrUl.innerHTML = '';
+                        if (corrections.length) {
+                            corrections.forEach(function (c) {
+                                var li = document.createElement('li');
+                                li.className = 'mb-2';
+                                li.innerHTML =
+                                    '&lt;strong class="text-warning"&gt;' + escapeHtml(c.wrong || '') + '&lt;/strong&gt; → ' +
+                                    '&lt;strong class="text-success"&gt;' + escapeHtml(c.correct || '') + '&lt;/strong&gt;' +
+                                    (c.note ? '&lt;div class="small text-muted"&gt;' + escapeHtml(c.note) + '&lt;/div&gt;' : '');
+                                fbCorrUl.appendChild(li);
+                            });
+                            fbCorrBlk.classList.remove('d-none');
+                        } else {
+                            fbCorrBlk.classList.add('d-none');
+                        }
+
+                        // Synonyms
+                        fbSynUl.innerHTML = '';
+                        if (synonyms.length) {
+                            synonyms.forEach(function (s) {
+                                var li = document.createElement('li');
+                                li.className = 'mb-2';
+                                li.innerHTML =
+                                    '&lt;span class="text-muted"&gt;' + escapeHtml(s.original || '') + '&lt;/span&gt; → ' +
+                                    '&lt;strong class="text-info"&gt;' + escapeHtml(s.suggestion || '') + '&lt;/strong&gt;' +
+                                    (s.reason ? '&lt;div class="small text-muted"&gt;' + escapeHtml(s.reason) + '&lt;/div&gt;' : '');
+                                fbSynUl.appendChild(li);
+                            });
+                            fbSynBlk.classList.remove('d-none');
+                        } else {
+                            fbSynBlk.classList.add('d-none');
+                        }
+
+                        // Empty-state hint when nothing to show
+                        var anything = (improved &amp;&amp; improved.trim()) ||
+                                       corrections.length ||
+                                       synonyms.length;
+                        if (!anything) {
+                            fbEmpty.classList.remove('d-none');
+                        } else {
+                            fbEmpty.classList.add('d-none');
+                        }
+                    }
+                })();
+                </script>
+            </div>
+        </t>
+    </template>
+
+    <!-- ============================================================
+         /my/speaking/<id> — Session detail
+    ============================================================ -->
+    <template id="portal_speaking_detail" name="Speaking Session">
+        <t t-call="portal.frontend_layout">
+            <t t-set="page_name" t-value="'speaking'"/>
+            <div id="wrap" class="oe_structure lx-premium-theme">
+                <div class="container py-4">
+
+                    <a href="/my/speaking" class="text-muted small text-decoration-none">
+                        ← Back to Speaking Coach
+                    </a>
+
+                    <div class="lx-translator-card p-4 rounded-4 mt-3 mb-4">
+                        <div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-3">
+                            <h3 class="text-body mb-0" t-esc="session.topic or 'Untitled session'"/>
+                            <span t-att-class="'badge ' + {'completed':'bg-success','failed':'bg-danger','pending':'bg-secondary','transcribing':'bg-info','analyzing':'bg-warning text-dark'}.get(session.status, 'bg-secondary')"
+                                  t-esc="session.status"/>
+                        </div>
+                        <div class="small text-muted mb-3">
+                            <span t-esc="(session.target_language or '').upper()"/> ·
+                            <span t-esc="session.create_date and session.create_date.strftime('%Y-%m-%d %H:%M')"/>
+                            <t t-if="session.duration_seconds">
+                                · <span t-esc="'%.1f s' % session.duration_seconds"/>
+                            </t>
+                        </div>
+
+                        <h5 class="text-body">Transcript</h5>
+                        <div class="lx-result-textarea p-3 rounded mb-3">
+                            <t t-esc="session.transcript or '(no transcript yet)'"/>
+                        </div>
+
+                        <t t-if="session.feedback_improved">
+                            <h5 class="text-body">Improved version</h5>
+                            <div class="lx-result-textarea p-3 rounded mb-3"
+                                 t-esc="session.feedback_improved"/>
+                        </t>
+
+                        <t t-if="corrections">
+                            <h5 class="text-body">Corrections</h5>
+                            <ul class="list-unstyled">
+                                <t t-foreach="corrections" t-as="c">
+                                    <li class="mb-2">
+                                        <strong class="text-warning"
+                                                t-esc="c.get('wrong', '')"/>
+                                        →
+                                        <strong class="text-success"
+                                                t-esc="c.get('correct', '')"/>
+                                        <div class="small text-muted"
+                                             t-esc="c.get('note', '')"/>
+                                    </li>
+                                </t>
+                            </ul>
+                        </t>
+
+                        <t t-if="synonyms">
+                            <h5 class="text-body">Better word choices</h5>
+                            <ul class="list-unstyled">
+                                <t t-foreach="synonyms" t-as="s">
+                                    <li class="mb-2">
+                                        <span class="text-muted"
+                                              t-esc="s.get('original', '')"/>
+                                        →
+                                        <strong class="text-info"
+                                                t-esc="s.get('suggestion', '')"/>
+                                        <div class="small text-muted"
+                                             t-esc="s.get('reason', '')"/>
+                                    </li>
+                                </t>
+                            </ul>
+                        </t>
+
+                        <t t-if="session.status == 'failed' and session.error_message">
+                            <div class="alert alert-danger small">
+                                <strong>Failure:</strong> <t t-esc="session.error_message"/>
+                            </div>
+                        </t>
+                    </div>
+                </div>
+            </div>
+        </t>
+    </template>
+
+</odoo>

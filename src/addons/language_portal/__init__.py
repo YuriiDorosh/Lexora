@@ -486,13 +486,26 @@ def _fix_library_menu_parents(env):
 
     # URL → group name mapping
     group_map = {
-        '#practice': ('Practice', ['/my/practice', '/my/roleplay', '/my/grammar-practice', '/my/sentence-builder']),
+        '#practice': ('Practice', ['/my/practice', '/my/roleplay', '/my/grammar-practice',
+                                   '/my/sentence-builder', '/my/speaking']),
         '#library':  ('Library',  ['/useful-words', '/grammar', '/idioms', '/phrasebook']),
         '#tools':    ('Tools',    ['/my/dashboard', '/my/leaderboard', '/my/arena',
                                    '/my/shop', '/my/inventory', '/my/posts', '/my/moderation']),
     }
 
-    websites = env['website.website'].sudo().search([])
+    # In this Odoo build the website model is registered as 'website'
+    # (not 'website.website'). Pick whichever exists in the registry; bail
+    # out cleanly if neither is present (e.g. website module not installed).
+    import logging
+    _log = logging.getLogger(__name__)
+    if 'website' in env.registry:
+        Website = env['website']
+    elif 'website.website' in env.registry:
+        Website = env['website.website']
+    else:
+        _log.warning("_fix_library_menu_parents: website model not in registry")
+        return
+    websites = Website.sudo().search([])
     for website in websites:
         for _key, (group_name, child_urls) in group_map.items():
             # Find the website-specific group record
@@ -537,5 +550,9 @@ def post_init_hook(env):
 
 def post_update_hook(env):
     _seed_knowledge_hub(env)
+    # Re-run the menu re-parenting on every update so newly added child menus
+    # (e.g. M30 /my/speaking) attach to the correct per-website Practice
+    # group instead of the global template parent.
+    _fix_library_menu_parents(env)
     _fix_library_menu_parents(env)
     _rename_menus(env)

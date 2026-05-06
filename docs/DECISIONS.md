@@ -530,3 +530,92 @@ The M29 backfill enqueued 1055 Polish translations for active non-Polish entries
 - If a fifth language is added: extend `LANGUAGE_SELECTION` in `language_words.models.language_lang` and `_DEFAULT_TARGET_LANGUAGES` in `language_entry_translation`. Cleanup pass on the inline `[(...)]` literals in PvP/portal models is also overdue.
 - If translation API rate-limits become a problem under high entry-creation volume: revert sub-decision 29c partially — keep `_DEFAULT_TARGET_LANGUAGES` for the data layer but throttle/queue the actual translation requests.
 - If users want per-language opt-out: re-introduce `profile.learning_languages` as a *display* filter, not a translation filter.
+
+---
+
+## ADR-030: Synchronous record-transcribe-analyze pipeline for the AI Speaking Coach (M30)
+
+**Status:** Accepted (M30, 2026-05-06)
+
+**Context:** M30 introduces `/my/speaking`, a portal page where a user records oral practice in any of the four supported languages (en/uk/el/pl), receives a transcript from Faster-Whisper, and gets grammar/synonym/improved-version feedback from Qwen2.5-1.5B. The architectural question is the same one M17 (Roleplay) and M28 (Grammar Explainer) already faced: should this run through the existing RabbitMQ async machinery (translation, enrichment, audio jobs all use it), or as direct synchronous HTTP calls from the Odoo controller to the FastAPI services?
+
+### Sub-decision 30a: Synchronous pipeline (no RabbitMQ)
+
+**Decision:** All three stages run inline. The browser blocks on each step, the user sees a friendly progress message ("Transcribing…", "Analyzing…"), and total wall-clock from "Stop recording" to "feedback rendered" is on the order of 30 s.
+
+```
+Browser MediaRecorder → Stop
+  → POST /my/speaking/transcribe (multipart, 120 s timeout)
+       Odoo creates language.speaking.session row in status='transcribing'
+       → POST audio_service /transcribe-sync (Faster-Whisper inline)
+       ← {transcript, duration, language}
+       Odoo persists transcript, flips status='analyzing'
+  ← {session_id, transcript, duration, language}
+  → POST /my/speaking/analyze (JSON-RPC, 90 s timeout)
+       → POST llm_service /analyze-speech (Qwen2.5-1.5B chat completion)
+       ← {corrections, synonyms, improved}
+       Odoo persists feedback, flips status='completed'
+  ← {corrections, synonyms, improved}
+```
+
+**Why sync, not async:**
+1. **The conversation is one-shot.** A speaking session ends when the user clicks Stop. There is nothing else for the user to do during transcription or analysis — async makes the page poll for results that the user is staring at the whole time. The `/explain-grammar` endpoint chose sync for the same reason in M28; `/roleplay` chose sync for the same reason in M17.
+2. **Latency is bounded.** Whisper `base` int8 transcribes 90 s of audio in ~10-20 s on the target host; Qwen2.5-1.5B at `temperature=0.4`, `max_tokens=512` returns analysis JSON in ~15-30 s. Both fit inside reasonable HTTP timeouts (120 s for transcription, 90 s for analysis). The async event-bus pattern would not get the result faster — it would just defer it through three extra hops (publish → consume → publish-back → consume-back) plus the RabbitMQ cron-drain latency from ADR-023.
+3. **Failure recovery is simpler.** The session row is pre-created in `status='transcribing'` so a mid-flow failure leaves a visible row the user can see and retry. With async, a wedged consumer could leave the user staring at a spinner forever. The sync path lets the controller catch service-level errors (HTTP 413/415/503) and surface them directly with a meaningful message.
+4. **No new infrastructure.** Both endpoints (`/transcribe-sync`, `/analyze-speech`, `/generate-topic`) are added to the existing audio_service and llm_service containers. No new container, no new RabbitMQ queue, no new cron. The audio service reuses the already-loaded `faster_whisper.WhisperModel`; the LLM service reuses the already-loaded `llama_cpp.Llama`.
+
+**Trade-off — what we give up:**
+- The browser holds an open HTTP connection for up to ~30 s during analysis. On a flaky mobile network this is more fragile than firing a job and polling. Acceptable for MVP — the page is desktop-first (mic recording UX) and an explicit error message on timeout is clearer than a silent failure.
+- A long-running analysis can in theory wedge a single Odoo worker. With `workers=4` and `prefetch_count=1` on the LLM container, the practical concurrency ceiling is fine for the expected user count.
+
+**Pattern reuse rule:** any future feature whose user can't proceed until the AI result is back **should be sync**. Translation, enrichment, audio-generation, and Anki-import all involve a user who can keep using the app while the job runs — those stay async via RabbitMQ.
+
+### Sub-decision 30b: Three-key JSON contract for `/analyze-speech`
+
+**Decision:** The LLM service's `/analyze-speech` endpoint returns:
+
+```json
+{
+  "status": "ok",
+  "corrections": [{"wrong": "...", "correct": "...", "note": "..."}],
+  "synonyms":    [{"original": "...", "suggestion": "...", "reason": "..."}],
+  "improved":    "..."
+}
+```
+
+Three top-level keys, three independent panels in the UI. Empty arrays mean "nothing to fix" — the panel is hidden via `d-none` instead of showing "0 corrections" or `null`.
+
+**Enforcement:** the LLM call uses `response_format={"type":"json_object"}`. The system prompt explicitly names the three keys, caps each list at 5 items, and demands ALL string values in the same language as the transcript (so a Polish speaker sees Polish corrections and reasons).
+
+**Tolerance:** the same `_parse_enrichment_json` parser shared with `/enrich` is used. On parse failure (the 1.5B model occasionally emits Python-style single quotes inside JSON strings on Slavic input), the endpoint returns the original transcript as `improved` with empty arrays — UI never wedges. This is documented in TASKS.md M30-S2-04 and is the upgrade trigger to Qwen2.5-3B (ADR-027 revisit). The browser surfaces a `parse_error: true` flag so a future UI can show a "limited analysis" notice if needed.
+
+**Defensive normalisation in the FastAPI handler:** `_coerce_list` accepts only the whitelisted keys per row, drops empty rows, and caps each list at 5 entries. This means a malformed-but-parseable LLM response can't crash the controller or inject unexpected fields into the database.
+
+### Sub-decision 30c: Audio cap at 90 seconds, env-configurable
+
+**Decision:** `AUDIO_SYNC_MAX_SECONDS=90` (soft cap, duration-based) and `AUDIO_SYNC_MAX_BYTES=15728640` (15 MB hard guard, byte-based) on `/transcribe-sync`. Both env-configurable in `docker_compose/audio/docker-compose.yml`.
+
+**Why two caps:**
+- The byte cap rejects pathological uploads before Whisper ever opens the file — cheap O(1) guard.
+- The duration cap is enforced after Whisper's pre-pass (`info.duration`), so a low-bitrate 90 s clip is accepted while a high-bitrate 30 s clip that exceeds 15 MB is rejected upfront. Different attack surfaces.
+
+The browser-side recorder has no hard JS-level cap — the UI just shows "⏱ Max recording time: 90 seconds — Whisper auto-stops past this limit" so users have a clear expectation, and the server-side rejection (HTTP 413 with a friendly detail message) is the authoritative limit. The duration is reported back to the browser so the UI can display "transcript ready (12.3 s, EN)".
+
+### Sub-decision 30d: Few-shot anchor for `/generate-topic`
+
+**Decision:** The topic-generation prompt uses a per-language few-shot example (`_TOPIC_EXAMPLES` dict in `services/llm/main.py`). Naming the language alone (e.g. "Generate one B1-level topic in Greek") was not enough for Qwen2.5-1.5B — initial smoke tests produced Greek and Ukrainian topics in English text. The few-shot anchor closes that gap by giving the model a concrete in-language example to mimic.
+
+This is consistent with the M18-FIX-09 prompt-engineering rule: 1.5B models pattern-match on examples far more reliably than they follow descriptive instructions. Future language additions only need to add one entry to `_TOPIC_EXAMPLES`.
+
+### Lessons that fed back into the codebase
+
+- **Canonical Selection import (ADR-029) extended.** `language.speaking.session.target_language` imports `LANGUAGE_SELECTION` from `language_words.models.language_lang`, so adding a fifth language is still a one-line change in one file.
+- **`post_update_hook` discipline.** During M30 we found that `language_portal._fix_library_menu_parents` had been silently crashing on `env['website.website']` (the model is `'website'` in this Odoo build). Other modules' child menus were broken on website 2 for who knows how long. Fixed defensively with a registry-membership check, and `post_update_hook` now also runs the menu re-parenter so future child menus auto-attach to per-website parents on `--update`. **Rule:** `post_update_hook` must run every idempotent fixer, not only the seeders.
+- **QWeb interpolation gotcha.** `t-attf-class="badge #{ {dict}.get(...) }"` is invalid in Odoo 18 — the inner braces of a dict literal collide with the `#{...}` interpolation parser. Use `t-att-class="'badge ' + {dict}.get(...)"` (Python expression form) for any class derived from a status enum.
+- **Flexbox sandwich pattern (M28-12c) reused.** The Speaking Coach page reuses M28's two-zone card layout where the analysis output is in a scroll-body region. No new layout work needed.
+
+### Revisit triggers
+
+- If users want a longer cap (e.g. 3-minute monologues), bump `AUDIO_SYNC_MAX_SECONDS` and consider switching the LLM analysis to async-with-polling — a 3-minute Whisper pass plus 3-minute Qwen analysis exceeds reasonable HTTP timeouts.
+- If `parse_error: true` rates climb (telemetry suggestion: log the rate over time), the upgrade to Qwen2.5-3B Q4_K_M (already configured behind env vars `LLM_MODEL_REPO` / `LLM_MODEL_FILENAME`) is the recommended fix. Server RAM permitting.
+- If we ship a mobile / network-flaky variant, switch to a polling pattern: the sync endpoints stay, but the browser fires-and-checks via a session-status route instead of holding an open connection.

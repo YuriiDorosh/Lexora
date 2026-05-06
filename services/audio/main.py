@@ -438,3 +438,109 @@ def health():
         "transcription_enabled": TRANSCRIPTION_ENABLED,
         "consumer_alive": _consumer_alive,
     }
+
+
+# =============================================================================
+# M30 — Sync transcription endpoint for the AI Speaking Coach
+# =============================================================================
+#
+# POST /transcribe-sync (multipart) — runs faster-whisper inline and returns
+# the transcript + duration without going through RabbitMQ. Used by
+# /my/speaking/transcribe in the Odoo portal so the user sees the transcript
+# within ~10 s of clicking Stop.
+#
+# Soft cap: AUDIO_SYNC_MAX_SECONDS (default 90 s) — anything longer is rejected
+# with HTTP 413. The cap is duration-based (probed via ffprobe-equivalent in
+# faster-whisper's pre-pass), not size-based, so a low-bitrate 90 s clip is
+# accepted while a high-bitrate 30 s clip is too.
+# =============================================================================
+
+from fastapi import File, Form, HTTPException, UploadFile  # noqa: E402
+
+AUDIO_SYNC_MAX_SECONDS = float(os.getenv("AUDIO_SYNC_MAX_SECONDS", "90"))
+AUDIO_SYNC_MAX_BYTES   = int(os.getenv("AUDIO_SYNC_MAX_BYTES", str(15 * 1024 * 1024)))  # 15 MB hard guard
+
+
+def _transcribe_sync(audio_bytes: bytes, language: str | None) -> dict:
+    """Run faster-whisper synchronously and return {transcript, duration, language}.
+
+    Returns the duration reported by faster-whisper's audio probe so the caller
+    can enforce a soft cap *after* loading (the upload-size cap below is the
+    cheap hard guard).
+
+    Raises HTTPException(503) if Whisper is not ready, HTTPException(413) if the
+    audio is longer than AUDIO_SYNC_MAX_SECONDS.
+    """
+    if not _whisper_ready or _whisper_model is None:
+        raise HTTPException(status_code=503,
+                            detail="Whisper model is still loading; try again shortly.")
+
+    with tempfile.NamedTemporaryFile(suffix=".audio", delete=False) as f:
+        f.write(audio_bytes)
+        tmp_path = f.name
+
+    try:
+        # faster-whisper's transcribe() returns (segments, info). info.duration
+        # comes from the audio probe and is reliable for cap enforcement.
+        # If language is omitted (or 'auto'), Whisper auto-detects.
+        kwargs = {"beam_size": 5}
+        if language and language != "auto":
+            kwargs["language"] = language
+
+        segments, info = _whisper_model.transcribe(tmp_path, **kwargs)
+        duration = float(getattr(info, "duration", 0.0) or 0.0)
+        detected_lang = getattr(info, "language", language or "")
+
+        if duration > AUDIO_SYNC_MAX_SECONDS:
+            raise HTTPException(
+                status_code=413,
+                detail=(
+                    f"Audio is {duration:.1f} s — max is "
+                    f"{AUDIO_SYNC_MAX_SECONDS:.0f} s for sync transcription."
+                ),
+            )
+
+        text = " ".join(seg.text.strip() for seg in segments).strip()
+
+        _logger.info(
+            "transcribe-sync: lang_in=%s lang_detected=%s duration=%.2f bytes=%d → text_len=%d",
+            language or "auto", detected_lang, duration, len(audio_bytes), len(text),
+        )
+
+        return {
+            "transcript": text,
+            "duration": duration,
+            "language": detected_lang,
+        }
+    finally:
+        with contextlib.suppress(OSError):
+            os.unlink(tmp_path)
+
+
+@app.post("/transcribe-sync")
+async def transcribe_sync_endpoint(
+    audio: UploadFile = File(...),
+    language: str = Form("auto"),
+):
+    """Multipart sync transcription. Returns {status, transcript, duration, language}.
+
+    HTTP semantics:
+      - 200 ok     : `{"status":"ok", "transcript": "...", "duration": 12.3, "language": "en"}`
+      - 200 empty  : `{"status":"ok", "transcript": "", ...}`  (silent audio)
+      - 413        : audio longer than AUDIO_SYNC_MAX_SECONDS
+      - 415        : empty / unreadable upload
+      - 503        : Whisper not yet loaded
+    """
+    raw = await audio.read()
+    size = len(raw or b"")
+    if size == 0:
+        raise HTTPException(status_code=415, detail="Empty audio upload.")
+    if size > AUDIO_SYNC_MAX_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"Audio upload is {size} bytes — max is {AUDIO_SYNC_MAX_BYTES} bytes.",
+        )
+
+    result = _transcribe_sync(raw, language)
+    result["status"] = "ok"
+    return result

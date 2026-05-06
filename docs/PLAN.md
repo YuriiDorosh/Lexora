@@ -1,8 +1,8 @@
 # Lexora — Implementation Plan (MVP)
 
-> Version: 1.8 (M29 — Polish Language Support — Complete)
+> Version: 2.0 (M30 — AI Speaking Coach — Complete)
 > Last updated: 2026-05-06
-> Status: M0–M25 complete; M26 postponed (resource constraints); M27–M29 complete
+> Status: M0–M25 complete; M26 postponed (resource constraints); M27–M30 complete
 
 ---
 
@@ -57,6 +57,7 @@
 | M27 | Browser Extension — Review in the Wild | ✅ Complete | Known vocabulary highlighted on any webpage; SRS-aware tooltip with simultaneous 🇺🇦/🇬🇷 translations; 15-min cached word list; MutationObserver debounced re-scan |
 | M28 | Browser Extension — Grammar Explainer | ✅ Complete | "Explain Grammar" button in Quick Look + YouTube overlays; Qwen 1.5B via Odoo proxy; draggable scrollable overlays with `!important` flex enforcement |
 | M29 | Polish Language Support (System-Wide) | ✅ Complete | Polish (`pl` / 🇵🇱) is a first-class language across DB selectors, controllers, FastAPI services (`pl-PL` MyMemory locale, `pl-PL-ZofiaNeural` Edge TTS, `espeak-ng pl`, LLM `LANG_NAMES`), browser extension (Polish-diacritic detection regex, Quick Look + tooltip 🇵🇱 row, New Tab card), portal templates, and Anki/profile/translator forms. Auto-translates all new entries to en/uk/el/pl. 1055 existing entries backfilled. Canonical `LANGUAGE_SELECTION` import enforced across translation/enrichment/audio (ADR-029) |
+| M30 | AI Speaking Coach & Oral Practice | ✅ Complete | `/my/speaking` portal with topic generation, browser mic recording, Faster-Whisper sync transcription, and Qwen2.5-1.5B feedback (corrections / synonyms / improved version). `language.speaking.session` persists transcripts + feedback per user. 4-language support; 90 s soft cap; sync HTTP pipeline (no RabbitMQ) per ADR-030 |
 
 ---
 
@@ -1784,3 +1785,166 @@ docker exec rabbitmq rabbitmqadmin --username=guest --password=guest \
 PvP without errors. Browser extension shows Polish translations alongside
 existing languages. Portal templates render Polish without "null" placeholders
 where Polish content is absent (graceful hide).
+
+---
+
+## M30 — AI Speaking Coach & Oral Practice
+
+**Goal:** A new `/my/speaking` portal where users record themselves speaking on a
+topic, see their speech transcribed by Faster-Whisper, and receive AI feedback
+(grammar corrections, synonym suggestions, and an "improved" version) generated
+by the local Qwen2.5-1.5B model.
+
+**Architecture:** Two new sync HTTP endpoints on the existing FastAPI services
+(no new container, no new RabbitMQ queue). Recording → transcription → analysis
+is all synchronous so the user sees results within ~10–30 seconds of clicking
+Stop. Transcript and feedback persist in a new `language.speaking.session`
+model so users can review their progress over time.
+
+```
+Browser (mic + MediaRecorder)
+    │  audio Blob
+    ▼
+Odoo controller /my/speaking/transcribe
+    │  HTTP POST audio bytes
+    ▼
+audio_service POST /transcribe-sync (NEW)
+    │  faster-whisper.transcribe(language=ll)
+    ▼
+{transcript, language}
+    │
+    ▼  Odoo creates language.speaking.session row
+    │
+    ▼  Browser POST /my/speaking/analyze
+    │
+Odoo controller proxies to LLM
+    │
+    ▼
+llm_service POST /analyze-speech (NEW)
+    │  Qwen2.5-1.5B chat completion
+    ▼
+{corrections, synonyms, improved}
+    │
+    ▼  Odoo updates the session row, returns to browser
+```
+
+### New endpoints
+
+**`POST /generate-topic`** (LLM service) — accepts `{language: "en|uk|el|pl"}`,
+returns `{topic: "Tell me about your favorite season."}`. System prompt asks
+for one short open-ended conversation starter in the requested language at
+B1 difficulty.
+
+**`POST /analyze-speech`** (LLM service) — accepts `{transcript: "...",
+language: "en|uk|el|pl", topic: "..."}`, returns `{corrections: [...],
+synonyms: [...], improved: "..."}`. Output is enforced JSON via the same
+`response_format={"type":"json_object"}` pattern used by `/enrich`. Falls back
+to a stub when the model is not loaded.
+
+**`POST /transcribe-sync`** (audio service) — multipart audio upload, returns
+`{transcript: "...", duration: 12.3, language: "en"}`. Uses the same
+faster-whisper instance already loaded for the async RabbitMQ path; just
+adds a sync FastAPI route that bypasses the queue. Cap at 90 s of audio
+(soft limit configurable via env).
+
+### New model
+
+`language.speaking.session` (in `language_portal`):
+
+| Field | Type | Notes |
+|---|---|---|
+| `user_id` | Many2one → res.users | Required, indexed |
+| `target_language` | Selection (LANGUAGE_SELECTION) | `en/uk/el/pl` (canonical import) |
+| `topic` | Char | The LLM-generated conversation starter |
+| `transcript` | Text | Whisper output |
+| `duration_seconds` | Float | Set from Whisper response |
+| `feedback_corrections` | Text | JSON list of `{wrong, correct, note}` |
+| `feedback_synonyms` | Text | JSON list of `{original, suggestion, reason}` |
+| `feedback_improved` | Text | The AI's refined version of the user's speech |
+| `audio_attachment_id` | Many2one → ir.attachment | Stored audio (private to owner) |
+| `status` | Selection (`pending`/`transcribing`/`analyzing`/`completed`/`failed`) | State machine |
+| `error_message` | Text | Surfaces failure reason |
+| `created_date` / `write_date` | Datetime | Auto |
+
+### Portal routes
+
+| Route | Method | Purpose |
+|---|---|---|
+| `/my/speaking` | GET | Page: topic input + Record button + last 10 sessions |
+| `/my/speaking/topic` | POST (JSON) | Calls LLM `/generate-topic`, returns `{topic}` |
+| `/my/speaking/transcribe` | POST (multipart) | Uploads audio + topic, calls audio `/transcribe-sync`, creates `language.speaking.session` (status `analyzing`), returns `{session_id, transcript}` |
+| `/my/speaking/analyze` | POST (JSON) | Calls LLM `/analyze-speech` for the given session, persists feedback, returns `{corrections, synonyms, improved}` |
+| `/my/speaking/<id>` | GET | Detail page for one session (transcript + feedback) |
+
+### Step-by-step work plan
+
+**Step 1 — Foundation (this commit):**
+- Branch `m30_speaking_coach`, PLAN.md + TASKS.md updated.
+- `language.speaking.session` model in `language_portal` with all fields,
+  state machine, security ACL row, owner-only record rule.
+- `portal_speaking.py` controller stub: `/my/speaking` GET renders the page
+  with a topic input, Record button, and the last 10 sessions for the user.
+- Manifest entry for the new model + view + access CSV.
+- `language_portal` updates cleanly.
+
+**Step 2 — LLM endpoints:**
+- `services/llm/main.py` adds `POST /generate-topic` and `POST /analyze-speech`
+  (both sync, both language-agnostic in the same way `/roleplay` is). System
+  prompts kept short to fit Qwen2.5-1.5B's 200-token sweet spot
+  (lessons from M18-FIX-09).
+- `make up-llm-no-cache`; `/health` still flips `llm_ready:true`.
+
+**Step 3 — Audio sync transcription:**
+- `services/audio/main.py` adds `POST /transcribe-sync`. Reuses the loaded
+  `faster_whisper.WhisperModel`. Returns `{transcript, duration}`.
+- 90 s soft cap (rejects audio longer than that with HTTP 413). Returns
+  HTTP 503 if `_whisper_ready=False`.
+
+**Step 4 — Portal POST endpoints + UI:**
+- `/my/speaking/topic` (JSON-RPC sync proxy to LLM).
+- `/my/speaking/transcribe` (multipart upload → audio service → DB row →
+  JSON response).
+- `/my/speaking/analyze` (JSON-RPC → LLM → updates DB row).
+- Glassmorphism dark UI (consistent with M17 Roleplay): topic card,
+  Record/Stop button using browser MediaRecorder, transcription preview,
+  feedback panel with three sections (corrections / synonyms / improved).
+
+**Step 5 — Verification + docs:**
+- End-to-end smoke for all 4 languages: record "Hello, my name is X" in en,
+  confirm transcript + feedback render. Same for uk/el/pl.
+- ADR-030 documenting: the sync-over-async decision (no RabbitMQ for the
+  speaking flow) and the JSON output contract for `/analyze-speech`.
+- README.md row for M30; PLAN.md flips ✅ Complete; TASKS.md archives.
+
+### Verification
+
+```bash
+# After Step 1: model + page foundation
+docker exec odoo odoo --config /etc/odoo/odoo.conf -d lexora \
+  --update language_portal --stop-after-init --no-http
+curl -s -o /dev/null -w "/my/speaking %{http_code}\n" \
+  http://localhost:5433/my/speaking  # expect 303 (redirect to login) or 200 with cookie
+
+# After Step 2: LLM topic + analysis
+curl -X POST http://localhost:8002/generate-topic \
+  -H "Content-Type: application/json" \
+  -d '{"language":"pl"}'
+# → {"topic":"Opisz swoje ulubione miejsce w mieście."}
+
+curl -X POST http://localhost:8002/analyze-speech \
+  -H "Content-Type: application/json" \
+  -d '{"transcript":"I goes to school yesterday","language":"en"}'
+# → {"corrections":[{"wrong":"I goes","correct":"I went","note":"past tense"}], ...}
+
+# After Step 3: audio sync transcription
+curl -X POST http://localhost:8004/transcribe-sync \
+  -F "audio=@sample.webm" -F "language=en"
+# → {"transcript":"...","duration":7.2}
+
+# After Step 4: full E2E from the portal
+# Record 10 s of audio → Stop → see transcript appear → see corrections panel
+```
+
+**Acceptance:** A user can record speech in any of en/uk/el/pl, see an accurate
+transcript within 30 s, and receive grammar/synonym/improved-version feedback
+within a further 30 s. The session persists at `/my/speaking/<id>` for review.

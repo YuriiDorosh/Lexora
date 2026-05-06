@@ -35,6 +35,7 @@
         'views/pdf_grammar.xml',
         'views/portal_phrasebook.xml',
         'views/portal_sentence_builder.xml',
+        'views/portal_speaking.xml',
     ],
     'assets': {
         'web.assets_frontend': [

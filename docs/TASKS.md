@@ -15,6 +15,307 @@
 
 ## Current Milestone
 
+(none — M30 closed on 2026-05-06; next milestone TBD)
+
+---
+
+## Completed Milestones (M30)
+
+### M30 — AI Speaking Coach & Oral Practice
+
+**Status:** Complete and verified. Six commits on `m30_speaking_coach`:
+`9d84b99` (S1 foundation) · `a550f86` (S2 LLM endpoints) ·
+`d0b85e2` (S3 audio sync) · `3260e1d` (S4 portal pipeline) ·
+`82d6cfa` (S4 fix-pass-1: QWeb badge + menu cross-ref) ·
+`6d698ba` (S4 fix-pass-2: menu hook + light theme + 90 s hint) ·
+this commit (S5 docs flip).
+**Branch:** `m30_speaking_coach` (created from `m29_polish_support`)
+**Started:** 2026-05-06
+
+**Scope:** A new `/my/speaking` portal where users record themselves speaking on a
+topic, see their speech transcribed by Faster-Whisper (sync), and receive AI
+feedback (grammar corrections, synonym suggestions, "improved" version) generated
+by Qwen2.5-1.5B. Sessions persist in a new `language.speaking.session` model.
+Works in all four supported languages (en/uk/el/pl).
+
+**Architecture decisions (locked at M30 start):**
+- **Sync over async.** Recording → transcription → analysis is synchronous so
+  the user sees the transcript ~10 s after Stop and feedback ~20 s later.
+  No new RabbitMQ queue. Two new sync endpoints on existing FastAPI services.
+  Same pattern as M17 Roleplay (`/roleplay`) and M28 Grammar Explainer
+  (`/explain-grammar`).
+- **Two new endpoints, no new services.** `POST /generate-topic` +
+  `POST /analyze-speech` on the LLM service; `POST /transcribe-sync` on the
+  audio service.
+- **JSON contract for `/analyze-speech`.** `response_format={"type":"json_object"}`
+  with three top-level keys: `corrections` (list), `synonyms` (list),
+  `improved` (str). Stub fallback when `_llm_ready=False` so the queue never wedges.
+- **Audio cap.** 90 s soft limit on `/transcribe-sync`. Past that, HTTP 413
+  rejection with a friendly message.
+- **Privacy.** `audio_attachment_id` is private to the owner (record rule).
+  Transcripts and feedback also private. No sharing for MVP.
+
+#### Sub-steps
+
+**Step 1 — Foundation (model + portal page stub)** ✅
+
+- [x] M30-S1-01 · Branch `m30_speaking_coach` created from
+  `m29_polish_support`. PLAN.md (v1.9), TASKS.md, and README.md roadmap
+  updated (M30 = AI Speaking Coach, M31 = ELO, etc).
+- [x] M30-S1-02 · `language.speaking.session` model
+  (`language_portal/models/language_speaking_session.py`). Imports
+  canonical `LANGUAGE_SELECTION` from `language_words.models.language_lang`
+  per ADR-029 — auto-tracks the four-language set. Helpers:
+  `create_for_user`, `write_transcript`, `write_feedback`, `mark_failed`,
+  `_corrections_list`, `_synonyms_list`.
+- [x] M30-S1-03 · `language_portal/models/__init__.py` updated.
+- [x] M30-S1-04 · `language_portal/security/ir.model.access.csv` — two
+  rows: Language Users + Admins, full CRUD.
+- [x] M30-S1-05 · `language_portal/security/record_rules.xml` —
+  `rule_speaking_session_owner` restricts non-admin Language Users to
+  their own rows (`user_id = user.id`).
+- [x] M30-S1-06 · `portal_speaking.py` controller. Routes:
+  `GET /my/speaking` (page), `GET /my/speaking/<id>` (detail),
+  stubbed `POST /my/speaking/topic`, `/transcribe`, `/analyze` returning
+  `{"status":"pending","message":"..."}` so the JS layer can be wired up
+  in parallel with the service-side work in Steps 2-4.
+- [x] M30-S1-07 · `views/portal_speaking.xml` — two templates
+  (`portal_speaking_index`, `portal_speaking_detail`). Premium dark
+  theme matching M17 Roleplay / M18.5 header. Index template has
+  language selector, topic textarea + Generate button, Record/Stop
+  buttons, transcript preview, Analyze button, recent sessions list.
+- [x] M30-S1-08 · `language_portal/__manifest__.py` — `views/portal_speaking.xml`
+  registered.
+- [x] M30-S1-09 · `data/website_menus.xml` — "Speaking Coach" entry under
+  Practice group (sequence=26, between Sentence Builder=24 and
+  Grammar Pro=25).
+- [x] M30-S1-10 · `--update language_portal --stop-after-init --no-http`
+  → "Modules loaded." 0 errors. After `docker restart odoo`,
+  `GET /my/speaking` returns HTTP 303 (auth redirect, expected).
+  `language_speaking_session` table exists in Postgres with 0 rows.
+
+**Step 2 — LLM endpoints** (`/generate-topic` + `/analyze-speech`) ✅
+
+- [x] M30-S2-01 · `services/llm/main.py` — `POST /generate-topic` sync
+  endpoint. `GenerateTopicRequest(language)`. System prompt minimal
+  (per M18-FIX-09 1.5B prompt-engineering rule: <100 words, no numbered
+  lists). User message uses a **language-specific few-shot anchor**
+  (`_TOPIC_EXAMPLES` dict per language) — naming the language alone was
+  not enough for the 1.5B model to reliably reply in the right script;
+  the few-shot anchor closes that gap. `max_tokens=80, temperature=0.8,
+  repeat_penalty=1.1`. Stub fallback returns a language-appropriate
+  placeholder when `_llm_ready=False`.
+- [x] M30-S2-02 · `services/llm/main.py` — `POST /analyze-speech` sync
+  endpoint. `AnalyzeSpeechRequest(transcript, language, topic?)`. System
+  prompt enforces 3-key JSON output:
+  `{corrections: [{wrong, correct, note}], synonyms: [{original,
+  suggestion, reason}], improved: "..."}`.
+  `response_format={"type":"json_object"}`, `max_tokens=512,
+  temperature=0.4, repeat_penalty=1.1`. Uses `_parse_enrichment_json`
+  (the tolerant JSON parser shared with `/enrich`). Defensive
+  `_coerce_list` normalises each list entry to a dict of `str` values.
+  Caps transcript at 4000 chars. Stub fallback returns empty lists +
+  identity `improved` when `_llm_ready=False`.
+- [x] M30-S2-03 · `make up-llm-no-cache` → `/health` reports
+  `llm_ready:true`. `/openapi.json` lists both new routes.
+- [x] M30-S2-04 · Smoke tested:
+  - `/generate-topic` for all 4 langs returns topics in the correct
+    script (en/uk/el/pl). 1.5B Slavic/Greek quality remains the
+    documented weakness from ADR-027 but the language is correct.
+  - `/analyze-speech` with English transcript "Yesterday I goes to
+    the park... We was walking..." returns 2 grammar corrections
+    (`I goes → I went`; `We was → We were`), 2 synonym suggestions
+    (`wether → weather`; `thing → things`), and a clean rewrite
+    in `improved`.
+  - `/analyze-speech` with Polish transcript exercised the
+    `parse_error: true` graceful fallback path — the 1.5B model
+    occasionally emits Python-style single quotes inside JSON strings
+    on Slavic input, which fails strict JSON parsing. The fallback
+    correctly returns the original transcript as `improved` with empty
+    arrays; UI never wedges. (Documented limitation, not a blocker —
+    upgradeable via Qwen2.5-3B in ADR-027 revisit.)
+
+**Step 3 — Audio sync transcription** (`/transcribe-sync`) ✅
+
+- [x] M30-S3-01 · `services/audio/main.py` — `POST /transcribe-sync`
+  multipart endpoint. Reuses the already-loaded `_whisper_model`.
+  Accepts `audio` (UploadFile) + `language` (Form, defaults to
+  `"auto"` for Whisper's auto-detection). Returns
+  `{status, transcript, duration, language}` with `language` reflecting
+  what Whisper actually detected (useful for the UI to show 🇵🇱 etc.
+  even if the user didn't pick a language up front).
+  - 503 when `_whisper_ready=False` (model still loading)
+  - 413 when uploaded bytes > `AUDIO_SYNC_MAX_BYTES` (15 MB hard guard)
+    OR when probed duration > `AUDIO_SYNC_MAX_SECONDS` (90 s soft cap)
+  - 415 when upload is empty
+  - Both caps env-configurable via the audio compose file.
+- [x] M30-S3-02 · `services/audio/requirements.txt` — added
+  `python-multipart==0.0.20` (FastAPI's `File`/`Form` parsers
+  require it; first rebuild crashed without it).
+- [x] M30-S3-03 · `docker_compose/audio/docker-compose.yml` —
+  `AUDIO_SYNC_MAX_SECONDS=90` and `AUDIO_SYNC_MAX_BYTES=15728640`
+  added under `environment:`.
+- [x] M30-S3-04 · `make up-audio-no-cache` → `/health` reports
+  `whisper_ready:true`. `/openapi.json` lists `/transcribe-sync`.
+- [x] M30-S3-05 · Smoke tests:
+  - en (`espeak-ng "Yesterday I went to the park..."` → 105 KB WAV) →
+    Whisper returned the exact phrase in 2.4 s of audio. ✓
+  - pl (`espeak-ng "Wczoraj poszłam do parku..."`) → Polish detected,
+    transcript is structurally Polish (espeak-ng's robotic synthesis
+    causes near-miss substitutions that human speech wouldn't trigger).
+  - empty upload → HTTP 415 `{"detail": "Empty audio upload."}` ✓
+  - language="auto" → Whisper auto-detected `pl` from the same audio. ✓
+
+**Step 4 — Portal POST endpoints + UI** ✅
+
+- [x] M30-S4-01 · `/my/speaking/topic` (JSON-RPC) → calls LLM
+  `/generate-topic`. Validates `language` against `_VALID_LANGS`
+  (en/uk/el/pl), proxies via `requests.post` with 90 s timeout, returns
+  `{status, topic, language}`. Errors are caught and returned as
+  `{status:'error', message}` so the JS can render a friendly fallback.
+- [x] M30-S4-02 · `/my/speaking/transcribe` (multipart, csrf=False).
+  Pre-creates the `language.speaking.session` row in
+  `status='transcribing'` so a mid-flow failure leaves a visible row
+  the user can see + retry. Forwards the `audio` blob to audio service
+  `/transcribe-sync` (120 s timeout), persists transcript via
+  `session.write_transcript()` (also flips status → analyzing), then
+  best-effort stashes the original audio as a private `ir.attachment`
+  linked via `audio_attachment_id`. Returns
+  `{status, session_id, transcript, duration, language}`. Maps audio
+  service HTTP errors (413/415/503) back to the caller verbatim.
+- [x] M30-S4-03 · `/my/speaking/analyze` (JSON-RPC) → calls LLM
+  `/analyze-speech` with the persisted transcript. On success, calls
+  `session.write_feedback()` to persist all three feedback fields and
+  flip status → completed. Surfaces the LLM's `parse_error` flag so
+  the UI can show "limited analysis" if Slavic JSON quoting tripped
+  the parser (Step 2 known limitation).
+- [x] M30-S4-04 · `/my/speaking/<id>` GET — already shipped in Step 1's
+  controller; verified the template renders all fields after Step 4
+  populates them.
+- [x] M30-S4-05 · `views/portal_speaking.xml` UI — feedback panel
+  added below the Analyze button. Three blocks (improved version,
+  corrections, synonyms), each `d-none` by default and shown only when
+  populated. Empty-state hint ("Nothing to fix — your speech looks
+  good!") shown when all three blocks are empty.
+- [x] M30-S4-06 · Recorder JS (inline `<script>` in the index template,
+  IIFE-scoped). MediaRecorder API; tries
+  `audio/webm;codecs=opus → audio/webm → audio/ogg;codecs=opus →
+  audio/ogg` for the codec; explicit error if `getUserMedia` fails.
+  Stop sends a `Blob` to `/my/speaking/transcribe` as `FormData`,
+  then the Analyze button calls `/my/speaking/analyze` with the
+  returned session_id. `setStatus()` helper writes friendly progress
+  messages ("Recording…" / "Transcribing…" / "Analyzing…").
+  Mind that the JS uses XML-safe operators (`&amp;&amp;`, `&lt;`)
+  so the QWeb template parses cleanly.
+
+**Smoke test (Step 4 wiring)**:
+- LLM `/generate-topic` via the controller's `requests.post` path
+  returned: "What is your favorite hobby and why do you enjoy it?" ✓
+- LLM `/analyze-speech` for "I goes to school yesterday and we was
+  happy" returned a structurally valid JSON object; controller persisted
+  via `write_feedback()`; session row id=1 has `status='completed'`,
+  `transcript`, and `feedback_improved` all populated. (The model
+  occasionally emits empty `corrections[]`/`synonyms[]` for short
+  transcripts at temperature=0.4 — a quality nudge, not a wiring bug.)
+- `language_speaking_session` table row 1 confirmed in Postgres:
+  `status=completed, target_language=en, has_transcript=t,
+   has_improved=t`.
+
+**Step 4 fix-pass (post-browser-smoke)**:
+
+- [x] M30-S4-fix-01 · `t-attf-class="badge #{ {dict}.get(...) }"` did
+  not parse in Odoo 18's QWeb compiler (Python tokenizer reports
+  "unexpected EOF in multi-line statement" because the inner braces
+  break the `#{...}` interpolation). Replaced both occurrences in
+  `views/portal_speaking.xml` (index recent-sessions list line 134
+  and detail status pill line 436) with the idiomatic
+  `t-att-class="'badge ' + {dict}.get(s.status, 'bg-secondary')"`
+  form. Compile-test of both templates now passes
+  (`env['ir.qweb']._compile(...)` → no exception).
+- [x] M30-S4-fix-02 · `data/website_menus.xml` `menu_speaking_coach`
+  now uses the explicit cross-module ref
+  `parent_id="language_portal.menu_practice_group"` even though the
+  parent record lives in the same file. Defensive: matches the
+  convention used by `language_learning/data/website_menus.xml` and
+  removes any future ambiguity if these records get split into
+  separate files. DB confirms the menu is correctly mounted under
+  Practice (id=82); the user's "missing menu" symptom was a side
+  effect of the QWeb 500 — clicking the menu errored and made the
+  link look broken.
+
+**Step 4 fix-pass-2 (post browser smoke #2)**:
+
+- [x] M30-S4-fix-03 · Menu STILL invisible because the existing
+  `_fix_library_menu_parents` hook in `language_portal/__init__.py`
+  was silently crashing on `KeyError: 'website.website'`. In this
+  Odoo build the website model is registered as just `'website'`,
+  not `'website.website'`. Other child menus (Sentence Builder,
+  Grammar Pro, Roleplay) only re-parented for website 1 because
+  the original code crashed on website 2's iteration. Two fixes:
+  - `_fix_library_menu_parents` now picks the right model name
+    via `if 'website' in env.registry: env['website'] else
+    env['website.website']`; falls through with a warning if neither
+    exists. After the fix, hook re-parents Speaking Coach id=116
+    under per-website Practice id=80 (website 1) and id=117 under
+    id=81 (website 2). Other previously-broken children get fixed
+    too as a side effect.
+  - `/my/speaking` added to `group_map['#practice']` URL list so the
+    hook knows to re-parent it.
+  - `post_update_hook` now also calls `_fix_library_menu_parents`
+    (previously it only called `_seed_knowledge_hub`), so future
+    `--update` runs auto-re-parent newly added child menus.
+- [x] M30-S4-fix-04 · `views/portal_speaking.xml` swept for
+  dark-theme text classes (light-theme portal made the body white
+  on white). `text-white-50` → `text-muted` (8 sites);
+  `text-white` → `text-body` (10 sites) — order matters because
+  `text-white` is a substring of `text-white-50`. The hero strip
+  (`lx-translator-hero` with intentional dark gradient) keeps
+  `text-white` / `text-white-50` for contrast. `btn-outline-light`
+  → `btn-outline-secondary` for the Stop button and
+  `btn-outline-primary` for Generate Topic so they're visible on
+  light cards. The color-coded badges in the feedback panel
+  (`text-warning`/`text-success`/`text-info`/`text-danger`) are
+  intact since they carry meaning and work on both themes.
+- [x] M30-S4-fix-05 · Time-limit indicator added below the
+  Record/Stop row: a `text-muted small` line reading
+  `⏱ Max recording time: 90 seconds — Whisper auto-stops past this
+  limit.` Matches the `AUDIO_SYNC_MAX_SECONDS=90` cap on the audio
+  service.
+
+**Step 5 — Verification + docs** ✅
+
+- [x] M30-S5-01 · Browser smoke confirmed by user: transcription and
+  LLM analysis flow works end-to-end; UI is readable; menu mounted
+  correctly under Practice.
+- [x] M30-S5-02 · ADR-030 in `docs/DECISIONS.md` covers four
+  sub-decisions: (30a) sync pipeline rationale and pattern-reuse rule,
+  (30b) three-key JSON contract + tolerant parser + defensive
+  `_coerce_list`, (30c) audio cap (duration + bytes, env-configurable),
+  (30d) per-language few-shot anchor for `/generate-topic`. Also
+  records the four lessons that fed back into the codebase
+  (canonical Selection import, `post_update_hook` discipline, QWeb
+  interpolation gotcha, flexbox sandwich reuse) and three revisit
+  triggers.
+- [x] M30-S5-03 · `docs/PLAN.md` v1.9 → v2.0; M30 row flipped to ✅;
+  status header reflects M0–M30 complete.
+- [x] M30-S5-04 · `docs/TASKS.md` Step 5 marked complete; M30 block
+  rotated out of "Current Milestone" (now empty until M31 starts).
+- [x] M30-S5-05 · `README.md` — Practice Modes table gains "AI Speaking
+  Coach" row; LLM service section adds `/generate-topic` and
+  `/analyze-speech` to the sync-endpoints list; audio service section
+  adds `/transcribe-sync` with cap details and the `pl-PL-ZofiaNeural`
+  voice; M30 row added to implementation status table; M30 removed
+  from the roadmap; M35 added as a future "phoneme-level pronunciation
+  scoring" extension.
+- [ ] M30-S5-06 · Commit + push to `m30_speaking_coach` — pending this
+  final commit.
+
+#### Blockers
+
+(none)
+
+---
+
 ### M29 — Polish Language Support (System-Wide Expansion)
 
 **Status:** Complete and verified. All 5 steps shipped on `m29_polish_support`.
