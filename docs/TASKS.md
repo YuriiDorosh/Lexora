@@ -115,18 +115,54 @@ overlapping files (`content.js`, `background.js`, `portal_api.py`,
     and structurally-valid output from the other three pending the
     Qwen2.5-3B upgrade.
 
-**Step M31-S2 — Odoo proxy `POST /lexora_api/writer_check`**
+**Step M31-S2 — Odoo proxy `POST /lexora_api/writer_check`** ✅
 
-- [ ] M31-S2-01 · `language_portal/controllers/portal_api.py` — add
-  `_MAX_WRITER_TEXT = 4000`. New route `/lexora_api/writer_check`,
-  `auth='none'`, `type='json'`, `csrf=False`. Calls `_require_session()`.
-- [ ] M31-S2-02 · Body validation: `text` required, length capped, language
-  validated against `_ALLOWED_LANGUAGES`.
-- [ ] M31-S2-03 · `requests.post(f"{_LLM_SVC}/analyze-writing", ..., timeout=60)`.
-  Returns the LLM payload verbatim plus `status: ok / error / unavailable`.
-  CORS reflection identical to `/lexora_api/explain_grammar`.
-- [ ] M31-S2-04 · `--update language_portal --stop-after-init --no-http`
-  → 0 errors. Curl smoke with valid session cookie returns the LLM payload.
+- [x] M31-S2-01 · `language_portal/controllers/portal_api.py` — added
+  `_MAX_WRITER_TEXT = 4000` next to the existing `_MAX_WORD_LEN`.
+  New `@http.route('/lexora_api/writer_check', type='http', auth='none',
+  methods=['POST'], csrf=False)` route. **Note:** matched the existing
+  `explain_grammar` pattern (`type='http'` with manual `json.loads` of
+  the body) rather than `type='json'` — every other `/lexora_api/*`
+  route in this module uses `type='http'` with the `_json_response()`
+  CORS-aware helper, so the proxy lands consistently. `_require_session()`
+  guard is the first line of the handler.
+- [x] M31-S2-02 · Body validation:
+  - Manual `json.loads(request.httprequest.get_data(as_text=True))`,
+    merged with `request.params` (mirrors `explain_grammar`).
+  - `text` required → returns
+    `{"status":"error","message":"text is required"}` HTTP 400 if empty.
+  - `text` truncated to `_MAX_WRITER_TEXT` (4000) chars before forward.
+  - `language` lower-cased; falls back to `'en'` if not in
+    `_ALLOWED_LANGUAGES`.
+  - Optional `context` field (placeholder/aria-label) is whitespace-
+    stripped and capped at 200 chars defensively, then included in
+    the LLM payload only when non-empty.
+- [x] M31-S2-03 · `requests.post(f"{_LLM_SVC}/analyze-writing",
+  json=payload, timeout=60)`. On HTTP success, parses with
+  `json.loads(resp.content.decode('utf-8', errors='replace'))` (same
+  content-type-agnostic pattern as `explain_grammar`). Defensive
+  `status: 'ok'` injection in case the LLM payload omits it.
+  On any exception, returns
+  `{"status":"unavailable", "message":"LLM service unavailable...",
+    "corrections":[], "improved":<original text>}` so the extension can
+  still render the user's input back if the LLM is down. CORS
+  reflection comes for free via `_json_response()` → `_cors_headers()`.
+- [x] M31-S2-04 · `--update language_portal --stop-after-init --no-http`
+  → "Modules loaded." 0 errors. After `docker restart odoo`:
+  - Empty `text` → HTTP 400
+    `{"status":"error","message":"text is required"}` ✓
+  - No session → HTTP 401
+    `{"status":"unauthorized","message":"Session expired..."}` ✓
+  - Valid session + EN text "I goes to school every days... wether
+    were nice... a bit windys" → 2 corrections, clean improved
+    rewrite "I go to school every day. The weather was nice but a
+    little windy." `status: "ok"` ✓
+  - Invalid `language="xx"` → silently falls back to `en`, returns
+    valid corrections ✓
+  - `OPTIONS` preflight with `Origin: chrome-extension://abc123` →
+    `Access-Control-Allow-Origin: chrome-extension://abc123` reflected;
+    `Access-Control-Allow-Credentials: true`; `Allow-Headers` includes
+    `X-Lexora-Session-Id` (per `_cors_headers()`) ✓
 
 **Step M31-S3 — Extension content script**
 
