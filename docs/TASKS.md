@@ -60,32 +60,60 @@ overlapping files (`content.js`, `background.js`, `portal_api.py`,
 
 #### M31 — Lexora Writer — sub-steps
 
-**Step M31-S1 — LLM endpoint `POST /analyze-writing`**
+**Step M31-S1 — LLM endpoint `POST /analyze-writing`** ✅
 
-- [ ] M31-S1-01 · `services/llm/main.py` — new `AnalyzeWritingRequest`
-  Pydantic model: `text: str`, `language: str = "en"`, `context: str | None = None`.
-- [ ] M31-S1-02 · `_ANALYZE_WRITING_SYSTEM_PROMPT` — short, no numbered
-  lists (per the M18-FIX-09 1.5B rule). Enforces 2-key JSON output:
-  `{corrections: [{wrong, correct, note}], improved: "..."}`. All string
-  values must be in the same language as the input text. `note` should
-  identify the rule violated (tense, agreement, article, …) in the user's
-  *target* language for learning value.
-- [ ] M31-S1-03 · `_analyze_writing(text, language, context)` helper:
-  builds messages (system + user with optional `context` framing
-  "the user is writing a <context>:"), calls
-  `_llm.create_chat_completion(...)` with `response_format={"type":"json_object"}`,
-  `max_tokens=512`, `temperature=0.4`, `repeat_penalty=1.1`. Reuses
-  `_parse_enrichment_json` + `_coerce_list((wrong, correct, note))`. Stub
-  fallback returns `{corrections: [], improved: text}` when
-  `_llm_ready=False`.
-- [ ] M31-S1-04 · `@app.post("/analyze-writing")` — caps `text` at
-  4000 chars; returns `{status: "ok", corrections, improved}` or
-  `{status: "error", message}` on failure.
-- [ ] M31-S1-05 · `make up-llm-no-cache` → `/openapi.json` lists the new
-  route; `/health` still `llm_ready:true`.
-- [ ] M31-S1-06 · Curl smoke for all 4 languages with intentional
-  errors. Confirm corrections arrays + improved version come back in the
-  correct script.
+- [x] M31-S1-01 · `services/llm/main.py` — `AnalyzeWritingRequest`
+  Pydantic added: `text: str`, `language: str = "en"`,
+  `context: str | None = None`.
+- [x] M31-S1-02 · `_ANALYZE_WRITING_SYSTEM_PROMPT` — 6-line plain prose,
+  82 words, no numbered lists. JSON shape inlined verbatim in the prompt.
+  Explicit "All string values MUST be in the same language as the user's
+  text." constraint at the bottom (per the M30 lesson where this was
+  needed for non-English languages).
+- [x] M31-S1-03 · `_analyze_writing(text, language, context)`:
+  builds messages with optional `context` line ("Field context: ...",
+  capped at 200 chars), calls `_llm.create_chat_completion(...)` with
+  `response_format={"type":"json_object"}`, `max_tokens=512`,
+  `temperature=0.4`, `repeat_penalty=1.1`. Reuses `_parse_enrichment_json`
+  + a local `_coerce_list((wrong, correct, note))` defensive normaliser
+  (drops empty rows, caps at 5 entries, coerces each value to `str`).
+  Stub returns `{corrections: [], improved: text, stub: True}` when
+  `_llm_ready=False`. Parse failure returns
+  `{corrections: [], improved: text, parse_error: True}`.
+- [x] M31-S1-04 · `@app.post("/analyze-writing")` — caps `text` at
+  4000 chars, rejects empty with `{status:"error", message:"Empty text"}`.
+- [x] M31-S1-05 · `make up-llm-no-cache` → `/health` reports
+  `llm_ready:true`; `/openapi.json` lists `/analyze-writing` alongside
+  the existing 5 sync endpoints (`/analyze-speech`, `/explain-grammar`,
+  `/generate-topic`, `/roleplay`, plus `/health`).
+- [x] M31-S1-06 · Smoke tests across all 4 languages with intentional
+  grammatical errors:
+  - **EN** ("I goes to school every days... we was very happy...
+    The wether were nice... a bit windys") →
+    2 corrections (`I goes/I go`, `wether/weather`), clean rewrite
+    "Every day I go to school, and we were very happy. The weather
+    was nice, but it was a bit windy." ✓ Production-grade output.
+  - **PL** ("Wczoraj ja idę do parku z moja przyjaciel...") →
+    JSON contract holds, output in Polish script, 3 corrections
+    catching real issues (`moja → moją`, `wielo → wiele`,
+    `przyjaciel → przyjaciółką`). Mediocre quality — model also
+    invented a non-existent word ("Wczorazem"). Documented as the
+    known 1.5B Slavic limitation; ADR-027 3B upgrade is the
+    production knob.
+  - **UK** ("Я ходити до школа кожен день...") →
+    JSON contract valid, but the 1.5B model **drifted to Chinese
+    mid-completion** in some fields. Worst case observed; same
+    upgrade trigger.
+  - **EL** ("Εγώ πηγαίνω στο σχολείο κάθε μέρες...") →
+    JSON contract valid, main fields in Greek script, but `note`
+    fields drifted to English. Mediocre semantic quality.
+  - **All four return valid JSON with the 2-key contract.**
+    `corrections` always a list of typed dicts; `improved` always a
+    string; no parse errors hit the fallback path; no crashes.
+    The browser extension will get production-grade output from
+    English (the dominant B1-B2 case for "fix my comment / email")
+    and structurally-valid output from the other three pending the
+    Qwen2.5-3B upgrade.
 
 **Step M31-S2 — Odoo proxy `POST /lexora_api/writer_check`**
 

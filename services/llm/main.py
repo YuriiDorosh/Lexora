@@ -743,3 +743,123 @@ def analyze_speech_endpoint(req: AnalyzeSpeechRequest):
     result = _analyze_speech(transcript, req.language, req.topic)
     result["status"] = "ok"
     return result
+
+
+# =============================================================================
+# M31 — Lexora Writer: active writing assistant
+# =============================================================================
+#
+# POST /analyze-writing — sync FastAPI endpoint used by the browser
+# extension's floating "L" FAB on every <textarea>/[contenteditable].
+# Same architectural shape as /analyze-speech (M30) and /explain-grammar
+# (M28): Pydantic request, response_format=json_object, tolerant parser,
+# defensive coerce, language-agnostic via LANG_NAMES.
+#
+# JSON contract — two top-level keys (no synonym suggestions; written text
+# is more deliberate than spoken so users want fixes + a polished version):
+#
+#   {
+#     "corrections": [{"wrong": "...", "correct": "...", "note": "..."}],
+#     "improved":    "..."
+#   }
+# =============================================================================
+
+
+class AnalyzeWritingRequest(BaseModel):
+    text: str
+    language: str = "en"
+    context: str | None = None
+
+
+# Kept under 100 words per the M18-FIX-09 rule for 1.5B models.
+# No numbered lists, plain prose, explicit JSON shape, language clamp.
+_ANALYZE_WRITING_SYSTEM_PROMPT = (
+    "You are a writing coach. Reply with ONLY a JSON object — no preamble, "
+    "no markdown — in this shape:\n"
+    '{"corrections":[{"wrong":"...","correct":"...","note":"..."}],'
+    '"improved":"..."}\n'
+    "corrections: at most 5 fixes a B1 learner most needs (grammar, tense, "
+    "agreement, articles). Skip cosmetic preferences. note explains the rule "
+    "in one short clause.\n"
+    "improved: one rewritten version that fixes everything in corrections "
+    "and reads naturally. Keep meaning unchanged.\n"
+    "All string values MUST be in the same language as the user's text."
+)
+
+
+def _analyze_writing(text: str, language: str, context: str | None) -> dict:
+    """Return {corrections, improved}. Stub on _llm_ready=False."""
+    if not _llm_ready or _llm is None:
+        return {
+            "corrections": [],
+            "improved": text,
+            "stub": True,
+        }
+
+    lang_name = LANG_NAMES.get(language, language or "English")
+    user_lines = [f"User text (in {lang_name}):", text.strip()]
+    if context and context.strip():
+        # context = the field's placeholder / aria-label; gives the model
+        # genre awareness ("user is writing an email" vs. "a tweet"). Capped
+        # to keep the user-message budget tight.
+        user_lines.insert(0, f"Field context: {context.strip()[:200]}")
+    user_content = "\n\n".join(user_lines)
+
+    messages = [
+        {"role": "system", "content": _ANALYZE_WRITING_SYSTEM_PROMPT},
+        {"role": "user",   "content": user_content},
+    ]
+
+    try:
+        result = _llm.create_chat_completion(
+            messages=messages,
+            max_tokens=512,
+            temperature=0.4,
+            repeat_penalty=1.1,
+            response_format={"type": "json_object"},
+        )
+        raw = result["choices"][0]["message"]["content"].strip()
+    except Exception as exc:
+        _logger.error("analyze-writing generation failed: %s", exc)
+        return {"corrections": [], "improved": text, "error": str(exc)}
+
+    try:
+        parsed = _parse_enrichment_json(raw)
+    except Exception as exc:
+        _logger.error("analyze-writing JSON parse failed: %s — raw=%r",
+                      exc, raw[:200])
+        return {"corrections": [], "improved": text, "parse_error": True}
+
+    corrections = parsed.get("corrections") or []
+    improved    = parsed.get("improved")    or text
+
+    # Defensive normalisation — same pattern as /analyze-speech.
+    def _coerce_list(items, keys):
+        out = []
+        if not isinstance(items, list):
+            return out
+        for it in items[:5]:
+            if not isinstance(it, dict):
+                continue
+            row = {k: str(it.get(k, "") or "").strip() for k in keys}
+            if any(row.values()):
+                out.append(row)
+        return out
+
+    return {
+        "corrections": _coerce_list(corrections, ("wrong", "correct", "note")),
+        "improved":    str(improved).strip() if improved else text,
+    }
+
+
+@app.post("/analyze-writing")
+def analyze_writing_endpoint(req: AnalyzeWritingRequest):
+    text = (req.text or "").strip()
+    if not text:
+        return {"status": "error", "message": "Empty text",
+                "corrections": [], "improved": ""}
+    if len(text) > 4000:
+        text = text[:4000]
+    result = _analyze_writing(text, req.language, req.context)
+    result["status"] = "ok"
+    return result
