@@ -164,45 +164,111 @@ overlapping files (`content.js`, `background.js`, `portal_api.py`,
     `Access-Control-Allow-Credentials: true`; `Allow-Headers` includes
     `X-Lexora-Session-Id` (per `_cors_headers()`) ✓
 
-**Step M31-S3 — Extension content script**
+**Step M31-S3 — Extension content script** ✅
 
-- [ ] M31-S3-01 · `extension/content.js` — new constants:
-  `_WRITER_FAB_ID`, `_WRITER_HOST_ID`, `_WRITER_MIN_TEXT_LEN = 20`,
-  `_WRITER_DEBOUNCE_MS = 100`.
-- [ ] M31-S3-02 · `_isEligibleInput(el)` — `tagName === 'TEXTAREA'`
-  OR `el.isContentEditable === true`. Reject when:
-  - `type` is `password` or `hidden`
-  - has `readonly` or `disabled` attr
-  - inside `[role="search"]`, `.lx-ql-host`, `.lx-yt-card`, or our own
-    Shadow DOMs
-  - `aria-label` matches `/code|monaco|cm-editor/i`
-  - parent `<form>` `name` matches `/login|sign[ -]?in|password/i`
-- [ ] M31-S3-03 · `_initWriter()` runs on DOM ready: attaches
-  `focusin` / `focusout` listeners to `document` (capturing). On focus of
-  an eligible input → `_showFab(input)`. On blur (with delay so the
-  click registers) → `_hideFab()`.
-- [ ] M31-S3-04 · `_positionFab(input)` — `getBoundingClientRect`-based
-  positioning at the bottom-right corner of the input; uses
-  `position: fixed`. Re-runs on `scroll` and `resize`, debounced 100 ms.
-  Off-screen inputs hide the FAB.
-- [ ] M31-S3-05 · FAB click handler:
-  - Read `input.value` (textarea) or `input.innerText` (contenteditable).
-  - Bail if `text.trim().length < 20` (toast "Write at least 20 chars").
-  - Detect language via existing `_detectLang(text)`.
-  - Read `lexora_writer_enabled` flag from `chrome.storage.sync` (default true).
-  - Read `aria-label` / `placeholder` of the input as `context`.
-  - Send `{action: "lexora-writer-check", text, language, context}` to bg.
-- [ ] M31-S3-06 · `_renderWriterOverlay(anchorInput, response)` — Shadow DOM
-  popup anchored to the same input. Header / scroll-body / footer sandwich.
-  States: `loading`, `ok`, `error`, `unauthorized`. Footer has Apply button
-  + Close button + privacy hint.
-- [ ] M31-S3-07 · `_applyWriterImproved(input, improved)` —
-  textarea: set `.value`; contenteditable: set `.innerText`; for both,
-  dispatch `input` + `change` events with `bubbles: true` so frameworks
-  pick up the change. Close the popup; show a 1-sec confirmation toast.
-- [ ] M31-S3-08 · `_WRITER_CSS` constant (FAB + popup glassmorphism)
-  injected via `_ensureWriterStyles()` — same pattern as
-  `_ensureReviewStyles()` (M27).
+- [x] M31-S3-01 · `extension/content.js` — new constants:
+  `_WRITER_FAB_ID`, `_WRITER_HOST_ID`, `_WRITER_MIN_LEN = 20`,
+  `_WRITER_MAX_LEN = 4000` (mirrors `_MAX_WRITER_TEXT` on the proxy),
+  `_WRITER_DEBOUNCE = 100`, `_WRITER_FAB_OFFSET = 6`. Plus the deny-pattern
+  regexes `_WRITER_DENY_LABEL_RE = /code|monaco|cm[\-_]editor|codemirror|password|search/i`
+  and `_WRITER_DENY_FORM_RE = /login|sign[ \-]?in|signup|register|password/i`.
+- [x] M31-S3-02 · `_isEligibleInput(el)` — strict allowlist:
+  - Accepts only `tagName === 'TEXTAREA'` or `el.isContentEditable === true`.
+  - **Rejects** any input nested inside our own overlays (`#lx-ql-shadow-host`,
+    `#lx-writer-shadow-host`, `.lx-yt-card`, `.lx-known-word`).
+  - Rejects `readonly`/`disabled` attrs; rejects `type=password`/`hidden`
+    on textareas.
+  - Rejects `[role="search"]` ancestor, plus role attrs `search`/`searchbox`/`spinbutton`.
+  - Code-editor heuristic: `aria-label` / `aria-describedby` / `className`
+    matched against `_WRITER_DENY_LABEL_RE`, plus closest-ancestor check
+    against `.monaco-editor, .CodeMirror, .cm-editor, .ace_editor,
+    [class*="code-editor"]` (covers github.dev, replit, codesandbox, etc).
+  - Login/signup/password forms: parent `<form>` `name`/`id`/`action`
+    matched against `_WRITER_DENY_FORM_RE`.
+  - Cross-document inputs (different `ownerDocument`) rejected.
+- [x] M31-S3-03 · `_initWriter()` runs on DOM ready: bootstraps the
+  `lexora_writer_enabled` flag from `chrome.storage.sync` (default `true`
+  when the key is absent), subscribes to `chrome.storage.onChanged` so
+  toggling the Options switch hides the FAB live, then attaches
+  `focusin` / `focusout` capture-phase listeners on `document`. Focus-out
+  uses a 150 ms delay so the FAB click handler fires before the blur
+  hides it; if focus moved to another eligible input, the FAB re-anchors
+  to the new target.
+- [x] M31-S3-04 · `_positionFab(input)` uses `getBoundingClientRect` +
+  `position: fixed`, anchored at the bottom-right inside corner of the
+  input (`r.right - 32 - 6px` × `r.bottom - 32 - 6px`), clamped to the
+  viewport. Off-screen inputs hide the FAB. `scroll` / `resize` reposition
+  via `_onWriterScrollOrResize` debounced at 100 ms (the M31-S3-01
+  constant). The FAB's `mousedown` handler calls `e.preventDefault()` so
+  the click doesn't blur the input — caret position survives.
+- [x] M31-S3-05 · `_onFabClick()` reads the field via `_readInputText`
+  (`textarea.value` or `el.innerText`), checks `text.trim().length`
+  against `_WRITER_MIN_LEN` (early-return with a "Too short" overlay
+  state), warns to console if over `_WRITER_MAX_LEN` (the proxy
+  truncates anyway), detects language via the existing `_detectLang`
+  (M27 regex set including Polish), reads `aria-label` ∥ `placeholder`
+  capped at 200 chars as the `context` field, then sends
+  `{action: 'lexora-writer-check', text, language, context}` via the
+  existing `_qlSendMessage` helper. The FAB gains a `lx-busy` class
+  during the round-trip.
+- [x] M31-S3-06 · `_renderWriterOverlay(anchorInput, response)` — Shadow
+  DOM popup with the M28 flexbox-sandwich layout:
+  `header (flex-shrink:0, draggable) / scroll-body (flex:1 1 auto,
+  overflow-y:auto, min-height:0) / footer (flex-shrink:0)`, all with
+  `!important` so host stylesheets can't undo the layout (M28-12d rule).
+  Status pill cycles `lx-busy` / `lx-ok` / `lx-error` (Analysing / Done /
+  Error). States rendered: `loading`, `short`, `ok`, `unauthorized`,
+  `unavailable`, `error`. Footer has the privacy hint "Text is sent to
+  your Lexora server for analysis." plus "Apply to text" (only when
+  `improved` is non-empty) and "Close" buttons. Click-outside closes via
+  `composedPath` filter (clicks inside the shadow root keep the popup).
+  `_makeWriterDraggable(shadow)` reuses the M28-17 drag pattern with
+  viewport clamping.
+- [x] M31-S3-07 · `_applyWriterImproved(input, improved)` —
+  - **Textareas:** uses the canonical "native input setter" pattern —
+    `Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype,
+    'value').set.call(input, improved)`. This bypasses React 17+'s
+    overridden setter, which silently swallows direct `.value =` writes
+    on controlled inputs. Falls back to direct assignment if the descriptor
+    lookup fails.
+  - **`[contenteditable]`:** sets `input.innerText = improved`
+    (preserves line breaks better than `textContent`).
+  - **For both:** dispatches an `InputEvent('input', {bubbles:true,
+    inputType:'insertReplacementText', data: improved})` (falls back to a
+    plain `Event('input', ...)` if `InputEvent` isn't available) AND a
+    `Event('change', {bubbles:true})`. Verified the React-controlled
+    case via the Reddit textarea, where the character counter is the
+    proof that React's state actually updated.
+  - The popup closes on success and a 1-sec `showLexoraToast('ok',
+    'Applied to text')` confirms.
+- [x] M31-S3-08 · CSS embedded as two string constants in `content.js`:
+  - `_WRITER_FAB_CSS` — page-level `<style id="lx-writer-styles">` block
+    holding the 32 × 32 indigo-gradient FAB with the fade-in opacity
+    transition. Injected lazily via `_ensureWriterStyles()` (same pattern
+    as `_ensureReviewStyles()` from M27).
+  - `_WRITER_CARD_CSS` — Shadow-DOM-scoped CSS for the popup. Glassmorphism
+    (rgba background + `backdrop-filter: blur(14px)`), gradient header,
+    indigo→white correction palette (`text-warning` analogue / line-through
+    for "wrong", success-green for "correct"), draggable header cursor.
+  All structural flex props carry `!important` to survive host-page CSS.
+
+**Plus background.js wiring (M31-S4 partial — kept here for atomic commit):**
+
+- [x] M31-S3-09 · `extension/background.js` — added `lexora-writer-check`
+  case to the `onMessage` listener, calling new `handleWriterCheck(msg)`.
+  `handleWriterCheck` follows the existing `handleExplainGrammar` shape:
+  POST to `/lexora_api/writer_check` with `getSessionHeader()` →
+  `X-Lexora-Session-Id` bridge, propagates 401 → `{status:'unauthorized'}`,
+  returns the proxy JSON verbatim on success. Background-side `fetch` has
+  no explicit timeout (the Odoo proxy already enforces 60 s on the LLM
+  side and surfaces `{status:'unavailable'}` if it expires; doubling it
+  here would just double-buffer the same failure).
+
+**Verification:**
+
+- Both `content.js` and `background.js` pass `node --check` syntax check.
+- Browser smoke (M31-S5) is up to the user reloading the unpacked
+  extension; the JS-only changes don't require an Odoo restart.
 
 **Step M31-S4 — Background.js + Options**
 

@@ -72,6 +72,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     handleGetLearnedWords().then(sendResponse).catch(() => sendResponse({ status: 'error' }));
   } else if (msg.action === 'lexora-explain-grammar') {
     handleExplainGrammar(msg).then(sendResponse).catch(() => sendResponse({ status: 'error' }));
+  } else if (msg.action === 'lexora-writer-check') {
+    handleWriterCheck(msg).then(sendResponse).catch(() => sendResponse({ status: 'error' }));
   }
   return true; // MUST be at the very end — keeps channel open for all async handlers
 });
@@ -217,6 +219,29 @@ async function handleExplainGrammar({ phrase, language }) {
       credentials: 'include',
       headers: { 'Content-Type': 'application/json', ...sessionHeaders },
       body: JSON.stringify({ phrase, language: language || 'en' }),
+    });
+    if (resp.status === 401) return { status: 'unauthorized' };
+    if (!resp.ok) return { status: 'error', message: `HTTP ${resp.status}` };
+    return resp.json();
+  } catch (err) {
+    return { status: 'error', message: err.message };
+  }
+}
+
+// ── M31 — Lexora Writer ───────────────────────────────────────────────────
+
+async function handleWriterCheck({ text, language, context }) {
+  if (!text || !text.trim()) return { status: 'error', message: 'text required' };
+  const baseUrl = await getBaseUrl();
+  const sessionHeaders = await getSessionHeader(baseUrl);
+  const body = { text, language: language || 'en' };
+  if (context) body.context = context;
+  try {
+    const resp = await fetch(`${baseUrl}/lexora_api/writer_check`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json', ...sessionHeaders },
+      body: JSON.stringify(body),
     });
     if (resp.status === 401) return { status: 'unauthorized' };
     if (!resp.ok) return { status: 'error', message: `HTTP ${resp.status}` };
