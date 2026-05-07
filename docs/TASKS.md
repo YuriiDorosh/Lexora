@@ -15,7 +15,267 @@
 
 ## Current Milestone
 
-(none — M30 closed on 2026-05-06; next milestone TBD)
+### M31 + M32 — Browser Extension Upgrades
+
+**Status:** Planned (architecture review pass, no code yet).
+**Branch:** `m31_m32_extension_upgrades` (created from `m30_speaking_coach`)
+**Started:** 2026-05-07
+
+**Scope:** Two ordered milestones shipping on a single branch because they touch
+overlapping files (`content.js`, `background.js`, `portal_api.py`,
+`services/llm/main.py`).
+- **M31 — Lexora Writer:** active-writing assistant; floating "L" FAB on every
+  textarea / contenteditable; click sends the field's text to a new
+  `POST /analyze-writing` LLM endpoint and renders corrections + an
+  improved version that the user can apply back to the field with one click.
+- **M32 — Slang & Idiom Explainer:** new "Explain Slang/Idiom" button beside
+  the existing M28 "Explain Grammar" button in both Quick Look and YouTube
+  overlays; sends the selected phrase to a new `POST /explain-slang` LLM
+  endpoint and renders kind / figurative meaning / literal meaning / example
+  in a new scrollable block.
+
+**Architecture decisions (locked at planning):**
+
+- **Sync over async.** Both flows follow the ADR-030 sync rule — the user
+  is staring at the result, no benefit to RabbitMQ. M31 uses 60 s timeouts;
+  M32 uses 60 s timeouts (consistent with existing `/explain-grammar` and
+  `/analyze-speech` proxies).
+- **Reuse existing patterns.**
+  - LLM service follows the M28/M30 sync-endpoint shape: Pydantic request,
+    `response_format={"type":"json_object"}`, `_parse_enrichment_json`
+    tolerant parser, `_coerce_list` defensive normaliser, language-agnostic
+    via `LANG_NAMES.get(...)`, stub fallback when `_llm_ready=False`.
+  - Odoo proxy follows the M22 / M28 / M30 pattern: `auth='none'` with
+    `_require_session()`, CORS reflection, `_MAX_*` length caps, 60 s
+    `requests.post` timeout, surface upstream HTTP errors verbatim.
+  - Browser extension follows the M27 / M28 pattern: embedded CSS string
+    constant in JS (no separate `.css`), Shadow DOM host for the new FAB
+    popup (M31), background-script proxy via `_qlSendMessage`, viewport
+    clamping for popups, `!important` flex props on sandwich layouts.
+- **No new RabbitMQ queues. No new container.** All endpoints land on the
+  existing `llm_service` and `language_portal` controller.
+- **Privacy disclosure** — the writer popup shows a small footer line
+  "Text is sent to your Lexora server for analysis" so users know the
+  field's value leaves the page.
+
+#### M31 — Lexora Writer — sub-steps
+
+**Step M31-S1 — LLM endpoint `POST /analyze-writing`**
+
+- [ ] M31-S1-01 · `services/llm/main.py` — new `AnalyzeWritingRequest`
+  Pydantic model: `text: str`, `language: str = "en"`, `context: str | None = None`.
+- [ ] M31-S1-02 · `_ANALYZE_WRITING_SYSTEM_PROMPT` — short, no numbered
+  lists (per the M18-FIX-09 1.5B rule). Enforces 2-key JSON output:
+  `{corrections: [{wrong, correct, note}], improved: "..."}`. All string
+  values must be in the same language as the input text. `note` should
+  identify the rule violated (tense, agreement, article, …) in the user's
+  *target* language for learning value.
+- [ ] M31-S1-03 · `_analyze_writing(text, language, context)` helper:
+  builds messages (system + user with optional `context` framing
+  "the user is writing a <context>:"), calls
+  `_llm.create_chat_completion(...)` with `response_format={"type":"json_object"}`,
+  `max_tokens=512`, `temperature=0.4`, `repeat_penalty=1.1`. Reuses
+  `_parse_enrichment_json` + `_coerce_list((wrong, correct, note))`. Stub
+  fallback returns `{corrections: [], improved: text}` when
+  `_llm_ready=False`.
+- [ ] M31-S1-04 · `@app.post("/analyze-writing")` — caps `text` at
+  4000 chars; returns `{status: "ok", corrections, improved}` or
+  `{status: "error", message}` on failure.
+- [ ] M31-S1-05 · `make up-llm-no-cache` → `/openapi.json` lists the new
+  route; `/health` still `llm_ready:true`.
+- [ ] M31-S1-06 · Curl smoke for all 4 languages with intentional
+  errors. Confirm corrections arrays + improved version come back in the
+  correct script.
+
+**Step M31-S2 — Odoo proxy `POST /lexora_api/writer_check`**
+
+- [ ] M31-S2-01 · `language_portal/controllers/portal_api.py` — add
+  `_MAX_WRITER_TEXT = 4000`. New route `/lexora_api/writer_check`,
+  `auth='none'`, `type='json'`, `csrf=False`. Calls `_require_session()`.
+- [ ] M31-S2-02 · Body validation: `text` required, length capped, language
+  validated against `_ALLOWED_LANGUAGES`.
+- [ ] M31-S2-03 · `requests.post(f"{_LLM_SVC}/analyze-writing", ..., timeout=60)`.
+  Returns the LLM payload verbatim plus `status: ok / error / unavailable`.
+  CORS reflection identical to `/lexora_api/explain_grammar`.
+- [ ] M31-S2-04 · `--update language_portal --stop-after-init --no-http`
+  → 0 errors. Curl smoke with valid session cookie returns the LLM payload.
+
+**Step M31-S3 — Extension content script**
+
+- [ ] M31-S3-01 · `extension/content.js` — new constants:
+  `_WRITER_FAB_ID`, `_WRITER_HOST_ID`, `_WRITER_MIN_TEXT_LEN = 20`,
+  `_WRITER_DEBOUNCE_MS = 100`.
+- [ ] M31-S3-02 · `_isEligibleInput(el)` — `tagName === 'TEXTAREA'`
+  OR `el.isContentEditable === true`. Reject when:
+  - `type` is `password` or `hidden`
+  - has `readonly` or `disabled` attr
+  - inside `[role="search"]`, `.lx-ql-host`, `.lx-yt-card`, or our own
+    Shadow DOMs
+  - `aria-label` matches `/code|monaco|cm-editor/i`
+  - parent `<form>` `name` matches `/login|sign[ -]?in|password/i`
+- [ ] M31-S3-03 · `_initWriter()` runs on DOM ready: attaches
+  `focusin` / `focusout` listeners to `document` (capturing). On focus of
+  an eligible input → `_showFab(input)`. On blur (with delay so the
+  click registers) → `_hideFab()`.
+- [ ] M31-S3-04 · `_positionFab(input)` — `getBoundingClientRect`-based
+  positioning at the bottom-right corner of the input; uses
+  `position: fixed`. Re-runs on `scroll` and `resize`, debounced 100 ms.
+  Off-screen inputs hide the FAB.
+- [ ] M31-S3-05 · FAB click handler:
+  - Read `input.value` (textarea) or `input.innerText` (contenteditable).
+  - Bail if `text.trim().length < 20` (toast "Write at least 20 chars").
+  - Detect language via existing `_detectLang(text)`.
+  - Read `lexora_writer_enabled` flag from `chrome.storage.sync` (default true).
+  - Read `aria-label` / `placeholder` of the input as `context`.
+  - Send `{action: "lexora-writer-check", text, language, context}` to bg.
+- [ ] M31-S3-06 · `_renderWriterOverlay(anchorInput, response)` — Shadow DOM
+  popup anchored to the same input. Header / scroll-body / footer sandwich.
+  States: `loading`, `ok`, `error`, `unauthorized`. Footer has Apply button
+  + Close button + privacy hint.
+- [ ] M31-S3-07 · `_applyWriterImproved(input, improved)` —
+  textarea: set `.value`; contenteditable: set `.innerText`; for both,
+  dispatch `input` + `change` events with `bubbles: true` so frameworks
+  pick up the change. Close the popup; show a 1-sec confirmation toast.
+- [ ] M31-S3-08 · `_WRITER_CSS` constant (FAB + popup glassmorphism)
+  injected via `_ensureWriterStyles()` — same pattern as
+  `_ensureReviewStyles()` (M27).
+
+**Step M31-S4 — Background.js + Options**
+
+- [ ] M31-S4-01 · `extension/background.js` — `lexora-writer-check` case
+  in the `onMessage` listener; `handleWriterCheck({text, language, context})`
+  follows the existing `handleExplainGrammar` shape (60 s timeout, JSON,
+  session-cookie header).
+- [ ] M31-S4-02 · `extension/options.html` + `options.js` — new toggle
+  "Show writer assistant on text fields", default ON, persisted as
+  `lexora_writer_enabled` in `chrome.storage.sync`.
+
+**Step M31-S5 — Verification**
+
+- [ ] M31-S5-01 · LLM endpoint smoke (en/uk/el/pl, intentional errors).
+- [ ] M31-S5-02 · Odoo proxy smoke with cookie.
+- [ ] M31-S5-03 · Browser smoke: Reddit comment box, Gmail compose, an
+  Odoo backend long-text field. Verify the FAB appears, click runs the
+  flow, "Apply to text" replaces the value AND the framework's character
+  counter / state updates (proves the `input` event fired).
+- [ ] M31-S5-04 · Negative test: focus a password field, focus a code
+  editor (e.g. Monaco on github.dev), focus a search box → no FAB.
+- [ ] M31-S5-05 · Disable toggle in Options → FAB no longer appears.
+- [ ] M31-S5-06 · Commit M31 (separate from M32 for clean diff).
+
+#### M32 — Slang & Idiom Explainer — sub-steps
+
+**Step M32-S1 — LLM endpoint `POST /explain-slang`**
+
+- [ ] M32-S1-01 · `services/llm/main.py` — new `ExplainSlangRequest`:
+  `phrase: str`, `source_language: str = "en"`, `native_language: str = "en"`.
+- [ ] M32-S1-02 · `_EXPLAIN_SLANG_SYSTEM_PROMPT` — instructs the model
+  to classify (`idiom` / `slang` / `phrasal_verb` / `literal` / `unknown`),
+  give figurative meaning **in `native_language`**, give literal meaning
+  (word-for-word translation), give one short example, add a confidence
+  flag. Output JSON contract:
+  `{kind, figurative_meaning, literal_meaning, example, confidence}`.
+- [ ] M32-S1-03 · `_explain_slang(phrase, source_language, native_language)`:
+  builds messages, calls `_llm.create_chat_completion(...)` with
+  `response_format={"type":"json_object"}`, `max_tokens=300`,
+  `temperature=0.3`, `repeat_penalty=1.1`. Stub fallback returns
+  `{kind: "unknown", figurative_meaning: "", literal_meaning: phrase,
+    example: "", confidence: "low"}`.
+- [ ] M32-S1-04 · `@app.post("/explain-slang")` — caps `phrase` at
+  1000 chars (consistent with M28); validates languages.
+- [ ] M32-S1-05 · `make up-llm-no-cache` → `/openapi.json` lists the route.
+- [ ] M32-S1-06 · Curl smoke: English idiom (`kick the bucket`),
+  English phrasal verb (`give up`), Polish idiom (`masz węża w kieszeni`),
+  literal phrase (`the cat is on the mat`). Confirm `kind`s are correct
+  and `figurative_meaning` is in the requested `native_language`.
+
+**Step M32-S2 — Odoo proxy `POST /lexora_api/explain_slang`**
+
+- [ ] M32-S2-01 · `portal_api.py` — new route `/lexora_api/explain_slang`,
+  same shape as `/lexora_api/explain_grammar`. Reuse `_MAX_WORD_LEN = 1000`.
+- [ ] M32-S2-02 · `native_language` resolution: prefer the value sent
+  by the client; otherwise fall back to the caller's
+  `language.user.profile.native_language`; otherwise default to `en`.
+- [ ] M32-S2-03 · `requests.post({LLM_SVC}/explain-slang, ..., timeout=60)`.
+  CORS reflection identical to existing routes.
+- [ ] M32-S2-04 · `--update language_portal --stop-after-init --no-http`
+  → 0 errors.
+
+**Step M32-S3 — Extension content script + overlay**
+
+- [ ] M32-S3-01 · `extension/content.js` `_renderQlOverlay`:
+  - Add `<button id="lx-ql-explain-slang" class="lx-ql-explain-btn lx-ql-slang-btn">
+    💡 Explain Slang/Idiom</button>` in the action footer.
+  - Add `<div id="lx-ql-slang-block" class="lx-ql-grammar-block lx-ql-slang-block">
+    </div>` directly below the existing `#lx-ql-grammar-block`.
+  - Click handler mirrors `#lx-ql-explain` — disables button, sets text,
+    sends `{action: "lexora-explain-slang", phrase, source_language,
+    native_language}`. On response, calls `_renderSlangBlock(slot, data)`.
+- [ ] M32-S3-02 · `_renderSlangBlock(el, data)`:
+  - If `kind === 'literal'`: show "This phrase translates literally." +
+    `literal_meaning`.
+  - Otherwise: figurative meaning (bold), small italic literal meaning,
+    italic example.
+  - If `confidence === 'low'`: append `<em class="lx-ql-uncertain">
+    AI is uncertain — consider checking a dictionary.</em>`.
+- [ ] M32-S3-03 · `_QL_CSS` gains `.lx-ql-slang-btn`,
+  `.lx-ql-slang-block`, `.lx-ql-uncertain`. Mirrors existing grammar-block
+  styles.
+- [ ] M32-S3-04 · `extension/overlay.js` — same additions for the YouTube
+  overlay: `#lx-yt-explain-slang`, `#lx-yt-slang-block`. `_OVERLAY_CSS`
+  gains `.lx-yt-slang-btn` and `.lx-yt-slang-block`. Flex sandwich
+  preservation per M28-12d (`!important` on structural flex props).
+- [ ] M32-S3-05 · `extension/background.js` — `lexora-explain-slang` case
+  → `handleExplainSlang(...)` (60 s timeout, session header).
+
+**Step M32-S4 — Options page (native-language picker)**
+
+- [ ] M32-S4-01 · `extension/options.html` + `options.js` — add
+  `<select id="lexora_native_language">` with options en/uk/el/pl. Default
+  resolved via `GET /lexora_api/whoami` if available; otherwise `en`.
+  Persisted in `chrome.storage.sync` as `lexora_native_language`.
+- [ ] M32-S4-02 · `content.js` slang button click reads
+  `chrome.storage.sync.get('lexora_native_language')` and includes it in
+  the message; defaults to `en` if unset.
+
+**Step M32-S5 — Verification**
+
+- [ ] M32-S5-01 · LLM endpoint smoke for all four classification kinds
+  in all four languages.
+- [ ] M32-S5-02 · Odoo proxy smoke with cookie.
+- [ ] M32-S5-03 · Browser smoke: select an idiom on a Wikipedia page →
+  Quick Look overlay → click "Explain Slang/Idiom" → block renders. Same
+  on a YouTube subtitle word.
+- [ ] M32-S5-04 · Confidence handling: pick an obscure Slavic idiom →
+  should land at `confidence: "medium"` or `"low"` and surface the
+  uncertainty hint.
+- [ ] M32-S5-05 · Literal phrase test: select "the cat is on the mat" →
+  `kind: "literal"` → UI shows the "translates literally" hint, not a
+  fake figurative meaning.
+- [ ] M32-S5-06 · Commit M32.
+
+#### Step M31-M32-S6 — Final docs flip
+
+- [ ] M31-M32-S6-01 · ADR-031 in `docs/DECISIONS.md` — covers M31's
+  Apply-to-text strategy (the `input`-event dispatch pattern for
+  React/Vue compatibility), the FAB eligibility heuristic, and the
+  privacy-disclosure UX. Decide whether ADR-032 is a separate ADR or
+  a sub-section of ADR-031 (likely a sub-section since both endpoints
+  share the same architectural shape).
+- [ ] M31-M32-S6-02 · `docs/PLAN.md` — flip M31 + M32 rows to ✅;
+  bump version to 2.2.
+- [ ] M31-M32-S6-03 · `docs/TASKS.md` — archive both blocks under
+  Completed Milestones.
+- [ ] M31-M32-S6-04 · `README.md` — Practice Modes table or Browser
+  Ecosystem section gets new entries; M31 + M32 rows in the
+  implementation status table.
+- [ ] M31-M32-S6-05 · Commit + push to `m31_m32_extension_upgrades`.
+
+#### Blockers
+
+(none)
+
+---
 
 ---
 
