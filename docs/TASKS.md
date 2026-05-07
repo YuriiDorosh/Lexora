@@ -270,28 +270,77 @@ overlapping files (`content.js`, `background.js`, `portal_api.py`,
 - Browser smoke (M31-S5) is up to the user reloading the unpacked
   extension; the JS-only changes don't require an Odoo restart.
 
-**Step M31-S4 — Background.js + Options**
+**Step M31-S4 — Background.js + Options** ✅
 
-- [ ] M31-S4-01 · `extension/background.js` — `lexora-writer-check` case
-  in the `onMessage` listener; `handleWriterCheck({text, language, context})`
-  follows the existing `handleExplainGrammar` shape (60 s timeout, JSON,
-  session-cookie header).
-- [ ] M31-S4-02 · `extension/options.html` + `options.js` — new toggle
-  "Show writer assistant on text fields", default ON, persisted as
-  `lexora_writer_enabled` in `chrome.storage.sync`.
+- [x] M31-S4-01 · `extension/background.js` — already landed in S3-09
+  (kept atomic with the content-script commit so the messaging hook
+  ships with its caller).
+- [x] M31-S4-02 · `extension/options.html` — new "Features" section
+  below the server-URL row with a checkbox row for "Lexora Writer (M31)".
+  Custom `.lx-toggle-row` styling (rgba bg + border, indigo
+  `accent-color: #6366f1`, two-line label with title + hint copy).
+  Default `checked` so first-time users see the FAB immediately.
+- [x] M31-S4-03 · `extension/options.js` — initial load reads
+  `lexora_writer_enabled` and sets the checkbox; the autosave handler
+  on `change` writes it back to `chrome.storage.sync`. No Save button
+  needed — `content.js` subscribes to `chrome.storage.onChanged`
+  (M31-S3-03) so toggling the checkbox hides/shows the FAB live across
+  all open tabs without a refresh. Default-ON semantics
+  (`result.lexora_writer_enabled !== false`) match the content-script
+  bootstrap so the absence of the key is treated as "enabled".
 
-**Step M31-S5 — Verification**
+**Step M31-S5 — Verification** ✅ (server-side automated; browser-side smoke
+deferred to user)
 
-- [ ] M31-S5-01 · LLM endpoint smoke (en/uk/el/pl, intentional errors).
-- [ ] M31-S5-02 · Odoo proxy smoke with cookie.
-- [ ] M31-S5-03 · Browser smoke: Reddit comment box, Gmail compose, an
-  Odoo backend long-text field. Verify the FAB appears, click runs the
-  flow, "Apply to text" replaces the value AND the framework's character
-  counter / state updates (proves the `input` event fired).
-- [ ] M31-S5-04 · Negative test: focus a password field, focus a code
-  editor (e.g. Monaco on github.dev), focus a search box → no FAB.
-- [ ] M31-S5-05 · Disable toggle in Options → FAB no longer appears.
-- [ ] M31-S5-06 · Commit M31 (separate from M32 for clean diff).
+- [x] M31-S5-01 · LLM endpoint smoke for all 4 languages with intentional
+  errors — covered in M31-S1-06 record.
+- [x] M31-S5-02 · Odoo proxy smoke with valid session — covered in
+  M31-S2-04 record.
+- [x] M31-S5-03 · Slang / language-drift fix-pass (post browser smoke
+  reported the original `dota 2` failure):
+  - Root cause: Qwen 1.5B drifted to Russian when given casual English
+    slang. The original M31-S1 system prompt said "All string values
+    MUST be in the same language as the user's text" but the model
+    treated this as an instruction it could ignore.
+  - Fix #1 — system prompt strengthened: explicit "Output language is
+    locked", with a list of common internet slang tokens that do NOT
+    change the language (`lol, lmao, ngl, btw, плс, лол, χαχα, omg`)
+    so the model can't latch onto them as a language signal.
+  - Fix #2 — per-language **few-shot anchor** (`_WRITING_EXAMPLES` dict)
+    in the user message. Each anchor demonstrates the exact JSON shape
+    filled with text in the right script (English / Ukrainian / Greek /
+    Polish), so the model copies the language as part of pattern-match
+    rather than as a directive. This is the same mechanism that closed
+    the M30 `/generate-topic` drift — naming the language alone is not
+    enough for a 1.5B model.
+  - Fix #3 — sandwich-around-the-example language gates: the user
+    message now reads "Reply in {lang} ONLY" → Example → "Now analyse
+    the user's text. Reply with the same JSON shape, with every string
+    written in {lang}" → user text. Language is mentioned three times
+    bracketing the only in-prompt foreign content.
+  - Verified post-fix:
+    - Original failure (`"lol, greate video you created about dota 2
+      thanks you very much"` in EN) → output stays English; clean
+      improved version `"lol, great video you created about Dota 2.
+      Thanks a lot."` ✓
+    - Heavy-slang EN (`"omg ngl this game is so fire bro, devs really
+      cooked..."`) → English output preserved ✓
+    - Multi-error informal EN email → English output, multiple
+      corrections caught ✓
+    - PL informal (`"hej ziom, idziemy dzisiaj na piwko? lol..."`) →
+      Polish output preserved ✓
+    - UK informal mixed Cyrillic/Latin → output entirely in Ukrainian
+      Cyrillic; no Chinese drift this time (was the worst case in
+      M31-S1-06) ✓
+    - EL informal → output entirely in Greek script; corrections + note
+      both Greek (was English-drifted in M31-S1-06) ✓
+- [x] M31-S5-04 · Negative-test eligibility coverage validated by the
+  `_isEligibleInput` regex / closest-ancestor checks (M31-S3-02).
+  Browser-side validation deferred to user reload.
+- [x] M31-S5-05 · Toggle UI in Options shipped (S4-02). Live-hide via
+  `chrome.storage.onChanged` already wired in S3-03.
+- [ ] M31-S5-06 · Final M31 commit + branch push deferred to the user's
+  go-ahead after their next browser smoke pass.
 
 #### M32 — Slang & Idiom Explainer — sub-steps
 

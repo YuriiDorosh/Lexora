@@ -63,6 +63,54 @@
       color: #4ade80;
       margin-left: 10px;
     }
+    .lx-toggle-row {
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+      padding: 14px 16px;
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 10px;
+      margin-bottom: 16px;
+    }
+    .lx-toggle-row input[type="checkbox"] {
+      width: 18px;
+      height: 18px;
+      margin-top: 2px;
+      accent-color: #6366f1;
+      cursor: pointer;
+      flex-shrink: 0;
+    }
+    .lx-toggle-row .lx-toggle-text {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    .lx-toggle-row .lx-toggle-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: #f1f5f9;
+      text-transform: none;
+      letter-spacing: 0;
+      margin-bottom: 0;
+    }
+    .lx-toggle-row .lx-toggle-hint {
+      font-size: 11px;
+      color: rgba(255, 255, 255, 0.45);
+    }
+    .lx-section-divider {
+      height: 1px;
+      background: rgba(255, 255, 255, 0.08);
+      margin: 24px 0 20px;
+    }
+    .lx-section-label {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: rgba(255, 255, 255, 0.35);
+      margin-bottom: 12px;
+    }
   </style>
 </head>
 <body>
@@ -74,6 +122,20 @@
 
   <button id="lx-save-btn">Save</button>
   <span id="lx-saved">✓ Saved</span>
+
+  <div class="lx-section-divider"></div>
+  <div class="lx-section-label">Features</div>
+
+  <label class="lx-toggle-row" for="lx-writer-enabled">
+    <input type="checkbox" id="lx-writer-enabled" checked>
+    <span class="lx-toggle-text">
+      <span class="lx-toggle-title">Lexora Writer (M31)</span>
+      <span class="lx-toggle-hint">
+        Show a floating "L" button on text fields so you can fix grammar
+        with one click. Skips passwords, search bars, and code editors.
+      </span>
+    </span>
+  </label>
 
   <script src="options.js"></script>
 </body>

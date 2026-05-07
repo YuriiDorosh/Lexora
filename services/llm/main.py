@@ -783,8 +783,46 @@ _ANALYZE_WRITING_SYSTEM_PROMPT = (
     "in one short clause.\n"
     "improved: one rewritten version that fixes everything in corrections "
     "and reads naturally. Keep meaning unchanged.\n"
-    "All string values MUST be in the same language as the user's text."
+    "Output language is locked: every string in the JSON MUST be written in "
+    "the SAME language as the user's text. Internet slang (lol, lmao, ngl, "
+    "btw, плс, лол, χαχα, omg) does NOT change the language. If the user's "
+    "text is English, reply in English. Never switch to another language."
 )
+
+# Few-shot anchor per language — the M30 lesson reapplied. Naming the
+# language alone is not enough for Qwen 1.5B; informal/slangy English in
+# particular causes drift to Russian. Each anchor demonstrates the exact
+# JSON shape filled with text in the right script, so the model copies the
+# language as part of pattern-matching rather than as an instruction it can
+# ignore. Keep these short — they share the user-message budget with the
+# actual text being analysed.
+_WRITING_EXAMPLES = {
+    "en": (
+        '{"corrections":[{"wrong":"He don\'t know nothing.",'
+        '"correct":"He doesn\'t know anything.",'
+        '"note":"Use does/doesn\'t with he/she/it; avoid double negatives."}],'
+        '"improved":"He doesn\'t know anything."}'
+    ),
+    "uk": (
+        '{"corrections":[{"wrong":"Я ходити до школа кожен день.",'
+        '"correct":"Я ходжу до школи кожного дня.",'
+        '"note":"Дієслово в першій особі однини теперішнього часу."}],'
+        '"improved":"Я ходжу до школи кожного дня."}'
+    ),
+    "el": (
+        '{"corrections":[{"wrong":"Εγώ πηγαίνω στο σχολείο κάθε μέρες.",'
+        '"correct":"Πηγαίνω στο σχολείο κάθε μέρα.",'
+        '"note":"Στα ελληνικά το \\"εγώ\\" συνήθως παραλείπεται· "'
+        '"\\"κάθε μέρα\\" είναι ενικός."}],'
+        '"improved":"Πηγαίνω στο σχολείο κάθε μέρα."}'
+    ),
+    "pl": (
+        '{"corrections":[{"wrong":"Wczoraj ja idę do parku z moja przyjaciel.",'
+        '"correct":"Wczoraj poszedłem do parku z moim przyjacielem.",'
+        '"note":"Czas przeszły dokonany; narzędnik dla \\"przyjacielem\\"."}],'
+        '"improved":"Wczoraj poszedłem do parku z moim przyjacielem."}'
+    ),
+}
 
 
 def _analyze_writing(text: str, language: str, context: str | None) -> dict:
@@ -797,7 +835,21 @@ def _analyze_writing(text: str, language: str, context: str | None) -> dict:
         }
 
     lang_name = LANG_NAMES.get(language, language or "English")
-    user_lines = [f"User text (in {lang_name}):", text.strip()]
+    example = _WRITING_EXAMPLES.get(language, _WRITING_EXAMPLES["en"])
+
+    # Few-shot anchor lives in the user message (where the model's recent-
+    # tokens attention is strongest) and is bracketed with explicit
+    # language gates above and below it.
+    user_lines = [
+        f"Reply in {lang_name} ONLY. The example below is in {lang_name} — "
+        f"copy its language and script.",
+        f"Example (analysing a {lang_name} text):",
+        example,
+        f"Now analyse the user's text. Reply with the same JSON shape, "
+        f"with every string written in {lang_name}.",
+        f"User text (in {lang_name}):",
+        text.strip(),
+    ]
     if context and context.strip():
         # context = the field's placeholder / aria-label; gives the model
         # genre awareness ("user is writing an email" vs. "a tweet"). Capped
