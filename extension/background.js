@@ -74,6 +74,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     handleExplainGrammar(msg).then(sendResponse).catch(() => sendResponse({ status: 'error' }));
   } else if (msg.action === 'lexora-writer-check') {
     handleWriterCheck(msg).then(sendResponse).catch(() => sendResponse({ status: 'error' }));
+  } else if (msg.action === 'lexora-explain-slang') {
+    handleExplainSlang(msg).then(sendResponse).catch(() => sendResponse({ status: 'error' }));
   }
   return true; // MUST be at the very end — keeps channel open for all async handlers
 });
@@ -219,6 +221,31 @@ async function handleExplainGrammar({ phrase, language }) {
       credentials: 'include',
       headers: { 'Content-Type': 'application/json', ...sessionHeaders },
       body: JSON.stringify({ phrase, language: language || 'en' }),
+    });
+    if (resp.status === 401) return { status: 'unauthorized' };
+    if (!resp.ok) return { status: 'error', message: `HTTP ${resp.status}` };
+    return resp.json();
+  } catch (err) {
+    return { status: 'error', message: err.message };
+  }
+}
+
+// ── M32 — Slang & Idiom Explainer ─────────────────────────────────────────
+
+async function handleExplainSlang({ phrase, source_language, native_language }) {
+  if (!phrase) return { status: 'error', message: 'phrase required' };
+  const baseUrl = await getBaseUrl();
+  const sessionHeaders = await getSessionHeader(baseUrl);
+  try {
+    const resp = await fetch(`${baseUrl}/lexora_api/explain_slang`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json', ...sessionHeaders },
+      body: JSON.stringify({
+        phrase,
+        source_language: source_language || 'en',
+        native_language: native_language || 'en',
+      }),
     });
     if (resp.status === 401) return { status: 'unauthorized' };
     if (!resp.ok) return { status: 'error', message: `HTTP ${resp.status}` };

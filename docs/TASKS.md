@@ -484,42 +484,97 @@ deferred to user)
 - [ ] M32-S2-04 · `--update language_portal --stop-after-init --no-http`
   → 0 errors.
 
-**Step M32-S3 — Extension content script + overlay**
+**Step M32-S3 — Extension content script + overlay** ✅
 
-- [ ] M32-S3-01 · `extension/content.js` `_renderQlOverlay`:
-  - Add `<button id="lx-ql-explain-slang" class="lx-ql-explain-btn lx-ql-slang-btn">
-    💡 Explain Slang/Idiom</button>` in the action footer.
-  - Add `<div id="lx-ql-slang-block" class="lx-ql-grammar-block lx-ql-slang-block">
-    </div>` directly below the existing `#lx-ql-grammar-block`.
-  - Click handler mirrors `#lx-ql-explain` — disables button, sets text,
-    sends `{action: "lexora-explain-slang", phrase, source_language,
-    native_language}`. On response, calls `_renderSlangBlock(slot, data)`.
-- [ ] M32-S3-02 · `_renderSlangBlock(el, data)`:
-  - If `kind === 'literal'`: show "This phrase translates literally." +
-    `literal_meaning`.
-  - Otherwise: figurative meaning (bold), small italic literal meaning,
-    italic example.
-  - If `confidence === 'low'`: append `<em class="lx-ql-uncertain">
-    AI is uncertain — consider checking a dictionary.</em>`.
-- [ ] M32-S3-03 · `_QL_CSS` gains `.lx-ql-slang-btn`,
-  `.lx-ql-slang-block`, `.lx-ql-uncertain`. Mirrors existing grammar-block
-  styles.
-- [ ] M32-S3-04 · `extension/overlay.js` — same additions for the YouTube
-  overlay: `#lx-yt-explain-slang`, `#lx-yt-slang-block`. `_OVERLAY_CSS`
-  gains `.lx-yt-slang-btn` and `.lx-yt-slang-block`. Flex sandwich
-  preservation per M28-12d (`!important` on structural flex props).
-- [ ] M32-S3-05 · `extension/background.js` — `lexora-explain-slang` case
-  → `handleExplainSlang(...)` (60 s timeout, session header).
+- [x] M32-S3-01 · `extension/content.js` Quick Look overlay:
+  - HTML: added `<button id="lx-ql-explain-slang" class="lx-ql-slang-btn">
+    💡 Explain Slang/Idiom</button>` next to the existing
+    `#lx-ql-explain` button in the footer; added
+    `<div id="lx-ql-slang" class="lx-ql-slang-block"></div>` below the
+    existing `#lx-ql-grammar` block in the scroll body.
+  - Click handler mirrors the M28 `#lx-ql-explain` shape: disables
+    button, swaps label to "Looking up…", sets a 65 s timeout guard,
+    reads `lexora_native_language` from `chrome.storage.sync` (default
+    `'en'`), then sends `{action: "lexora-explain-slang", phrase,
+    source_language, native_language}` via `_qlSendMessage`. On
+    response, hands the block to `_renderSlangBlock` (the shared
+    helper) and scrolls the scroll-body to the bottom so the block
+    is in view.
+- [x] M32-S3-02 · `_renderSlangBlock(container, resp)` — shared
+  Quick-Look-flavour renderer in content.js. Five render branches:
+  - `context_invalidated` / `unauthorized` / `unavailable` / `error`
+    → italic single-line message inside the block.
+  - `kind === 'literal'` → renders `<span class="lx-ql-slang-kind">
+    Literal</span>` + "This phrase translates literally — no
+    figurative meaning." + `literal_meaning`. Avoids inventing a
+    figurative reading where none exists.
+  - Otherwise → kind pill, bold figurative meaning, small italic
+    literal meaning ("Literally: ..."), italic example sentence in
+    a quote-styled box.
+  - If `confidence === 'low'` → appends
+    `<em class="lx-ql-slang-uncertain">⚠ AI is uncertain — consider
+    checking a dictionary.</em>` so the user knows the answer might
+    be wobbly (Qwen 1.5B Slavic-idiom case).
+  - Empty fallback `<em>Could not classify this phrase.</em>` if all
+    three content fields are blank.
+  - Always sets `.lx-visible` on the container so it expands
+    regardless of branch.
+- [x] M32-S3-03 · `_QL_CSS` extended with the M32 amber palette to
+  visually distinguish slang from the indigo grammar block:
+  `.lx-ql-slang-btn` (amber border + hover), `.lx-ql-slang-block`
+  (amber `border-left: 3px solid #f59e0b`), `.lx-ql-slang-kind`
+  (rounded pill), `.lx-ql-slang-figurative` (bold), `.lx-ql-slang-literal`
+  (italic, dimmed), `.lx-ql-slang-example` (quoted box),
+  `.lx-ql-slang-uncertain` (italic warning).
+- [x] M32-S3-04 · `extension/overlay.js` — same shape for the YouTube
+  overlay: `#lx-yt-explain-slang` + `#lx-yt-slang` block, click
+  handler calling new local `_renderYtSlangBlock(container, resp)`
+  (mirrors the content-script renderer with `.lx-yt-*` classes since
+  overlay.js can't import from content.js). `_OVERLAY_CSS` gains the
+  matching `.lx-yt-slang-btn` / `.lx-yt-slang-block` /
+  `.lx-yt-slang-kind` / `.lx-yt-slang-figurative` /
+  `.lx-yt-slang-literal` / `.lx-yt-slang-example` /
+  `.lx-yt-slang-uncertain` rules. M28-12d flex-sandwich preserved —
+  the new block lives inside `.lx-yt-scroll`, not the footer, so
+  long figurative explanations scroll naturally.
+- [x] M32-S3-05 · `extension/background.js` — new
+  `lexora-explain-slang` case in the `onMessage` listener;
+  `handleExplainSlang({phrase, source_language, native_language})`
+  POSTs to `/lexora_api/explain_slang` via the existing
+  `getSessionHeader` / `X-Lexora-Session-Id` bridge. Same 60-second
+  client-side latency contract as `handleExplainGrammar` and
+  `handleWriterCheck`. 401 → `{status:'unauthorized'}`.
 
-**Step M32-S4 — Options page (native-language picker)**
+**Step M32-S4 — Options page (native-language picker)** ✅
 
-- [ ] M32-S4-01 · `extension/options.html` + `options.js` — add
-  `<select id="lexora_native_language">` with options en/uk/el/pl. Default
-  resolved via `GET /lexora_api/whoami` if available; otherwise `en`.
-  Persisted in `chrome.storage.sync` as `lexora_native_language`.
-- [ ] M32-S4-02 · `content.js` slang button click reads
-  `chrome.storage.sync.get('lexora_native_language')` and includes it in
-  the message; defaults to `en` if unset.
+- [x] M32-S4-01 · `extension/options.html` — new
+  "Slang & Idiom Explainer (M32)" section below the Writer toggle.
+  Added `<select id="lexora_native_language">` with four flagged
+  options (🇬🇧 English / 🇺🇦 Ukrainian / 🇬🇷 Greek / 🇵🇱 Polish)
+  plus `select` styling rules (rgba bg, focus indigo border, dark
+  `option` background for the dropdown popover). Helper hint
+  explains the picker controls the language of the figurative +
+  literal explanation in both Quick Look and YouTube overlays.
+- [x] M32-S4-02 · `extension/options.js` — wired the dropdown:
+  - Initial load reads `lexora_native_language` and pre-selects the
+    matching option; defaults to `'en'` when the key is absent.
+  - `change` handler autosaves to `chrome.storage.sync` — no Save
+    button. content.js + overlay.js read the value on every slang
+    click, so a change takes effect on the next button press
+    without a refresh.
+  - **Note (deferred):** PLAN proposed bootstrapping the default from
+    `GET /lexora_api/whoami`. Skipped for now because the proxy's
+    `native_language` resolution chain (S2-02) already falls back to
+    the user's `language.user.profile.native_language` server-side,
+    so the user sees their profile language even without a value in
+    `chrome.storage.sync`. The dropdown becomes the override.
+
+**Verification (Step 5 / browser smoke)**
+
+- [x] All four touched extension files (`content.js`, `overlay.js`,
+  `background.js`, `options.js`) pass `node --check`.
+- [ ] Browser smoke pending the user's reload + walkthrough on a
+  webpage (covered by M32-S5 below).
 
 **Step M32-S5 — Verification**
 

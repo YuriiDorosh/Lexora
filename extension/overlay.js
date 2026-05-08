@@ -247,6 +247,51 @@ const _OVERLAY_CSS = `
     font-size:12px; line-height:1.6; color:#ddd6fe;
   }
   .lx-yt-grammar-block.lx-visible { display:block; }
+
+  /* M32 — Slang/Idiom Explainer */
+  .lx-yt-slang-btn {
+    display:block; width:100%; margin-top:6px; padding:6px 0;
+    background: rgba(245,158,11,0.15);
+    border: 1px solid rgba(245,158,11,0.4);
+    border-radius:8px; color:#fde68a; font-size:12px; font-weight:600;
+    cursor: pointer !important; pointer-events: auto !important;
+    transition: background 0.15s;
+  }
+  .lx-yt-slang-btn:hover { background: rgba(245,158,11,0.3); }
+  .lx-yt-slang-btn:disabled { opacity:0.5; cursor:default !important; }
+
+  .lx-yt-slang-block {
+    display:none; margin-top:8px; padding:10px 12px;
+    background: rgba(245,158,11,0.08);
+    border-left: 3px solid #f59e0b;
+    border-radius: 0 8px 8px 0;
+    font-size:12px; line-height:1.6; color:#fef3c7;
+  }
+  .lx-yt-slang-block.lx-visible { display:block; }
+  .lx-yt-slang-kind {
+    display:inline-block; margin-bottom:6px;
+    padding:1px 8px; border-radius:999px;
+    background: rgba(245,158,11,0.25); color:#fbbf24;
+    font-size:10px; font-weight:700;
+    text-transform:uppercase; letter-spacing:0.5px;
+  }
+  .lx-yt-slang-figurative {
+    margin:4px 0 6px; font-size:13px; font-weight:600; color:#fef3c7;
+  }
+  .lx-yt-slang-literal {
+    margin-bottom:6px; font-size:11px; font-style:italic;
+    color:#fde68a; opacity:0.85;
+  }
+  .lx-yt-slang-example {
+    margin-top:6px; padding:6px 10px;
+    background: rgba(255,255,255,0.04);
+    border-radius:6px;
+    font-size:11px; font-style:italic; color:#fef3c7;
+  }
+  .lx-yt-slang-uncertain {
+    display:block; margin-top:6px;
+    font-size:11px; font-style:italic; color:#f87171;
+  }
 `;
 
 // ── Utilities ──────────────────────────────────────────────────────────────
@@ -264,6 +309,67 @@ function _escHtml(str) {
   return String(str)
     .replace(/&/g, '&amp;').replace(/</g, '&lt;')
     .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+// M32 — YouTube-flavour slang block renderer (mirrors content.js's
+// _renderSlangBlock; uses .lx-yt-* classes scoped to overlay.js's CSS).
+const _YT_SLANG_KIND_LABELS = {
+  idiom: 'Idiom', slang: 'Slang', phrasal_verb: 'Phrasal Verb',
+  literal: 'Literal', unknown: 'Unknown',
+};
+function _renderYtSlangBlock(container, resp) {
+  if (!container) return;
+  if (!resp) {
+    container.innerHTML = '<em>No response from background.</em>';
+    container.classList.add('lx-visible'); return;
+  }
+  if (resp.status === 'context_invalidated') {
+    container.innerHTML = '<em>Refresh this tab to restore Lexora.</em>';
+    container.classList.add('lx-visible'); return;
+  }
+  if (resp.status === 'unauthorized') {
+    container.innerHTML = '<em>Please sign in to Lexora first.</em>';
+    container.classList.add('lx-visible'); return;
+  }
+  if (resp.status === 'unavailable') {
+    container.innerHTML = `<em>${_escHtml(resp.message || 'LLM unavailable.')}</em>`;
+    container.classList.add('lx-visible'); return;
+  }
+  if (resp.status === 'error') {
+    container.innerHTML = `<em>${_escHtml(resp.message || 'Could not look up phrase.')}</em>`;
+    container.classList.add('lx-visible'); return;
+  }
+  const kind = (resp.kind || 'unknown').toLowerCase();
+  const figurative = (resp.figurative_meaning || '').trim();
+  const literal    = (resp.literal_meaning    || '').trim();
+  const example    = (resp.example            || '').trim();
+  const confidence = (resp.confidence || 'low').toLowerCase();
+  const kindLabel  = _YT_SLANG_KIND_LABELS[kind] || _YT_SLANG_KIND_LABELS.unknown;
+
+  if (kind === 'literal') {
+    let html = `<span class="lx-yt-slang-kind">${_escHtml(kindLabel)}</span>`;
+    html += `<div class="lx-yt-slang-figurative">This phrase translates literally — no figurative meaning.</div>`;
+    if (literal) html += `<div class="lx-yt-slang-literal">${_escHtml(literal)}</div>`;
+    container.innerHTML = html;
+    container.classList.add('lx-visible'); return;
+  }
+
+  let html = `<span class="lx-yt-slang-kind">${_escHtml(kindLabel)}</span>`;
+  if (figurative) html += `<div class="lx-yt-slang-figurative">${_escHtml(figurative)}</div>`;
+  if (literal && literal !== figurative) {
+    html += `<div class="lx-yt-slang-literal">Literally: ${_escHtml(literal)}</div>`;
+  }
+  if (example) {
+    html += `<div class="lx-yt-slang-example">"${_escHtml(example)}"</div>`;
+  }
+  if (confidence === 'low') {
+    html += `<em class="lx-yt-slang-uncertain">⚠ AI is uncertain — consider checking a dictionary.</em>`;
+  }
+  if (!figurative && !literal && !example) {
+    html += `<em>Could not classify this phrase.</em>`;
+  }
+  container.innerHTML = html;
+  container.classList.add('lx-visible');
 }
 
 function _getSubtitleLanguage() {
@@ -532,6 +638,7 @@ function _showOverlay(word, wasPaused, timestamp, lang, video, response) {
         <div class="lx-yt-scroll">
           ${bodyHtml}
           ${showActions ? `<div class="lx-yt-grammar-block" id="lx-yt-grammar"></div>` : ''}
+          ${showActions ? `<div class="lx-yt-slang-block"   id="lx-yt-slang"></div>`   : ''}
         </div>
         ${showActions ? `
         <div class="lx-yt-footer">
@@ -540,6 +647,7 @@ function _showOverlay(word, wasPaused, timestamp, lang, video, response) {
             <button class="lx-yt-resume-btn" id="lx-yt-resume">▶ Resume</button>
           </div>
           <button class="lx-yt-explain-btn" id="lx-yt-explain">Explain Grammar</button>
+          <button class="lx-yt-slang-btn"   id="lx-yt-explain-slang">💡 Explain Slang/Idiom</button>
           <div class="lx-yt-status" id="lx-yt-status"></div>
         </div>` : ''}
       </div>
@@ -599,6 +707,41 @@ function _showOverlay(word, wasPaused, timestamp, lang, video, response) {
         explainBtn.disabled = false;
         const scrollEl = overlay.querySelector('.lx-yt-scroll');
         if (scrollEl) scrollEl.scrollTop = scrollEl.scrollHeight;
+      });
+    });
+  }
+
+  // M32 — Explain Slang/Idiom
+  const slangBtn   = overlay.querySelector('#lx-yt-explain-slang');
+  const slangBlock = overlay.querySelector('#lx-yt-slang');
+  if (slangBtn && slangBlock) {
+    slangBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      slangBtn.disabled = true;
+      const originalLabel = slangBtn.textContent;
+      slangBtn.textContent = 'Looking up…';
+      const timer = setTimeout(() => {
+        slangBlock.innerHTML = '<em>LLM timed out — try again.</em>';
+        slangBlock.classList.add('lx-visible');
+        slangBtn.textContent = originalLabel;
+        slangBtn.disabled = false;
+      }, 65000);
+
+      chrome.storage.sync.get('lexora_native_language', (cfg) => {
+        const nativeLang = (cfg && cfg.lexora_native_language) || 'en';
+        _sendMessage({
+          action: 'lexora-explain-slang',
+          phrase: word,
+          source_language: lang,
+          native_language: nativeLang,
+        }, (resp) => {
+          clearTimeout(timer);
+          _renderYtSlangBlock(slangBlock, resp);
+          slangBtn.textContent = originalLabel;
+          slangBtn.disabled = false;
+          const scrollEl = overlay.querySelector('.lx-yt-scroll');
+          if (scrollEl) scrollEl.scrollTop = scrollEl.scrollHeight;
+        });
       });
     });
   }
