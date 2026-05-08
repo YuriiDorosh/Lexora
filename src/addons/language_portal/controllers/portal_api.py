@@ -11,6 +11,7 @@ _logger = logging.getLogger(__name__)
 
 _ALLOWED_LANGUAGES = ('en', 'uk', 'el', 'pl')
 _MAX_WORD_LEN = 1000
+_MAX_WRITER_TEXT = 4000   # M31: cap for /writer_check text body, matches LLM /analyze-writing
 _MAX_CONTEXT_LEN = 2000
 _MAX_URL_LEN = 2048
 _TRANSLATION_SVC = os.environ.get('TRANSLATION_SERVICE_URL', 'http://translation-service:8000').rstrip('/')
@@ -608,6 +609,93 @@ class LexoraApiController(http.Controller):
                 'status': 'unavailable',
                 'explanation': 'LLM service unavailable — please try again shortly.',
             })
+
+    # ------------------------------------------------------------------
+    # POST /lexora_api/writer_check  (M31 — Lexora Writer)
+    # ------------------------------------------------------------------
+    @http.route('/lexora_api/writer_check', type='http', auth='none',
+                methods=['POST'], csrf=False)
+    def writer_check(self, **kw):
+        """Proxy a writing-analysis request to the LLM service.
+
+        Used by the browser extension's floating "L" FAB on every focused
+        <textarea> / [contenteditable]. The user clicks the FAB; the
+        extension sends the field's text here; we forward to the LLM
+        service's POST /analyze-writing and pass the JSON back unchanged.
+
+        Request body (JSON):
+            text      (str, required)  — the field's value, capped at
+                                         _MAX_WRITER_TEXT (4000) chars.
+            language  (str, optional)  — en / uk / el / pl (default 'en').
+            context   (str, optional)  — placeholder / aria-label of the
+                                         input, gives the model genre
+                                         awareness ("email", "tweet", etc).
+
+        Response (LLM payload + injected status):
+            {"status":"ok",
+             "corrections":[{"wrong":"...","correct":"...","note":"..."}],
+             "improved":"..."}
+            {"status":"error",       "message":"text is required", ...}
+            {"status":"unavailable", "message":"LLM service unavailable..."}
+
+        Latency contract: same as M28 explain-grammar / M30 analyze-speech —
+        Qwen2.5-1.5B on the target server runs ~15-30 s for typical
+        comment-length text. The extension shows an "Analysing…" pill.
+        """
+        err = _require_session()
+        if err:
+            return err
+
+        try:
+            raw = request.httprequest.get_data(as_text=True)
+            data = json.loads(raw) if raw else {}
+        except (ValueError, UnicodeDecodeError):
+            data = {}
+        data = {**request.params, **data}
+
+        text = (data.get('text') or '').strip()
+        if not text:
+            return _json_response(
+                {'status': 'error', 'message': 'text is required'}, 400)
+        if len(text) > _MAX_WRITER_TEXT:
+            text = text[:_MAX_WRITER_TEXT]
+
+        language = (data.get('language') or 'en').strip().lower()
+        if language not in _ALLOWED_LANGUAGES:
+            language = 'en'
+
+        # Optional context (field placeholder/aria-label). Cap defensively
+        # so we don't blow up the LLM user-message budget.
+        context = (data.get('context') or '').strip()
+        if context:
+            context = context[:200]
+
+        payload = {'text': text, 'language': language}
+        if context:
+            payload['context'] = context
+
+        try:
+            import requests as _req
+            resp = _req.post(
+                f'{_LLM_SVC}/analyze-writing',
+                json=payload,
+                timeout=60,
+            )
+            resp.raise_for_status()
+            result = json.loads(resp.content.decode('utf-8', errors='replace'))
+        except Exception as exc:
+            _logger.warning('writer_check proxy error: %s', exc)
+            return _json_response({
+                'status': 'unavailable',
+                'message': 'LLM service unavailable — please try again shortly.',
+                'corrections': [],
+                'improved': text,
+            })
+
+        # The LLM endpoint already injects status='ok'; defensive belt-and-braces.
+        if 'status' not in result:
+            result['status'] = 'ok'
+        return _json_response(result)
 
 
 # -------------------------------------------------------------------------

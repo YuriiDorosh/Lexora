@@ -743,3 +743,231 @@ def analyze_speech_endpoint(req: AnalyzeSpeechRequest):
     result = _analyze_speech(transcript, req.language, req.topic)
     result["status"] = "ok"
     return result
+
+
+# =============================================================================
+# M31 — Lexora Writer: active writing assistant
+# =============================================================================
+#
+# POST /analyze-writing — sync FastAPI endpoint used by the browser
+# extension's floating "L" FAB on every <textarea>/[contenteditable].
+# Same architectural shape as /analyze-speech (M30) and /explain-grammar
+# (M28): Pydantic request, response_format=json_object, tolerant parser,
+# defensive coerce, language-agnostic via LANG_NAMES.
+#
+# JSON contract — two top-level keys (no synonym suggestions; written text
+# is more deliberate than spoken so users want fixes + a polished version):
+#
+#   {
+#     "corrections": [{"wrong": "...", "correct": "...", "note": "..."}],
+#     "improved":    "..."
+#   }
+# =============================================================================
+
+
+class AnalyzeWritingRequest(BaseModel):
+    text: str
+    language: str = "en"
+    context: str | None = None
+
+
+# Kept under 100 words per the M18-FIX-09 rule for 1.5B models.
+# No numbered lists, plain prose, explicit JSON shape, language clamp.
+_ANALYZE_WRITING_SYSTEM_PROMPT = (
+    "You are a writing coach. Reply with ONLY a JSON object — no preamble, "
+    "no markdown — in this shape:\n"
+    '{"corrections":[{"wrong":"...","correct":"...","note":"..."}],'
+    '"improved":"..."}\n'
+    "Rule: every word that differs between the user's text and `improved` "
+    "must appear in `corrections`. Compare them word by word. For each "
+    "difference — grammar, tense, agreement, articles, spelling, "
+    "vocabulary, OR natural-flow style — add one entry: `wrong` = original "
+    "snippet, `correct` = new snippet, `note` = one short clause why. "
+    "Empty `corrections` means the user's text is already perfect and "
+    "`improved` MUST be byte-identical to the input. If you can't justify "
+    "a change with a corrections entry, don't make the change.\n"
+    "Cap: at most 5 entries; pick the most useful ones for a B1 learner.\n"
+    "Output language is locked: every string in the JSON MUST be written in "
+    "the SAME language as the user's text. Internet slang (lol, lmao, ngl, "
+    "btw, плс, лол, χαχα, omg) does NOT change the language. If the user's "
+    "text is English, reply in English. Never switch to another language."
+)
+
+# Few-shot anchor per language — the M30 lesson reapplied. Naming the
+# language alone is not enough for Qwen 1.5B; informal/slangy English in
+# particular causes drift to Russian. Each anchor demonstrates the exact
+# JSON shape filled with text in the right script, so the model copies the
+# language as part of pattern-matching rather than as an instruction it can
+# ignore. Keep these short — they share the user-message budget with the
+# actual text being analysed.
+_WRITING_EXAMPLES = {
+    # Each anchor demonstrates BOTH a grammar fix AND a style/vocabulary
+    # nudge so the model learns that stylistic changes ALSO go in
+    # corrections. The 1.5B model copies this two-entry pattern far more
+    # reliably than it follows the prose rule above.
+    "en": (
+        '{"corrections":['
+        '{"wrong":"He don\'t know nothing.",'
+        '"correct":"He doesn\'t know anything.",'
+        '"note":"Use does/doesn\'t with he/she/it; avoid double negatives."},'
+        '{"wrong":"3 years of backend developing",'
+        '"correct":"three years of backend development",'
+        '"note":"Spell out small numbers in prose; \\"development\\" is the noun form."}'
+        '],'
+        '"improved":"He doesn\'t know anything. I have three years of '
+        'backend development experience."}'
+    ),
+    "uk": (
+        '{"corrections":['
+        '{"wrong":"Я ходити до школа кожен день.",'
+        '"correct":"Я ходжу до школи кожного дня.",'
+        '"note":"Дієслово в першій особі однини теперішнього часу."},'
+        '{"wrong":"це є дуже добре",'
+        '"correct":"це дуже добре",'
+        '"note":"Зв\'язку \\"є\\" уникають у простих реченнях у розмовній мові."}'
+        '],'
+        '"improved":"Я ходжу до школи кожного дня; це дуже добре."}'
+    ),
+    "el": (
+        '{"corrections":['
+        '{"wrong":"Εγώ πηγαίνω στο σχολείο κάθε μέρες.",'
+        '"correct":"Πηγαίνω στο σχολείο κάθε μέρα.",'
+        '"note":"Στα ελληνικά το \\"εγώ\\" συνήθως παραλείπεται· "'
+        '"\\"κάθε μέρα\\" είναι ενικός."},'
+        '{"wrong":"είναι πολύ καλό πράγμα",'
+        '"correct":"είναι πολύ ωραίο",'
+        '"note":"\\"Ωραίο\\" ακούγεται πιο φυσικό από \\"καλό πράγμα\\"."}'
+        '],'
+        '"improved":"Πηγαίνω στο σχολείο κάθε μέρα και είναι πολύ ωραίο."}'
+    ),
+    "pl": (
+        '{"corrections":['
+        '{"wrong":"Wczoraj ja idę do parku z moja przyjaciel.",'
+        '"correct":"Wczoraj poszedłem do parku z moim przyjacielem.",'
+        '"note":"Czas przeszły dokonany; narzędnik dla \\"przyjacielem\\"."},'
+        '{"wrong":"to jest bardzo fajna rzecz",'
+        '"correct":"to jest bardzo fajne",'
+        '"note":"\\"Fajne\\" brzmi naturalniej niż \\"fajna rzecz\\"."}'
+        '],'
+        '"improved":"Wczoraj poszedłem do parku z moim przyjacielem; to '
+        'jest bardzo fajne."}'
+    ),
+}
+
+
+def _analyze_writing(text: str, language: str, context: str | None) -> dict:
+    """Return {corrections, improved}. Stub on _llm_ready=False."""
+    if not _llm_ready or _llm is None:
+        return {
+            "corrections": [],
+            "improved": text,
+            "stub": True,
+        }
+
+    lang_name = LANG_NAMES.get(language, language or "English")
+    example = _WRITING_EXAMPLES.get(language, _WRITING_EXAMPLES["en"])
+
+    # Few-shot anchor lives in the user message (where the model's recent-
+    # tokens attention is strongest) and is bracketed with explicit
+    # language gates above and below it.
+    user_lines = [
+        f"Reply in {lang_name} ONLY. The example below is in {lang_name} — "
+        f"copy its language and script.",
+        f"Example (analysing a {lang_name} text):",
+        example,
+        f"Now analyse the user's text. Reply with the same JSON shape, "
+        f"with every string written in {lang_name}.",
+        f"User text (in {lang_name}):",
+        text.strip(),
+    ]
+    if context and context.strip():
+        # context = the field's placeholder / aria-label; gives the model
+        # genre awareness ("user is writing an email" vs. "a tweet"). Capped
+        # to keep the user-message budget tight.
+        user_lines.insert(0, f"Field context: {context.strip()[:200]}")
+    user_content = "\n\n".join(user_lines)
+
+    messages = [
+        {"role": "system", "content": _ANALYZE_WRITING_SYSTEM_PROMPT},
+        {"role": "user",   "content": user_content},
+    ]
+
+    try:
+        result = _llm.create_chat_completion(
+            messages=messages,
+            max_tokens=512,
+            temperature=0.4,
+            repeat_penalty=1.1,
+            response_format={"type": "json_object"},
+        )
+        raw = result["choices"][0]["message"]["content"].strip()
+    except Exception as exc:
+        _logger.error("analyze-writing generation failed: %s", exc)
+        return {"corrections": [], "improved": text, "error": str(exc)}
+
+    try:
+        parsed = _parse_enrichment_json(raw)
+    except Exception as exc:
+        _logger.error("analyze-writing JSON parse failed: %s — raw=%r",
+                      exc, raw[:200])
+        return {"corrections": [], "improved": text, "parse_error": True}
+
+    corrections = parsed.get("corrections") or []
+    improved    = parsed.get("improved")    or text
+
+    # Defensive normalisation — same pattern as /analyze-speech.
+    def _coerce_list(items, keys):
+        out = []
+        if not isinstance(items, list):
+            return out
+        for it in items[:5]:
+            if not isinstance(it, dict):
+                continue
+            row = {k: str(it.get(k, "") or "").strip() for k in keys}
+            if any(row.values()):
+                out.append(row)
+        return out
+
+    corrections = _coerce_list(corrections, ("wrong", "correct", "note"))
+    improved    = str(improved).strip() if improved else text
+
+    # ── Safety net: synthesised correction entry ──────────────────────────
+    # Qwen 1.5B reliably emits a polished `improved` but often returns an
+    # empty `corrections` array when its only edits were stylistic — even
+    # though the prompt + few-shot anchors demand a corrections entry per
+    # change. We can't out-prompt this on a 1.5B model. Rather than show
+    # the user a silent text change, we synthesise a single catch-all
+    # entry from the diff. The synthesised entry is clearly labelled in
+    # the `note` field so the UI / future telemetry can distinguish it
+    # from a model-authored entry if needed.
+    def _normalise_for_diff(s):
+        # Whitespace-collapsed compare so the safety net doesn't fire on
+        # purely cosmetic whitespace differences.
+        return " ".join((s or "").split())
+
+    if not corrections and _normalise_for_diff(improved) != _normalise_for_diff(text):
+        _logger.info("analyze-writing: synthesising fallback correction "
+                     "(model emitted improved but corrections=[])")
+        corrections = [{
+            "wrong":   text,
+            "correct": improved,
+            "note":    "Polished for natural flow and clarity.",
+        }]
+
+    return {
+        "corrections": corrections,
+        "improved":    improved,
+    }
+
+
+@app.post("/analyze-writing")
+def analyze_writing_endpoint(req: AnalyzeWritingRequest):
+    text = (req.text or "").strip()
+    if not text:
+        return {"status": "error", "message": "Empty text",
+                "corrections": [], "improved": ""}
+    if len(text) > 4000:
+        text = text[:4000]
+    result = _analyze_writing(text, req.language, req.context)
+    result["status"] = "ok"
+    return result

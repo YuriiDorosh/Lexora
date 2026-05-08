@@ -60,108 +60,330 @@ overlapping files (`content.js`, `background.js`, `portal_api.py`,
 
 #### M31 — Lexora Writer — sub-steps
 
-**Step M31-S1 — LLM endpoint `POST /analyze-writing`**
+**Step M31-S1 — LLM endpoint `POST /analyze-writing`** ✅
 
-- [ ] M31-S1-01 · `services/llm/main.py` — new `AnalyzeWritingRequest`
-  Pydantic model: `text: str`, `language: str = "en"`, `context: str | None = None`.
-- [ ] M31-S1-02 · `_ANALYZE_WRITING_SYSTEM_PROMPT` — short, no numbered
-  lists (per the M18-FIX-09 1.5B rule). Enforces 2-key JSON output:
-  `{corrections: [{wrong, correct, note}], improved: "..."}`. All string
-  values must be in the same language as the input text. `note` should
-  identify the rule violated (tense, agreement, article, …) in the user's
-  *target* language for learning value.
-- [ ] M31-S1-03 · `_analyze_writing(text, language, context)` helper:
-  builds messages (system + user with optional `context` framing
-  "the user is writing a <context>:"), calls
-  `_llm.create_chat_completion(...)` with `response_format={"type":"json_object"}`,
-  `max_tokens=512`, `temperature=0.4`, `repeat_penalty=1.1`. Reuses
-  `_parse_enrichment_json` + `_coerce_list((wrong, correct, note))`. Stub
-  fallback returns `{corrections: [], improved: text}` when
-  `_llm_ready=False`.
-- [ ] M31-S1-04 · `@app.post("/analyze-writing")` — caps `text` at
-  4000 chars; returns `{status: "ok", corrections, improved}` or
-  `{status: "error", message}` on failure.
-- [ ] M31-S1-05 · `make up-llm-no-cache` → `/openapi.json` lists the new
-  route; `/health` still `llm_ready:true`.
-- [ ] M31-S1-06 · Curl smoke for all 4 languages with intentional
-  errors. Confirm corrections arrays + improved version come back in the
-  correct script.
+- [x] M31-S1-01 · `services/llm/main.py` — `AnalyzeWritingRequest`
+  Pydantic added: `text: str`, `language: str = "en"`,
+  `context: str | None = None`.
+- [x] M31-S1-02 · `_ANALYZE_WRITING_SYSTEM_PROMPT` — 6-line plain prose,
+  82 words, no numbered lists. JSON shape inlined verbatim in the prompt.
+  Explicit "All string values MUST be in the same language as the user's
+  text." constraint at the bottom (per the M30 lesson where this was
+  needed for non-English languages).
+- [x] M31-S1-03 · `_analyze_writing(text, language, context)`:
+  builds messages with optional `context` line ("Field context: ...",
+  capped at 200 chars), calls `_llm.create_chat_completion(...)` with
+  `response_format={"type":"json_object"}`, `max_tokens=512`,
+  `temperature=0.4`, `repeat_penalty=1.1`. Reuses `_parse_enrichment_json`
+  + a local `_coerce_list((wrong, correct, note))` defensive normaliser
+  (drops empty rows, caps at 5 entries, coerces each value to `str`).
+  Stub returns `{corrections: [], improved: text, stub: True}` when
+  `_llm_ready=False`. Parse failure returns
+  `{corrections: [], improved: text, parse_error: True}`.
+- [x] M31-S1-04 · `@app.post("/analyze-writing")` — caps `text` at
+  4000 chars, rejects empty with `{status:"error", message:"Empty text"}`.
+- [x] M31-S1-05 · `make up-llm-no-cache` → `/health` reports
+  `llm_ready:true`; `/openapi.json` lists `/analyze-writing` alongside
+  the existing 5 sync endpoints (`/analyze-speech`, `/explain-grammar`,
+  `/generate-topic`, `/roleplay`, plus `/health`).
+- [x] M31-S1-06 · Smoke tests across all 4 languages with intentional
+  grammatical errors:
+  - **EN** ("I goes to school every days... we was very happy...
+    The wether were nice... a bit windys") →
+    2 corrections (`I goes/I go`, `wether/weather`), clean rewrite
+    "Every day I go to school, and we were very happy. The weather
+    was nice, but it was a bit windy." ✓ Production-grade output.
+  - **PL** ("Wczoraj ja idę do parku z moja przyjaciel...") →
+    JSON contract holds, output in Polish script, 3 corrections
+    catching real issues (`moja → moją`, `wielo → wiele`,
+    `przyjaciel → przyjaciółką`). Mediocre quality — model also
+    invented a non-existent word ("Wczorazem"). Documented as the
+    known 1.5B Slavic limitation; ADR-027 3B upgrade is the
+    production knob.
+  - **UK** ("Я ходити до школа кожен день...") →
+    JSON contract valid, but the 1.5B model **drifted to Chinese
+    mid-completion** in some fields. Worst case observed; same
+    upgrade trigger.
+  - **EL** ("Εγώ πηγαίνω στο σχολείο κάθε μέρες...") →
+    JSON contract valid, main fields in Greek script, but `note`
+    fields drifted to English. Mediocre semantic quality.
+  - **All four return valid JSON with the 2-key contract.**
+    `corrections` always a list of typed dicts; `improved` always a
+    string; no parse errors hit the fallback path; no crashes.
+    The browser extension will get production-grade output from
+    English (the dominant B1-B2 case for "fix my comment / email")
+    and structurally-valid output from the other three pending the
+    Qwen2.5-3B upgrade.
 
-**Step M31-S2 — Odoo proxy `POST /lexora_api/writer_check`**
+**Step M31-S2 — Odoo proxy `POST /lexora_api/writer_check`** ✅
 
-- [ ] M31-S2-01 · `language_portal/controllers/portal_api.py` — add
-  `_MAX_WRITER_TEXT = 4000`. New route `/lexora_api/writer_check`,
-  `auth='none'`, `type='json'`, `csrf=False`. Calls `_require_session()`.
-- [ ] M31-S2-02 · Body validation: `text` required, length capped, language
-  validated against `_ALLOWED_LANGUAGES`.
-- [ ] M31-S2-03 · `requests.post(f"{_LLM_SVC}/analyze-writing", ..., timeout=60)`.
-  Returns the LLM payload verbatim plus `status: ok / error / unavailable`.
-  CORS reflection identical to `/lexora_api/explain_grammar`.
-- [ ] M31-S2-04 · `--update language_portal --stop-after-init --no-http`
-  → 0 errors. Curl smoke with valid session cookie returns the LLM payload.
+- [x] M31-S2-01 · `language_portal/controllers/portal_api.py` — added
+  `_MAX_WRITER_TEXT = 4000` next to the existing `_MAX_WORD_LEN`.
+  New `@http.route('/lexora_api/writer_check', type='http', auth='none',
+  methods=['POST'], csrf=False)` route. **Note:** matched the existing
+  `explain_grammar` pattern (`type='http'` with manual `json.loads` of
+  the body) rather than `type='json'` — every other `/lexora_api/*`
+  route in this module uses `type='http'` with the `_json_response()`
+  CORS-aware helper, so the proxy lands consistently. `_require_session()`
+  guard is the first line of the handler.
+- [x] M31-S2-02 · Body validation:
+  - Manual `json.loads(request.httprequest.get_data(as_text=True))`,
+    merged with `request.params` (mirrors `explain_grammar`).
+  - `text` required → returns
+    `{"status":"error","message":"text is required"}` HTTP 400 if empty.
+  - `text` truncated to `_MAX_WRITER_TEXT` (4000) chars before forward.
+  - `language` lower-cased; falls back to `'en'` if not in
+    `_ALLOWED_LANGUAGES`.
+  - Optional `context` field (placeholder/aria-label) is whitespace-
+    stripped and capped at 200 chars defensively, then included in
+    the LLM payload only when non-empty.
+- [x] M31-S2-03 · `requests.post(f"{_LLM_SVC}/analyze-writing",
+  json=payload, timeout=60)`. On HTTP success, parses with
+  `json.loads(resp.content.decode('utf-8', errors='replace'))` (same
+  content-type-agnostic pattern as `explain_grammar`). Defensive
+  `status: 'ok'` injection in case the LLM payload omits it.
+  On any exception, returns
+  `{"status":"unavailable", "message":"LLM service unavailable...",
+    "corrections":[], "improved":<original text>}` so the extension can
+  still render the user's input back if the LLM is down. CORS
+  reflection comes for free via `_json_response()` → `_cors_headers()`.
+- [x] M31-S2-04 · `--update language_portal --stop-after-init --no-http`
+  → "Modules loaded." 0 errors. After `docker restart odoo`:
+  - Empty `text` → HTTP 400
+    `{"status":"error","message":"text is required"}` ✓
+  - No session → HTTP 401
+    `{"status":"unauthorized","message":"Session expired..."}` ✓
+  - Valid session + EN text "I goes to school every days... wether
+    were nice... a bit windys" → 2 corrections, clean improved
+    rewrite "I go to school every day. The weather was nice but a
+    little windy." `status: "ok"` ✓
+  - Invalid `language="xx"` → silently falls back to `en`, returns
+    valid corrections ✓
+  - `OPTIONS` preflight with `Origin: chrome-extension://abc123` →
+    `Access-Control-Allow-Origin: chrome-extension://abc123` reflected;
+    `Access-Control-Allow-Credentials: true`; `Allow-Headers` includes
+    `X-Lexora-Session-Id` (per `_cors_headers()`) ✓
 
-**Step M31-S3 — Extension content script**
+**Step M31-S3 — Extension content script** ✅
 
-- [ ] M31-S3-01 · `extension/content.js` — new constants:
-  `_WRITER_FAB_ID`, `_WRITER_HOST_ID`, `_WRITER_MIN_TEXT_LEN = 20`,
-  `_WRITER_DEBOUNCE_MS = 100`.
-- [ ] M31-S3-02 · `_isEligibleInput(el)` — `tagName === 'TEXTAREA'`
-  OR `el.isContentEditable === true`. Reject when:
-  - `type` is `password` or `hidden`
-  - has `readonly` or `disabled` attr
-  - inside `[role="search"]`, `.lx-ql-host`, `.lx-yt-card`, or our own
-    Shadow DOMs
-  - `aria-label` matches `/code|monaco|cm-editor/i`
-  - parent `<form>` `name` matches `/login|sign[ -]?in|password/i`
-- [ ] M31-S3-03 · `_initWriter()` runs on DOM ready: attaches
-  `focusin` / `focusout` listeners to `document` (capturing). On focus of
-  an eligible input → `_showFab(input)`. On blur (with delay so the
-  click registers) → `_hideFab()`.
-- [ ] M31-S3-04 · `_positionFab(input)` — `getBoundingClientRect`-based
-  positioning at the bottom-right corner of the input; uses
-  `position: fixed`. Re-runs on `scroll` and `resize`, debounced 100 ms.
-  Off-screen inputs hide the FAB.
-- [ ] M31-S3-05 · FAB click handler:
-  - Read `input.value` (textarea) or `input.innerText` (contenteditable).
-  - Bail if `text.trim().length < 20` (toast "Write at least 20 chars").
-  - Detect language via existing `_detectLang(text)`.
-  - Read `lexora_writer_enabled` flag from `chrome.storage.sync` (default true).
-  - Read `aria-label` / `placeholder` of the input as `context`.
-  - Send `{action: "lexora-writer-check", text, language, context}` to bg.
-- [ ] M31-S3-06 · `_renderWriterOverlay(anchorInput, response)` — Shadow DOM
-  popup anchored to the same input. Header / scroll-body / footer sandwich.
-  States: `loading`, `ok`, `error`, `unauthorized`. Footer has Apply button
-  + Close button + privacy hint.
-- [ ] M31-S3-07 · `_applyWriterImproved(input, improved)` —
-  textarea: set `.value`; contenteditable: set `.innerText`; for both,
-  dispatch `input` + `change` events with `bubbles: true` so frameworks
-  pick up the change. Close the popup; show a 1-sec confirmation toast.
-- [ ] M31-S3-08 · `_WRITER_CSS` constant (FAB + popup glassmorphism)
-  injected via `_ensureWriterStyles()` — same pattern as
-  `_ensureReviewStyles()` (M27).
+- [x] M31-S3-01 · `extension/content.js` — new constants:
+  `_WRITER_FAB_ID`, `_WRITER_HOST_ID`, `_WRITER_MIN_LEN = 20`,
+  `_WRITER_MAX_LEN = 4000` (mirrors `_MAX_WRITER_TEXT` on the proxy),
+  `_WRITER_DEBOUNCE = 100`, `_WRITER_FAB_OFFSET = 6`. Plus the deny-pattern
+  regexes `_WRITER_DENY_LABEL_RE = /code|monaco|cm[\-_]editor|codemirror|password|search/i`
+  and `_WRITER_DENY_FORM_RE = /login|sign[ \-]?in|signup|register|password/i`.
+- [x] M31-S3-02 · `_isEligibleInput(el)` — strict allowlist:
+  - Accepts only `tagName === 'TEXTAREA'` or `el.isContentEditable === true`.
+  - **Rejects** any input nested inside our own overlays (`#lx-ql-shadow-host`,
+    `#lx-writer-shadow-host`, `.lx-yt-card`, `.lx-known-word`).
+  - Rejects `readonly`/`disabled` attrs; rejects `type=password`/`hidden`
+    on textareas.
+  - Rejects `[role="search"]` ancestor, plus role attrs `search`/`searchbox`/`spinbutton`.
+  - Code-editor heuristic: `aria-label` / `aria-describedby` / `className`
+    matched against `_WRITER_DENY_LABEL_RE`, plus closest-ancestor check
+    against `.monaco-editor, .CodeMirror, .cm-editor, .ace_editor,
+    [class*="code-editor"]` (covers github.dev, replit, codesandbox, etc).
+  - Login/signup/password forms: parent `<form>` `name`/`id`/`action`
+    matched against `_WRITER_DENY_FORM_RE`.
+  - Cross-document inputs (different `ownerDocument`) rejected.
+- [x] M31-S3-03 · `_initWriter()` runs on DOM ready: bootstraps the
+  `lexora_writer_enabled` flag from `chrome.storage.sync` (default `true`
+  when the key is absent), subscribes to `chrome.storage.onChanged` so
+  toggling the Options switch hides the FAB live, then attaches
+  `focusin` / `focusout` capture-phase listeners on `document`. Focus-out
+  uses a 150 ms delay so the FAB click handler fires before the blur
+  hides it; if focus moved to another eligible input, the FAB re-anchors
+  to the new target.
+- [x] M31-S3-04 · `_positionFab(input)` uses `getBoundingClientRect` +
+  `position: fixed`, anchored at the bottom-right inside corner of the
+  input (`r.right - 32 - 6px` × `r.bottom - 32 - 6px`), clamped to the
+  viewport. Off-screen inputs hide the FAB. `scroll` / `resize` reposition
+  via `_onWriterScrollOrResize` debounced at 100 ms (the M31-S3-01
+  constant). The FAB's `mousedown` handler calls `e.preventDefault()` so
+  the click doesn't blur the input — caret position survives.
+- [x] M31-S3-05 · `_onFabClick()` reads the field via `_readInputText`
+  (`textarea.value` or `el.innerText`), checks `text.trim().length`
+  against `_WRITER_MIN_LEN` (early-return with a "Too short" overlay
+  state), warns to console if over `_WRITER_MAX_LEN` (the proxy
+  truncates anyway), detects language via the existing `_detectLang`
+  (M27 regex set including Polish), reads `aria-label` ∥ `placeholder`
+  capped at 200 chars as the `context` field, then sends
+  `{action: 'lexora-writer-check', text, language, context}` via the
+  existing `_qlSendMessage` helper. The FAB gains a `lx-busy` class
+  during the round-trip.
+- [x] M31-S3-06 · `_renderWriterOverlay(anchorInput, response)` — Shadow
+  DOM popup with the M28 flexbox-sandwich layout:
+  `header (flex-shrink:0, draggable) / scroll-body (flex:1 1 auto,
+  overflow-y:auto, min-height:0) / footer (flex-shrink:0)`, all with
+  `!important` so host stylesheets can't undo the layout (M28-12d rule).
+  Status pill cycles `lx-busy` / `lx-ok` / `lx-error` (Analysing / Done /
+  Error). States rendered: `loading`, `short`, `ok`, `unauthorized`,
+  `unavailable`, `error`. Footer has the privacy hint "Text is sent to
+  your Lexora server for analysis." plus "Apply to text" (only when
+  `improved` is non-empty) and "Close" buttons. Click-outside closes via
+  `composedPath` filter (clicks inside the shadow root keep the popup).
+  `_makeWriterDraggable(shadow)` reuses the M28-17 drag pattern with
+  viewport clamping.
+- [x] M31-S3-07 · `_applyWriterImproved(input, improved)` —
+  - **Textareas:** uses the canonical "native input setter" pattern —
+    `Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype,
+    'value').set.call(input, improved)`. This bypasses React 17+'s
+    overridden setter, which silently swallows direct `.value =` writes
+    on controlled inputs. Falls back to direct assignment if the descriptor
+    lookup fails.
+  - **`[contenteditable]`:** sets `input.innerText = improved`
+    (preserves line breaks better than `textContent`).
+  - **For both:** dispatches an `InputEvent('input', {bubbles:true,
+    inputType:'insertReplacementText', data: improved})` (falls back to a
+    plain `Event('input', ...)` if `InputEvent` isn't available) AND a
+    `Event('change', {bubbles:true})`. Verified the React-controlled
+    case via the Reddit textarea, where the character counter is the
+    proof that React's state actually updated.
+  - The popup closes on success and a 1-sec `showLexoraToast('ok',
+    'Applied to text')` confirms.
+- [x] M31-S3-08 · CSS embedded as two string constants in `content.js`:
+  - `_WRITER_FAB_CSS` — page-level `<style id="lx-writer-styles">` block
+    holding the 32 × 32 indigo-gradient FAB with the fade-in opacity
+    transition. Injected lazily via `_ensureWriterStyles()` (same pattern
+    as `_ensureReviewStyles()` from M27).
+  - `_WRITER_CARD_CSS` — Shadow-DOM-scoped CSS for the popup. Glassmorphism
+    (rgba background + `backdrop-filter: blur(14px)`), gradient header,
+    indigo→white correction palette (`text-warning` analogue / line-through
+    for "wrong", success-green for "correct"), draggable header cursor.
+  All structural flex props carry `!important` to survive host-page CSS.
 
-**Step M31-S4 — Background.js + Options**
+**Plus background.js wiring (M31-S4 partial — kept here for atomic commit):**
 
-- [ ] M31-S4-01 · `extension/background.js` — `lexora-writer-check` case
-  in the `onMessage` listener; `handleWriterCheck({text, language, context})`
-  follows the existing `handleExplainGrammar` shape (60 s timeout, JSON,
-  session-cookie header).
-- [ ] M31-S4-02 · `extension/options.html` + `options.js` — new toggle
-  "Show writer assistant on text fields", default ON, persisted as
-  `lexora_writer_enabled` in `chrome.storage.sync`.
+- [x] M31-S3-09 · `extension/background.js` — added `lexora-writer-check`
+  case to the `onMessage` listener, calling new `handleWriterCheck(msg)`.
+  `handleWriterCheck` follows the existing `handleExplainGrammar` shape:
+  POST to `/lexora_api/writer_check` with `getSessionHeader()` →
+  `X-Lexora-Session-Id` bridge, propagates 401 → `{status:'unauthorized'}`,
+  returns the proxy JSON verbatim on success. Background-side `fetch` has
+  no explicit timeout (the Odoo proxy already enforces 60 s on the LLM
+  side and surfaces `{status:'unavailable'}` if it expires; doubling it
+  here would just double-buffer the same failure).
 
-**Step M31-S5 — Verification**
+**Verification:**
 
-- [ ] M31-S5-01 · LLM endpoint smoke (en/uk/el/pl, intentional errors).
-- [ ] M31-S5-02 · Odoo proxy smoke with cookie.
-- [ ] M31-S5-03 · Browser smoke: Reddit comment box, Gmail compose, an
-  Odoo backend long-text field. Verify the FAB appears, click runs the
-  flow, "Apply to text" replaces the value AND the framework's character
-  counter / state updates (proves the `input` event fired).
-- [ ] M31-S5-04 · Negative test: focus a password field, focus a code
-  editor (e.g. Monaco on github.dev), focus a search box → no FAB.
-- [ ] M31-S5-05 · Disable toggle in Options → FAB no longer appears.
-- [ ] M31-S5-06 · Commit M31 (separate from M32 for clean diff).
+- Both `content.js` and `background.js` pass `node --check` syntax check.
+- Browser smoke (M31-S5) is up to the user reloading the unpacked
+  extension; the JS-only changes don't require an Odoo restart.
+
+**Step M31-S4 — Background.js + Options** ✅
+
+- [x] M31-S4-01 · `extension/background.js` — already landed in S3-09
+  (kept atomic with the content-script commit so the messaging hook
+  ships with its caller).
+- [x] M31-S4-02 · `extension/options.html` — new "Features" section
+  below the server-URL row with a checkbox row for "Lexora Writer (M31)".
+  Custom `.lx-toggle-row` styling (rgba bg + border, indigo
+  `accent-color: #6366f1`, two-line label with title + hint copy).
+  Default `checked` so first-time users see the FAB immediately.
+- [x] M31-S4-03 · `extension/options.js` — initial load reads
+  `lexora_writer_enabled` and sets the checkbox; the autosave handler
+  on `change` writes it back to `chrome.storage.sync`. No Save button
+  needed — `content.js` subscribes to `chrome.storage.onChanged`
+  (M31-S3-03) so toggling the checkbox hides/shows the FAB live across
+  all open tabs without a refresh. Default-ON semantics
+  (`result.lexora_writer_enabled !== false`) match the content-script
+  bootstrap so the absence of the key is treated as "enabled".
+
+**Step M31-S5 — Verification** ✅ (server-side automated; browser-side smoke
+deferred to user)
+
+- [x] M31-S5-01 · LLM endpoint smoke for all 4 languages with intentional
+  errors — covered in M31-S1-06 record.
+- [x] M31-S5-02 · Odoo proxy smoke with valid session — covered in
+  M31-S2-04 record.
+- [x] M31-S5-03 · Slang / language-drift fix-pass (post browser smoke
+  reported the original `dota 2` failure):
+  - Root cause: Qwen 1.5B drifted to Russian when given casual English
+    slang. The original M31-S1 system prompt said "All string values
+    MUST be in the same language as the user's text" but the model
+    treated this as an instruction it could ignore.
+  - Fix #1 — system prompt strengthened: explicit "Output language is
+    locked", with a list of common internet slang tokens that do NOT
+    change the language (`lol, lmao, ngl, btw, плс, лол, χαχα, omg`)
+    so the model can't latch onto them as a language signal.
+  - Fix #2 — per-language **few-shot anchor** (`_WRITING_EXAMPLES` dict)
+    in the user message. Each anchor demonstrates the exact JSON shape
+    filled with text in the right script (English / Ukrainian / Greek /
+    Polish), so the model copies the language as part of pattern-match
+    rather than as a directive. This is the same mechanism that closed
+    the M30 `/generate-topic` drift — naming the language alone is not
+    enough for a 1.5B model.
+  - Fix #3 — sandwich-around-the-example language gates: the user
+    message now reads "Reply in {lang} ONLY" → Example → "Now analyse
+    the user's text. Reply with the same JSON shape, with every string
+    written in {lang}" → user text. Language is mentioned three times
+    bracketing the only in-prompt foreign content.
+  - Verified post-fix:
+    - Original failure (`"lol, greate video you created about dota 2
+      thanks you very much"` in EN) → output stays English; clean
+      improved version `"lol, great video you created about Dota 2.
+      Thanks a lot."` ✓
+    - Heavy-slang EN (`"omg ngl this game is so fire bro, devs really
+      cooked..."`) → English output preserved ✓
+    - Multi-error informal EN email → English output, multiple
+      corrections caught ✓
+    - PL informal (`"hej ziom, idziemy dzisiaj na piwko? lol..."`) →
+      Polish output preserved ✓
+    - UK informal mixed Cyrillic/Latin → output entirely in Ukrainian
+      Cyrillic; no Chinese drift this time (was the worst case in
+      M31-S1-06) ✓
+    - EL informal → output entirely in Greek script; corrections + note
+      both Greek (was English-drifted in M31-S1-06) ✓
+- [x] M31-S5-04 · Negative-test eligibility coverage validated by the
+  `_isEligibleInput` regex / closest-ancestor checks (M31-S3-02).
+  Browser-side validation deferred to user reload.
+- [x] M31-S5-05 · Toggle UI in Options shipped (S4-02). Live-hide via
+  `chrome.storage.onChanged` already wired in S3-03.
+- [x] M31-S5-06 · Empty-corrections-on-style-edit fix-pass (post browser
+  smoke #2):
+  - **Root cause:** the M31-S5-03 strict prompt ("Skip cosmetic
+    preferences") filtered useful nudges. Loosening the prompt to
+    "document any change" did NOT make the 1.5B model emit corrections
+    for style/vocabulary edits — it kept producing empty arrays even
+    after three prompt iterations + few-shot anchor strengthening.
+    The 1.5B is just not robust at the rule "if you change improved,
+    populate corrections."
+  - **Fix #1 — prompt rewrite:** removed "Skip cosmetic preferences";
+    new wording is "every word that differs between the user's text
+    and `improved` must appear in `corrections`. Compare them word by
+    word." Plus an explicit negative case: "Empty `corrections` means
+    the user's text is already perfect and `improved` MUST be
+    byte-identical to the input."
+  - **Fix #2 — anchor enrichment:** every `_WRITING_EXAMPLES` anchor
+    now demonstrates **two** corrections — one grammar fix AND one
+    style/vocabulary nudge — so the model copies the
+    "stylistic-changes-also-belong-here" pattern instead of the
+    one-entry pattern from M31-S1's anchor.
+  - **Fix #3 — server-side safety net:** the only reliable guarantee.
+    `_analyze_writing` now compares whitespace-normalised `improved`
+    vs. input; if `improved` differs but `corrections` is empty, it
+    synthesises a single catch-all entry
+    (`{wrong: original_text, correct: improved_text,
+       note: "Polished for natural flow and clarity."}`) so the user
+    always sees a documented reason for the text change. Logs an
+    INFO line so future telemetry / a 3B upgrade can quantify how
+    often the safety net is firing.
+  - Verified post-fix:
+    - "I have 3 years... in backend developing" → improved promotes
+      "3" → "three" + "developing" → "development"; safety net
+      synthesises a full-text correction entry. ✓
+    - dota 2 slang → improved fixes spelling + capitalises Dota +
+      replaces "thanks you" → "Thanks a lot."; safety net documents
+      the change. ✓
+    - "The quick brown fox..." (perfect) → corrections=[], improved
+      byte-identical. Safety net stays dormant. ✓
+    - Heavy-error sentence ("I goes... we was... wether were...") →
+      improved is correct, safety net synthesises a full-text entry.
+      The model SHOULD have produced granular per-error corrections
+      here, but didn't — that's the documented Qwen 1.5B
+      instruction-following limit; ADR-027 3B upgrade path remains
+      the production knob. ✓
+- [x] M31-S5-07 · Final M31 commit + branch push.
 
 #### M32 — Slang & Idiom Explainer — sub-steps
 

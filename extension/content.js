@@ -1043,3 +1043,598 @@ if (document.readyState === 'loading') {
 } else {
   _initHighlighter();
 }
+
+// ===========================================================================
+// M31 — Lexora Writer: active writing assistant (FAB + popup)
+// ===========================================================================
+// Detects focused <textarea> / [contenteditable] elements, injects a small
+// floating "L" FAB beside them, and on click runs the field's text through
+// /lexora_api/writer_check → LLM /analyze-writing. The result is rendered in
+// a Shadow-DOM popup with an "Apply to text" button that writes the improved
+// version back into the input and dispatches input/change events so React,
+// Vue, and other SPA frameworks pick up the change.
+// ===========================================================================
+
+const _WRITER_FAB_ID    = 'lx-writer-fab';
+const _WRITER_HOST_ID   = 'lx-writer-shadow-host';
+const _WRITER_MIN_LEN   = 20;
+const _WRITER_MAX_LEN   = 4000;     // matches _MAX_WRITER_TEXT on the proxy
+const _WRITER_DEBOUNCE  = 100;      // ms — scroll/resize reposition cadence
+const _WRITER_FAB_OFFSET = 6;       // px — gap between input edge and FAB
+
+// Eligibility — denylists for the various "this isn't writing" cases.
+const _WRITER_DENY_LABEL_RE = /code|monaco|cm[\-_]editor|codemirror|password|search/i;
+const _WRITER_DENY_FORM_RE  = /login|sign[ \-]?in|signup|register|password/i;
+
+let _writerEnabled       = true;    // refreshed from chrome.storage.sync
+let _writerCurrentInput  = null;
+let _writerScrollTimer   = null;
+
+// ── CSS (Shadow-DOM popup + page-level FAB) ────────────────────────────────
+
+const _WRITER_FAB_CSS = `
+  #${_WRITER_FAB_ID} {
+    position: fixed; z-index: 2147483600;
+    width: 32px; height: 32px;
+    border-radius: 50%; border: none; cursor: pointer;
+    background: linear-gradient(135deg, #6366f1, #4f46e5);
+    color: #ffffff; font: 700 16px/32px 'Inter', system-ui, sans-serif;
+    text-align: center; padding: 0;
+    box-shadow: 0 6px 18px rgba(79, 70, 229, 0.35),
+                0 0 0 2px rgba(255, 255, 255, 0.85);
+    transition: transform 120ms ease, box-shadow 120ms ease, opacity 120ms ease;
+    opacity: 0; pointer-events: none;
+  }
+  #${_WRITER_FAB_ID}.lx-visible { opacity: 1; pointer-events: auto; }
+  #${_WRITER_FAB_ID}:hover {
+    transform: scale(1.08);
+    box-shadow: 0 8px 22px rgba(79, 70, 229, 0.5),
+                0 0 0 2px rgba(255, 255, 255, 0.95);
+  }
+  #${_WRITER_FAB_ID}.lx-busy { opacity: 0.7; cursor: wait; }
+  #${_WRITER_FAB_ID}.lx-busy:hover { transform: none; }
+`;
+
+// Glassmorphism card (Shadow-DOM scope — no global leakage). Mirrors the M28
+// flexbox-sandwich pattern with !important flex props so host stylesheets
+// can't override the layout (M28-12d).
+const _WRITER_CARD_CSS = `
+  :host { all: initial; }
+  * { box-sizing: border-box; font-family: 'Inter', system-ui, -apple-system, sans-serif; }
+  .lx-writer-card {
+    position: absolute;
+    width: 380px; max-width: calc(100vw - 24px);
+    max-height: 70vh !important;
+    display: flex !important;
+    flex-direction: column !important;
+    overflow: hidden !important;
+    border-radius: 16px;
+    background: rgba(15, 23, 42, 0.92);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    border: 1px solid rgba(99, 102, 241, 0.4);
+    box-shadow: 0 22px 60px rgba(0, 0, 0, 0.45);
+    color: #e2e8f0;
+    animation: lx-fade-in 160ms ease-out;
+  }
+  @keyframes lx-fade-in {
+    from { opacity: 0; transform: translateY(6px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  .lx-writer-header {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 8px;
+    padding: 12px 16px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    cursor: move; user-select: none;
+    flex-shrink: 0 !important;
+    background: linear-gradient(180deg, rgba(99, 102, 241, 0.18), transparent);
+  }
+  .lx-writer-title { font-size: 14px; font-weight: 700; color: #ffffff; }
+  .lx-writer-status {
+    font-size: 11px; font-weight: 600; padding: 3px 8px; border-radius: 999px;
+    background: rgba(99, 102, 241, 0.25); color: #c7d2fe;
+    text-transform: uppercase; letter-spacing: 0.4px;
+  }
+  .lx-writer-status.lx-ok      { background: rgba(34, 197, 94, 0.25);  color: #bbf7d0; }
+  .lx-writer-status.lx-error   { background: rgba(239, 68, 68, 0.25);  color: #fecaca; }
+  .lx-writer-status.lx-busy    { background: rgba(245, 158, 11, 0.25); color: #fde68a; }
+  .lx-writer-scroll {
+    flex: 1 1 auto !important;
+    min-height: 0 !important;
+    overflow-y: auto !important;
+    padding: 12px 16px;
+  }
+  .lx-writer-scroll::-webkit-scrollbar { width: 6px; }
+  .lx-writer-scroll::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.18); border-radius: 4px; }
+  .lx-writer-section-title {
+    font-size: 11px; text-transform: uppercase; letter-spacing: 0.6px;
+    color: #94a3b8; font-weight: 700; margin-bottom: 6px;
+  }
+  .lx-writer-improved {
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 10px; padding: 10px 12px;
+    font-size: 14px; line-height: 1.5; color: #f1f5f9;
+    margin-bottom: 14px; white-space: pre-wrap;
+  }
+  .lx-writer-corrections { list-style: none; margin: 0; padding: 0; }
+  .lx-writer-correction {
+    margin-bottom: 10px; padding-bottom: 10px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  }
+  .lx-writer-correction:last-child { border-bottom: none; }
+  .lx-writer-fix {
+    font-size: 13px; line-height: 1.5; color: #e2e8f0;
+  }
+  .lx-writer-wrong   { color: #fca5a5; text-decoration: line-through; }
+  .lx-writer-correct { color: #86efac; font-weight: 600; }
+  .lx-writer-arrow   { color: #94a3b8; margin: 0 6px; }
+  .lx-writer-note {
+    font-size: 11px; color: #94a3b8; margin-top: 4px; line-height: 1.45;
+  }
+  .lx-writer-empty {
+    padding: 8px 0;
+    font-size: 13px; color: #94a3b8; text-align: center;
+  }
+  .lx-writer-footer {
+    display: flex !important; align-items: center; gap: 8px;
+    padding: 10px 16px;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    flex-shrink: 0 !important;
+  }
+  .lx-writer-privacy {
+    flex: 1 1 auto;
+    font-size: 10px; color: #64748b; line-height: 1.3;
+  }
+  .lx-writer-btn {
+    border: none; cursor: pointer; padding: 8px 14px; border-radius: 8px;
+    font-size: 12px; font-weight: 600;
+    transition: transform 100ms ease, opacity 100ms ease;
+  }
+  .lx-writer-btn:active { transform: scale(0.97); }
+  .lx-writer-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .lx-writer-btn-primary {
+    background: linear-gradient(135deg, #6366f1, #4f46e5); color: #ffffff;
+  }
+  .lx-writer-btn-secondary {
+    background: rgba(255, 255, 255, 0.08); color: #cbd5e1;
+  }
+`;
+
+function _ensureWriterStyles() {
+  if (document.getElementById('lx-writer-styles')) return;
+  const style = document.createElement('style');
+  style.id = 'lx-writer-styles';
+  style.textContent = _WRITER_FAB_CSS;
+  (document.head || document.documentElement).appendChild(style);
+}
+
+// ── Eligibility filter ─────────────────────────────────────────────────────
+// STRICT — passwords, search, code editors, login forms, and our own Shadow
+// DOMs all silently rejected so the FAB never becomes a nuisance.
+
+function _isEligibleInput(el) {
+  if (!el || !el.tagName) return false;
+
+  // Never inject into our own overlays (Quick Look card, YouTube subtitle
+  // overlay, the writer card itself).
+  if (el.closest && (
+        el.closest(`#${_QL_HOST_ID}`) ||
+        el.closest(`#${_WRITER_HOST_ID}`) ||
+        el.closest('.lx-yt-card') ||
+        el.closest('.lx-known-word')
+  )) return false;
+
+  const tag = el.tagName;
+  const isTextarea = tag === 'TEXTAREA';
+  const isCE = el.isContentEditable === true;
+  if (!isTextarea && !isCE) return false;
+
+  // Text-input textareas only — readonly/disabled rejected.
+  if (el.hasAttribute('readonly') || el.hasAttribute('disabled')) return false;
+  if (isTextarea && (el.type === 'password' || el.type === 'hidden')) return false;
+
+  // Search bars and ARIA roles that indicate non-writing surfaces.
+  if (el.closest('[role="search"]')) return false;
+  const role = (el.getAttribute('role') || '').toLowerCase();
+  if (role === 'search' || role === 'searchbox' || role === 'spinbutton') return false;
+
+  // Code editors — Monaco, CodeMirror, ACE, github.dev, replit, codesandbox.
+  const aria = (el.getAttribute('aria-label') || '') + ' ' + (el.getAttribute('aria-describedby') || '');
+  if (_WRITER_DENY_LABEL_RE.test(aria)) return false;
+  if (_WRITER_DENY_LABEL_RE.test((el.className || '').toString())) return false;
+
+  // Code editors typically wrap their textarea in an ancestor with these
+  // class hints.
+  const codeAncestor = el.closest('.monaco-editor, .CodeMirror, .cm-editor, .ace_editor, [class*="code-editor"]');
+  if (codeAncestor) return false;
+
+  // Login / signup / password forms — name attr or id pattern on the form.
+  const form = el.form || el.closest('form');
+  if (form) {
+    const formName = (form.getAttribute('name') || '') + ' ' +
+                     (form.id || '') + ' ' +
+                     (form.getAttribute('action') || '');
+    if (_WRITER_DENY_FORM_RE.test(formName)) return false;
+  }
+
+  // Inputs nested inside non-page contexts (e.g. extension popups, iframes
+  // we cannot reach).
+  if (el.ownerDocument !== document) return false;
+
+  return true;
+}
+
+// ── FAB ────────────────────────────────────────────────────────────────────
+
+function _ensureFab() {
+  let fab = document.getElementById(_WRITER_FAB_ID);
+  if (fab) return fab;
+  _ensureWriterStyles();
+  fab = document.createElement('button');
+  fab.id = _WRITER_FAB_ID;
+  fab.type = 'button';
+  fab.title = 'Lexora — fix grammar & polish writing';
+  fab.textContent = 'L';
+  fab.setAttribute('aria-label', 'Lexora writing assistant');
+  fab.addEventListener('mousedown', (e) => {
+    // Prevent the input from losing focus on FAB click (Chrome behaviour
+    // varies — preventDefault on mousedown keeps the input focused so the
+    // selection / caret position survives the click).
+    e.preventDefault();
+  });
+  fab.addEventListener('click', _onFabClick);
+  document.body.appendChild(fab);
+  return fab;
+}
+
+function _positionFab(input) {
+  const fab = _ensureFab();
+  const r = input.getBoundingClientRect();
+  // Off-screen → hide.
+  if (r.bottom < 0 || r.top > window.innerHeight ||
+      r.right < 0 || r.left > window.innerWidth) {
+    fab.classList.remove('lx-visible');
+    return;
+  }
+  const left = Math.max(8, Math.min(window.innerWidth - 40, r.right - 32 - _WRITER_FAB_OFFSET));
+  const top  = Math.max(8, Math.min(window.innerHeight - 40, r.bottom - 32 - _WRITER_FAB_OFFSET));
+  fab.style.left = `${left}px`;
+  fab.style.top  = `${top}px`;
+  fab.classList.add('lx-visible');
+}
+
+function _showFab(input) {
+  _writerCurrentInput = input;
+  _positionFab(input);
+}
+
+function _hideFab() {
+  const fab = document.getElementById(_WRITER_FAB_ID);
+  if (fab) fab.classList.remove('lx-visible');
+  _writerCurrentInput = null;
+}
+
+// ── Read / write input value ───────────────────────────────────────────────
+
+function _readInputText(input) {
+  if (!input) return '';
+  if (input.tagName === 'TEXTAREA') return input.value || '';
+  if (input.isContentEditable) return input.innerText || '';
+  return '';
+}
+
+// Apply the improved text back to the input. For textareas in React-managed
+// pages, setting .value directly bypasses React's setter — using the native
+// HTMLTextAreaElement prototype setter and dispatching an input event is the
+// canonical workaround. For contenteditable, mutating innerText + dispatching
+// input/change is sufficient for Vue/Svelte/etc.
+function _applyWriterImproved(input, improved) {
+  if (!input || !improved) return;
+  const isTextarea = input.tagName === 'TEXTAREA';
+  if (isTextarea) {
+    try {
+      const nativeSetter = Object.getOwnPropertyDescriptor(
+        window.HTMLTextAreaElement.prototype, 'value'
+      )?.set;
+      if (nativeSetter) {
+        nativeSetter.call(input, improved);
+      } else {
+        input.value = improved;
+      }
+    } catch {
+      input.value = improved;
+    }
+  } else if (input.isContentEditable) {
+    input.innerText = improved;
+  } else {
+    return;
+  }
+
+  // Both events with bubbles:true so React/Vue/Svelte/Solid all notice the
+  // change. React 17+ uses native InputEvent; older pages rely on `change`.
+  try {
+    input.dispatchEvent(new InputEvent('input', { bubbles: true, data: improved, inputType: 'insertReplacementText' }));
+  } catch {
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+  input.dispatchEvent(new Event('change', { bubbles: true }));
+}
+
+// ── FAB click → analysis flow ──────────────────────────────────────────────
+
+function _onFabClick() {
+  const input = _writerCurrentInput;
+  if (!input) return;
+
+  const fab = document.getElementById(_WRITER_FAB_ID);
+  const text = _readInputText(input).trim();
+
+  if (text.length < _WRITER_MIN_LEN) {
+    _renderWriterOverlay(input, {
+      status: 'short',
+      message: `Write at least ${_WRITER_MIN_LEN} characters first — currently ${text.length}.`,
+    });
+    return;
+  }
+  if (text.length > _WRITER_MAX_LEN) {
+    // Soft cap — let the proxy truncate; just warn.
+    console.warn('[Lexora Writer] text > 4000 chars — proxy will truncate.');
+  }
+
+  fab.classList.add('lx-busy');
+  _renderWriterOverlay(input, { status: 'loading' });
+
+  const language = _detectLang(text);
+  const context = (input.getAttribute('aria-label') ||
+                   input.getAttribute('placeholder') ||
+                   '').slice(0, 200);
+
+  _qlSendMessage({
+    action: 'lexora-writer-check',
+    text,
+    language,
+    context,
+  }, (response) => {
+    fab.classList.remove('lx-busy');
+    if (!response) {
+      _renderWriterOverlay(input, { status: 'error', message: 'No response from background.' });
+      return;
+    }
+    if (response.status === 'context_invalidated') {
+      _renderWriterOverlay(input, { status: 'error', message: 'Refresh this tab to restore Lexora.' });
+      return;
+    }
+    if (response.status === 'unauthorized') {
+      _renderWriterOverlay(input, { status: 'unauthorized' });
+      return;
+    }
+    if (response.status === 'unavailable') {
+      _renderWriterOverlay(input, { status: 'unavailable',
+        message: response.message || 'LLM service unavailable.' });
+      return;
+    }
+    if (response.status !== 'ok') {
+      _renderWriterOverlay(input, { status: 'error', message: response.message || 'Analysis failed.' });
+      return;
+    }
+    _renderWriterOverlay(input, response);
+  });
+}
+
+// ── Shadow-DOM popup ───────────────────────────────────────────────────────
+
+function _removeWriterOverlay() {
+  const host = document.getElementById(_WRITER_HOST_ID);
+  if (host) host.remove();
+}
+
+function _renderWriterOverlay(anchorInput, response) {
+  _removeWriterOverlay();
+
+  const host = document.createElement('div');
+  host.id = _WRITER_HOST_ID;
+  host.style.cssText = 'position:fixed;inset:0;width:0;height:0;overflow:visible;z-index:2147483601;';
+  const shadow = host.attachShadow({ mode: 'open' });
+
+  const r = anchorInput.getBoundingClientRect();
+  const cardLeft = Math.max(8, Math.min(window.innerWidth - 388, r.left));
+  const cardTop  = Math.max(8, Math.min(window.innerHeight - 200, r.bottom + 8));
+
+  let statusClass = 'lx-busy';
+  let statusText  = 'Analysing…';
+  let bodyHtml    = '<div class="lx-writer-empty">Working on it…</div>';
+  let showApply   = false;
+  let improved    = '';
+
+  if (response.status === 'short') {
+    statusClass = 'lx-busy';
+    statusText  = 'Too short';
+    bodyHtml    = `<div class="lx-writer-empty">${escHtml(response.message || '')}</div>`;
+  } else if (response.status === 'unauthorized') {
+    statusClass = 'lx-error';
+    statusText  = 'Sign in';
+    bodyHtml    = '<div class="lx-writer-empty">Please sign in to Lexora first.</div>';
+  } else if (response.status === 'unavailable') {
+    statusClass = 'lx-error';
+    statusText  = 'Unavailable';
+    bodyHtml    = `<div class="lx-writer-empty">${escHtml(response.message || 'LLM service unavailable.')}</div>`;
+  } else if (response.status === 'error') {
+    statusClass = 'lx-error';
+    statusText  = 'Error';
+    bodyHtml    = `<div class="lx-writer-empty">${escHtml(response.message || 'Something went wrong.')}</div>`;
+  } else if (response.status === 'ok') {
+    const corrections = Array.isArray(response.corrections) ? response.corrections : [];
+    improved = response.improved || '';
+    const hasAnything = improved.trim() || corrections.length;
+    statusClass = 'lx-ok';
+    statusText  = 'Done';
+
+    if (!hasAnything) {
+      bodyHtml = '<div class="lx-writer-empty">Nothing to fix — your writing looks good!</div>';
+    } else {
+      const parts = [];
+      if (improved.trim()) {
+        parts.push(`
+          <div class="lx-writer-section-title">Improved version</div>
+          <div class="lx-writer-improved">${escHtml(improved)}</div>
+        `);
+        showApply = true;
+      }
+      if (corrections.length) {
+        const rows = corrections.map((c) => `
+          <li class="lx-writer-correction">
+            <div class="lx-writer-fix">
+              <span class="lx-writer-wrong">${escHtml(c.wrong || '')}</span>
+              <span class="lx-writer-arrow">→</span>
+              <span class="lx-writer-correct">${escHtml(c.correct || '')}</span>
+            </div>
+            ${c.note ? `<div class="lx-writer-note">${escHtml(c.note)}</div>` : ''}
+          </li>
+        `).join('');
+        parts.push(`
+          <div class="lx-writer-section-title">Corrections</div>
+          <ul class="lx-writer-corrections">${rows}</ul>
+        `);
+      }
+      bodyHtml = parts.join('');
+    }
+  } else if (response.status === 'loading') {
+    /* defaults already set */
+  }
+
+  shadow.innerHTML = `
+    <style>${_WRITER_CARD_CSS}</style>
+    <div class="lx-writer-card" style="left:${cardLeft}px;top:${cardTop}px;">
+      <div class="lx-writer-header">
+        <span class="lx-writer-title">✦ Lexora Writer</span>
+        <span class="lx-writer-status ${statusClass}">${escHtml(statusText)}</span>
+      </div>
+      <div class="lx-writer-scroll">${bodyHtml}</div>
+      <div class="lx-writer-footer">
+        <span class="lx-writer-privacy">Text is sent to your Lexora server for analysis.</span>
+        ${showApply
+          ? '<button class="lx-writer-btn lx-writer-btn-primary" id="lx-writer-apply">Apply to text</button>'
+          : ''}
+        <button class="lx-writer-btn lx-writer-btn-secondary" id="lx-writer-close">Close</button>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(host);
+
+  shadow.getElementById('lx-writer-close')?.addEventListener('click', _removeWriterOverlay);
+  if (showApply) {
+    shadow.getElementById('lx-writer-apply')?.addEventListener('click', () => {
+      _applyWriterImproved(anchorInput, improved);
+      _removeWriterOverlay();
+      // Brief confirmation toast.
+      try { showLexoraToast('ok', 'Applied to text'); } catch {}
+    });
+  }
+
+  // Click-outside-to-close (uses composedPath so clicks inside the shadow
+  // root don't trigger the close).
+  const onDocClick = (e) => {
+    if (e.composedPath && e.composedPath().some((el) => el?.id === _WRITER_HOST_ID)) return;
+    _removeWriterOverlay();
+    document.removeEventListener('mousedown', onDocClick, true);
+  };
+  setTimeout(() => document.addEventListener('mousedown', onDocClick, true), 0);
+
+  // Drag the card by its header (same pattern as M28-17 Quick Look).
+  _makeWriterDraggable(shadow);
+}
+
+function _makeWriterDraggable(shadow) {
+  const card = shadow.querySelector('.lx-writer-card');
+  const header = shadow.querySelector('.lx-writer-header');
+  if (!card || !header) return;
+  let dragging = false, startX = 0, startY = 0, baseLeft = 0, baseTop = 0;
+
+  header.addEventListener('mousedown', (e) => {
+    if (e.button !== 0) return;
+    if (e.target.closest('button')) return;
+    e.preventDefault();
+    dragging = true;
+    startX = e.clientX; startY = e.clientY;
+    baseLeft = parseFloat(card.style.left) || 0;
+    baseTop  = parseFloat(card.style.top)  || 0;
+  });
+
+  document.addEventListener('mousemove', (e) => {
+    if (!dragging) return;
+    const dx = e.clientX - startX, dy = e.clientY - startY;
+    const newLeft = Math.max(8, Math.min(window.innerWidth - 388, baseLeft + dx));
+    const newTop  = Math.max(8, Math.min(window.innerHeight - 80,  baseTop  + dy));
+    card.style.left = `${newLeft}px`;
+    card.style.top  = `${newTop}px`;
+  });
+
+  document.addEventListener('mouseup', () => { dragging = false; });
+}
+
+// ── Init: focusin/focusout, scroll/resize, storage flag ────────────────────
+
+function _onWriterFocusIn(e) {
+  if (!_writerEnabled) return;
+  const t = e.target;
+  if (!_isEligibleInput(t)) return;
+  _showFab(t);
+}
+
+function _onWriterFocusOut(e) {
+  // Delay the hide so the FAB click handler can fire before blur kills it.
+  setTimeout(() => {
+    const active = document.activeElement;
+    if (active && _isEligibleInput(active)) {
+      // User just moved focus to another eligible field.
+      _showFab(active);
+      return;
+    }
+    // If the user is now interacting with the FAB or the popup, keep it.
+    if (active && (active.id === _WRITER_FAB_ID || active.closest?.(`#${_WRITER_HOST_ID}`))) {
+      return;
+    }
+    _hideFab();
+  }, 150);
+}
+
+function _onWriterScrollOrResize() {
+  if (!_writerCurrentInput) return;
+  clearTimeout(_writerScrollTimer);
+  _writerScrollTimer = setTimeout(() => {
+    if (_writerCurrentInput && _isEligibleInput(_writerCurrentInput)) {
+      _positionFab(_writerCurrentInput);
+    }
+  }, _WRITER_DEBOUNCE);
+}
+
+function _initWriter() {
+  // Refresh enabled flag from storage; default ON when key absent.
+  try {
+    chrome.storage.sync.get('lexora_writer_enabled', (cfg) => {
+      _writerEnabled = (cfg && cfg.lexora_writer_enabled !== false);
+    });
+    chrome.storage.onChanged?.addListener((changes, area) => {
+      if (area === 'sync' && 'lexora_writer_enabled' in changes) {
+        _writerEnabled = changes.lexora_writer_enabled.newValue !== false;
+        if (!_writerEnabled) _hideFab();
+      }
+    });
+  } catch {
+    /* chrome.storage unavailable — keep default */
+  }
+
+  document.addEventListener('focusin',  _onWriterFocusIn,  true);
+  document.addEventListener('focusout', _onWriterFocusOut, true);
+  window.addEventListener('scroll',  _onWriterScrollOrResize, true);
+  window.addEventListener('resize',  _onWriterScrollOrResize);
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', _initWriter);
+} else {
+  _initWriter();
+}
