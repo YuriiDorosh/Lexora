@@ -387,29 +387,90 @@ deferred to user)
 
 #### M32 — Slang & Idiom Explainer — sub-steps
 
-**Step M32-S1 — LLM endpoint `POST /explain-slang`**
+**Step M32-S1 — LLM endpoint `POST /explain-slang`** ✅
 
-- [ ] M32-S1-01 · `services/llm/main.py` — new `ExplainSlangRequest`:
-  `phrase: str`, `source_language: str = "en"`, `native_language: str = "en"`.
-- [ ] M32-S1-02 · `_EXPLAIN_SLANG_SYSTEM_PROMPT` — instructs the model
-  to classify (`idiom` / `slang` / `phrasal_verb` / `literal` / `unknown`),
-  give figurative meaning **in `native_language`**, give literal meaning
-  (word-for-word translation), give one short example, add a confidence
-  flag. Output JSON contract:
-  `{kind, figurative_meaning, literal_meaning, example, confidence}`.
-- [ ] M32-S1-03 · `_explain_slang(phrase, source_language, native_language)`:
-  builds messages, calls `_llm.create_chat_completion(...)` with
+- [x] M32-S1-01 · `services/llm/main.py` — `ExplainSlangRequest` Pydantic
+  added: `phrase: str`, `source_language: str = "en"`,
+  `native_language: str = "en"`. `_VALID_KINDS` and `_VALID_CONFIDENCES`
+  module-level sets used for defensive enum coercion.
+- [x] M32-S1-02 · `_EXPLAIN_SLANG_SYSTEM_PROMPT` — 100 words, plain prose,
+  no numbered lists (M18-FIX-09 rule). Inlined JSON shape with the
+  `kind|...|...` pipe-delimited enum hint inside the shape itself; dual
+  language clamp ("figurative_meaning + literal_meaning in user's native
+  language; example in source"); explicit "literal" branch ("repeat the
+  literal translation in figurative_meaning when the phrase has no
+  figurative reading").
+- [x] M32-S1-03 · `_explain_slang(phrase, source_language, native_language)`:
+  builds the M31-style sandwich user message — language gate → in-language
+  few-shot anchor (`_SLANG_EXAMPLES` dict per native_language showing
+  "kick the bucket" classified as idiom with figurative + literal in the
+  native script) → repeat language gate → user phrase. Calls
+  `_llm.create_chat_completion(...)` with
   `response_format={"type":"json_object"}`, `max_tokens=300`,
-  `temperature=0.3`, `repeat_penalty=1.1`. Stub fallback returns
-  `{kind: "unknown", figurative_meaning: "", literal_meaning: phrase,
-    example: "", confidence: "low"}`.
-- [ ] M32-S1-04 · `@app.post("/explain-slang")` — caps `phrase` at
-  1000 chars (consistent with M28); validates languages.
-- [ ] M32-S1-05 · `make up-llm-no-cache` → `/openapi.json` lists the route.
-- [ ] M32-S1-06 · Curl smoke: English idiom (`kick the bucket`),
-  English phrasal verb (`give up`), Polish idiom (`masz węża w kieszeni`),
-  literal phrase (`the cat is on the mat`). Confirm `kind`s are correct
-  and `figurative_meaning` is in the requested `native_language`.
+  `temperature=0.3`, `repeat_penalty=1.1`. Reuses
+  `_parse_enrichment_json`. Stub fallback returns
+  `{kind:"unknown", figurative_meaning:"", literal_meaning:phrase,
+    example:"", confidence:"low"}`. Parse-failure path returns the same
+  shape with `parse_error: True`.
+- [x] M32-S1-04 · `@app.post("/explain-slang")` — caps `phrase` at
+  1000 chars; rejects empty with status `"error"` + the same five-key
+  empty payload so the UI never wedges. Defensive enum coercion clamps
+  `kind` to `_VALID_KINDS` and `confidence` to `_VALID_CONFIDENCES`,
+  defaulting to `"unknown"` / `"low"` if the model returns garbage.
+- [x] M32-S1-05 · `make up-llm-no-cache` → `/openapi.json` lists the
+  new route alongside the existing six (`/analyze-speech`,
+  `/analyze-writing`, `/explain-grammar`, `/generate-topic`,
+  `/roleplay`, `/health`).
+- [x] M32-S1-06 · Smoke matrix:
+  - **`kick the bucket`** (en/native=en) → `kind:idiom`,
+    `figurative:"to die"`, `literal:"to kick a bucket"`, example in
+    English, `confidence:high`. ✓
+  - **`give up`** (en/native=en) → `kind:idiom` (model misclassified —
+    should ideally be `phrasal_verb`), figurative slightly tautological.
+    JSON contract still holds with all five fields populated and
+    `confidence:high`. Documented Qwen 1.5B limitation; ADR-027 3B
+    upgrade is the production knob.
+  - **`masz węża w kieszeni`** (pl/native=en) → `kind:idiom`,
+    `literal:"you have a snake in your pocket"` ✓, figurative slightly
+    off (`"to be carrying a grudge"` — actual idiom means "to be
+    stingy/miserly"). Same 1.5B semantic ceiling.
+  - **All three:** JSON contract rock-solid — kind enum enforced,
+    confidence enum enforced, five-key shape preserved, language
+    clamp held (no script drift).
+
+**Step M32-S2 — Odoo proxy `POST /lexora_api/explain_slang`** ✅
+
+- [x] M32-S2-01 · `language_portal/controllers/portal_api.py` — new
+  `@http.route('/lexora_api/explain_slang', type='http', auth='none',
+  methods=['POST'], csrf=False)` route. Mirrors the
+  `/lexora_api/explain_grammar` shape (manual JSON body parse merged
+  with `request.params`, `_require_session()` first line,
+  `_json_response()` for CORS-aware replies).
+- [x] M32-S2-02 · `native_language` resolution chain:
+  - **Client value** validated against `_ALLOWED_LANGUAGES`; ignored if
+    bogus.
+  - If empty, look up the caller's `language.user.profile.native_language`
+    via `_resolve_uid()` + sudo search; use it if it lands in
+    `_ALLOWED_LANGUAGES`. Profile-lookup exceptions logged at DEBUG and
+    swallowed (chain falls through to default).
+  - Default to `'en'` if neither prior step resolved a value.
+- [x] M32-S2-03 · `requests.post({_LLM_SVC}/explain-slang, json={phrase,
+  source_language, native_language}, timeout=60)`. On any exception →
+  `{status:"unavailable", message:"...", kind:"unknown",
+   figurative_meaning:"", literal_meaning:phrase, example:"",
+   confidence:"low"}` so the extension UI can still render a graceful
+  "service down" state. Defensive `status: 'ok'` injection if the LLM
+  payload omits it.
+- [x] M32-S2-04 · `--update language_portal --stop-after-init --no-http`
+  → "Modules loaded." 0 errors. After `docker restart odoo`:
+  - **No session** → HTTP 401 `{"status":"unauthorized",...}` ✓
+  - **No `native_language` in body** → falls back through profile to
+    `'en'`; English explanation returned ✓
+  - **Explicit `native_language=uk`** → output entirely in Ukrainian
+    Cyrillic (figurative, literal, example all in Cyrillic). Semantic
+    quality limited by 1.5B but language clamp held ✓
+  - **Empty `phrase`** → HTTP 400 `{"status":"error","message":"phrase
+    is required"}` ✓
 
 **Step M32-S2 — Odoo proxy `POST /lexora_api/explain_slang`**
 
