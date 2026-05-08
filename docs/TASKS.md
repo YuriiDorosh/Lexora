@@ -339,8 +339,51 @@ deferred to user)
   Browser-side validation deferred to user reload.
 - [x] M31-S5-05 · Toggle UI in Options shipped (S4-02). Live-hide via
   `chrome.storage.onChanged` already wired in S3-03.
-- [ ] M31-S5-06 · Final M31 commit + branch push deferred to the user's
-  go-ahead after their next browser smoke pass.
+- [x] M31-S5-06 · Empty-corrections-on-style-edit fix-pass (post browser
+  smoke #2):
+  - **Root cause:** the M31-S5-03 strict prompt ("Skip cosmetic
+    preferences") filtered useful nudges. Loosening the prompt to
+    "document any change" did NOT make the 1.5B model emit corrections
+    for style/vocabulary edits — it kept producing empty arrays even
+    after three prompt iterations + few-shot anchor strengthening.
+    The 1.5B is just not robust at the rule "if you change improved,
+    populate corrections."
+  - **Fix #1 — prompt rewrite:** removed "Skip cosmetic preferences";
+    new wording is "every word that differs between the user's text
+    and `improved` must appear in `corrections`. Compare them word by
+    word." Plus an explicit negative case: "Empty `corrections` means
+    the user's text is already perfect and `improved` MUST be
+    byte-identical to the input."
+  - **Fix #2 — anchor enrichment:** every `_WRITING_EXAMPLES` anchor
+    now demonstrates **two** corrections — one grammar fix AND one
+    style/vocabulary nudge — so the model copies the
+    "stylistic-changes-also-belong-here" pattern instead of the
+    one-entry pattern from M31-S1's anchor.
+  - **Fix #3 — server-side safety net:** the only reliable guarantee.
+    `_analyze_writing` now compares whitespace-normalised `improved`
+    vs. input; if `improved` differs but `corrections` is empty, it
+    synthesises a single catch-all entry
+    (`{wrong: original_text, correct: improved_text,
+       note: "Polished for natural flow and clarity."}`) so the user
+    always sees a documented reason for the text change. Logs an
+    INFO line so future telemetry / a 3B upgrade can quantify how
+    often the safety net is firing.
+  - Verified post-fix:
+    - "I have 3 years... in backend developing" → improved promotes
+      "3" → "three" + "developing" → "development"; safety net
+      synthesises a full-text correction entry. ✓
+    - dota 2 slang → improved fixes spelling + capitalises Dota +
+      replaces "thanks you" → "Thanks a lot."; safety net documents
+      the change. ✓
+    - "The quick brown fox..." (perfect) → corrections=[], improved
+      byte-identical. Safety net stays dormant. ✓
+    - Heavy-error sentence ("I goes... we was... wether were...") →
+      improved is correct, safety net synthesises a full-text entry.
+      The model SHOULD have produced granular per-error corrections
+      here, but didn't — that's the documented Qwen 1.5B
+      instruction-following limit; ADR-027 3B upgrade path remains
+      the production knob. ✓
+- [x] M31-S5-07 · Final M31 commit + branch push.
 
 #### M32 — Slang & Idiom Explainer — sub-steps
 

@@ -778,11 +778,15 @@ _ANALYZE_WRITING_SYSTEM_PROMPT = (
     "no markdown — in this shape:\n"
     '{"corrections":[{"wrong":"...","correct":"...","note":"..."}],'
     '"improved":"..."}\n'
-    "corrections: at most 5 fixes a B1 learner most needs (grammar, tense, "
-    "agreement, articles). Skip cosmetic preferences. note explains the rule "
-    "in one short clause.\n"
-    "improved: one rewritten version that fixes everything in corrections "
-    "and reads naturally. Keep meaning unchanged.\n"
+    "Rule: every word that differs between the user's text and `improved` "
+    "must appear in `corrections`. Compare them word by word. For each "
+    "difference — grammar, tense, agreement, articles, spelling, "
+    "vocabulary, OR natural-flow style — add one entry: `wrong` = original "
+    "snippet, `correct` = new snippet, `note` = one short clause why. "
+    "Empty `corrections` means the user's text is already perfect and "
+    "`improved` MUST be byte-identical to the input. If you can't justify "
+    "a change with a corrections entry, don't make the change.\n"
+    "Cap: at most 5 entries; pick the most useful ones for a B1 learner.\n"
     "Output language is locked: every string in the JSON MUST be written in "
     "the SAME language as the user's text. Internet slang (lol, lmao, ngl, "
     "btw, плс, лол, χαχα, omg) does NOT change the language. If the user's "
@@ -797,30 +801,56 @@ _ANALYZE_WRITING_SYSTEM_PROMPT = (
 # ignore. Keep these short — they share the user-message budget with the
 # actual text being analysed.
 _WRITING_EXAMPLES = {
+    # Each anchor demonstrates BOTH a grammar fix AND a style/vocabulary
+    # nudge so the model learns that stylistic changes ALSO go in
+    # corrections. The 1.5B model copies this two-entry pattern far more
+    # reliably than it follows the prose rule above.
     "en": (
-        '{"corrections":[{"wrong":"He don\'t know nothing.",'
+        '{"corrections":['
+        '{"wrong":"He don\'t know nothing.",'
         '"correct":"He doesn\'t know anything.",'
-        '"note":"Use does/doesn\'t with he/she/it; avoid double negatives."}],'
-        '"improved":"He doesn\'t know anything."}'
+        '"note":"Use does/doesn\'t with he/she/it; avoid double negatives."},'
+        '{"wrong":"3 years of backend developing",'
+        '"correct":"three years of backend development",'
+        '"note":"Spell out small numbers in prose; \\"development\\" is the noun form."}'
+        '],'
+        '"improved":"He doesn\'t know anything. I have three years of '
+        'backend development experience."}'
     ),
     "uk": (
-        '{"corrections":[{"wrong":"Я ходити до школа кожен день.",'
+        '{"corrections":['
+        '{"wrong":"Я ходити до школа кожен день.",'
         '"correct":"Я ходжу до школи кожного дня.",'
-        '"note":"Дієслово в першій особі однини теперішнього часу."}],'
-        '"improved":"Я ходжу до школи кожного дня."}'
+        '"note":"Дієслово в першій особі однини теперішнього часу."},'
+        '{"wrong":"це є дуже добре",'
+        '"correct":"це дуже добре",'
+        '"note":"Зв\'язку \\"є\\" уникають у простих реченнях у розмовній мові."}'
+        '],'
+        '"improved":"Я ходжу до школи кожного дня; це дуже добре."}'
     ),
     "el": (
-        '{"corrections":[{"wrong":"Εγώ πηγαίνω στο σχολείο κάθε μέρες.",'
+        '{"corrections":['
+        '{"wrong":"Εγώ πηγαίνω στο σχολείο κάθε μέρες.",'
         '"correct":"Πηγαίνω στο σχολείο κάθε μέρα.",'
         '"note":"Στα ελληνικά το \\"εγώ\\" συνήθως παραλείπεται· "'
-        '"\\"κάθε μέρα\\" είναι ενικός."}],'
-        '"improved":"Πηγαίνω στο σχολείο κάθε μέρα."}'
+        '"\\"κάθε μέρα\\" είναι ενικός."},'
+        '{"wrong":"είναι πολύ καλό πράγμα",'
+        '"correct":"είναι πολύ ωραίο",'
+        '"note":"\\"Ωραίο\\" ακούγεται πιο φυσικό από \\"καλό πράγμα\\"."}'
+        '],'
+        '"improved":"Πηγαίνω στο σχολείο κάθε μέρα και είναι πολύ ωραίο."}'
     ),
     "pl": (
-        '{"corrections":[{"wrong":"Wczoraj ja idę do parku z moja przyjaciel.",'
+        '{"corrections":['
+        '{"wrong":"Wczoraj ja idę do parku z moja przyjaciel.",'
         '"correct":"Wczoraj poszedłem do parku z moim przyjacielem.",'
-        '"note":"Czas przeszły dokonany; narzędnik dla \\"przyjacielem\\"."}],'
-        '"improved":"Wczoraj poszedłem do parku z moim przyjacielem."}'
+        '"note":"Czas przeszły dokonany; narzędnik dla \\"przyjacielem\\"."},'
+        '{"wrong":"to jest bardzo fajna rzecz",'
+        '"correct":"to jest bardzo fajne",'
+        '"note":"\\"Fajne\\" brzmi naturalniej niż \\"fajna rzecz\\"."}'
+        '],'
+        '"improved":"Wczoraj poszedłem do parku z moim przyjacielem; to '
+        'jest bardzo fajne."}'
     ),
 }
 
@@ -898,9 +928,35 @@ def _analyze_writing(text: str, language: str, context: str | None) -> dict:
                 out.append(row)
         return out
 
+    corrections = _coerce_list(corrections, ("wrong", "correct", "note"))
+    improved    = str(improved).strip() if improved else text
+
+    # ── Safety net: synthesised correction entry ──────────────────────────
+    # Qwen 1.5B reliably emits a polished `improved` but often returns an
+    # empty `corrections` array when its only edits were stylistic — even
+    # though the prompt + few-shot anchors demand a corrections entry per
+    # change. We can't out-prompt this on a 1.5B model. Rather than show
+    # the user a silent text change, we synthesise a single catch-all
+    # entry from the diff. The synthesised entry is clearly labelled in
+    # the `note` field so the UI / future telemetry can distinguish it
+    # from a model-authored entry if needed.
+    def _normalise_for_diff(s):
+        # Whitespace-collapsed compare so the safety net doesn't fire on
+        # purely cosmetic whitespace differences.
+        return " ".join((s or "").split())
+
+    if not corrections and _normalise_for_diff(improved) != _normalise_for_diff(text):
+        _logger.info("analyze-writing: synthesising fallback correction "
+                     "(model emitted improved but corrections=[])")
+        corrections = [{
+            "wrong":   text,
+            "correct": improved,
+            "note":    "Polished for natural flow and clarity.",
+        }]
+
     return {
-        "corrections": _coerce_list(corrections, ("wrong", "correct", "note")),
-        "improved":    str(improved).strip() if improved else text,
+        "corrections": corrections,
+        "improved":    improved,
     }
 
 
