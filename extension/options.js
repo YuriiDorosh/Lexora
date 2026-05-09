@@ -54,4 +54,88 @@ document.addEventListener('DOMContentLoaded', () => {
       chrome.storage.sync.set({ lexora_native_language: nativeEl.value });
     });
   }
+
+  // ── M33: Mic-permission grant ──────────────────────────────────────────
+  // The Options page lives at chrome-extension://<id>/options.html — the
+  // SAME origin as offscreen.html. Granting mic permission here teaches
+  // Chrome to allow getUserMedia for the entire extension, which the
+  // offscreen recorder will inherit on its next call.
+  //
+  // Flow:
+  //   1. Click → navigator.mediaDevices.getUserMedia({audio:true})
+  //   2. Permission prompt appears (or grants instantly if already
+  //      decided)
+  //   3. Stream resolves → immediately stop every track (we don't actually
+  //      want to record here, just register the grant)
+  //   4. Show "Permission granted!" — user can close the tab and the
+  //      grant persists for the offscreen doc.
+  // On NotAllowedError we hint at chrome://extensions site-permission
+  // reset because once Chrome has hard-denied a permission, granting
+  // again requires resetting it manually.
+  const micGrantBtn = document.getElementById('lx-mic-grant-btn');
+  const micStatus   = document.getElementById('lx-mic-status');
+
+  function _escHtml(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+
+  function _setMicStatus(kind, html) {
+    if (!micStatus) return;
+    micStatus.className = 'lx-mic-status ' + kind;
+    micStatus.innerHTML = html;
+  }
+
+  if (micGrantBtn) {
+    micGrantBtn.addEventListener('click', async () => {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        _setMicStatus('error',
+          'This browser does not expose <code>navigator.mediaDevices</code>. ' +
+          'Use Chrome 116+ or Edge.');
+        return;
+      }
+
+      micGrantBtn.disabled = true;
+      _setMicStatus('busy', 'Requesting microphone permission…');
+
+      let stream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      } catch (err) {
+        micGrantBtn.disabled = false;
+        const name = (err && err.name) || 'Error';
+        if (name === 'NotAllowedError') {
+          _setMicStatus('error',
+            '🚫 Permission denied. To re-enable: open ' +
+            '<code>chrome://extensions</code>, click <strong>Details</strong> ' +
+            'on Lexora, then under <strong>Site access / Site permissions</strong> ' +
+            'reset the microphone setting and click this button again.');
+        } else if (name === 'NotFoundError' || name === 'OverconstrainedError') {
+          _setMicStatus('error',
+            '🎤 No microphone detected. Plug in a mic, then click again.');
+        } else {
+          _setMicStatus('error',
+            '⚠️ <code>' + _escHtml(name) + '</code>: ' +
+            _escHtml((err && err.message) || 'permission request failed'));
+        }
+        return;
+      }
+
+      // Release the tracks immediately — we wanted the GRANT, not the
+      // stream. The grant persists for chrome-extension://<id>/* origin
+      // so the offscreen.js getUserMedia call inherits it.
+      try {
+        stream.getTracks().forEach((t) => {
+          try { t.stop(); } catch { /* ignore */ }
+        });
+      } catch { /* ignore */ }
+
+      micGrantBtn.disabled = false;
+      _setMicStatus('ok',
+        '✓ Permission granted! You can now use ' +
+        '<strong>🎤 Practice Pronunciation</strong> on any webpage. ' +
+        'No further prompts will appear.');
+    });
+  }
 });

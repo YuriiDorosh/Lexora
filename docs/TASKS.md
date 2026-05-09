@@ -490,6 +490,47 @@ amber-underline (mispronounced) annotations.
   long reference, multi-language (Polish article + Greek blog)
   — recorded by user during smoke.
 
+**Step M33-S6-FIX1 — Mic-permission grant on Options page** ✅
+
+User-side smoke surfaced an edge case anticipated in the M33 plan:
+Chrome auto-blocks `getUserMedia` in the offscreen document on first
+use (NotAllowedError) on some configurations, with no permission
+prompt. The error message ("Open the extension Options page to grant
+permission") was a forward-looking hint — Options had no mic-grant
+flow yet. Quick fix delivers it.
+
+- [x] M33-S6-FIX1-01 · `extension/options.html` — new
+  "Webpage Shadowing (M33)" section with a teal-bordered
+  `.lx-mic-grant-row` block. Contains:
+  - Title "🎙️ Microphone permission".
+  - Hint copy explaining the Chrome `NotAllowedError` race and
+    pointing the user at the button below as the fix.
+  - `<button id="lx-mic-grant-btn">🎙️ Grant Microphone Permission</button>`.
+  - `<div id="lx-mic-status">` for inline status feedback.
+  - Plus styling: teal gradient button, three status states
+    (`.ok` green / `.error` red / `.busy` amber), `<code>`
+    inline pill for hint text.
+- [x] M33-S6-FIX1-02 · `extension/options.js` — click handler:
+  - Calls `navigator.mediaDevices.getUserMedia({audio:true})` —
+    runs on the chrome-extension://<id>/options.html origin, which
+    is the SAME origin as offscreen.html. The grant Chrome remembers
+    here is what the offscreen recorder inherits.
+  - On success: stops every track immediately (we wanted the GRANT,
+    not the stream — releasing the tracks turns the mic indicator
+    off so users don't think we're still recording). Status shows
+    "✓ Permission granted! You can now use 🎤 Practice Pronunciation
+    on any webpage."
+  - On `NotAllowedError`: status shows the chrome://extensions
+    site-permission reset path (once Chrome has hard-denied, the
+    user has to clear the deny manually before the grant button
+    works).
+  - On `NotFoundError` / `OverconstrainedError`: status hints at
+    plugging in a microphone.
+  - On any other error: status renders `<code>{err.name}</code>: {err.message}`
+    via a local `_escHtml` helper for defensive HTML-escape.
+- [x] M33-S6-FIX1-03 · `node --check` passes on the modified
+  `options.js`.
+
 **Step M33-S6 — Verification**
 
 - [ ] M33-S6-01 · LLM endpoint smoke matrix (S1-09).
