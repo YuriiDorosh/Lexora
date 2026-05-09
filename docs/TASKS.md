@@ -15,9 +15,24 @@
 
 ## Current Milestone
 
+(none — M33 closed on 2026-05-09; next milestone TBD)
+
+---
+
+## Completed Milestones (M33)
+
 ### M33 — Webpage Shadowing (Extension Pronunciation Practice)
 
-**Status:** Planned (architecture review pass, no code yet).
+**Status:** Complete and verified (browser smoke confirmed by user;
+click-to-toggle UX pivot landed mid-flight).
+**Branch:** `m33_webpage_shadowing` (created from `m31_m32_extension_upgrades`)
+**Final commits:** `add95fa` planning · `cc43c74` S4 offscreen mic ·
+`444a5c0` S1-S3 backend pipeline · `978abe8` S5 UI · `a12b348` S6-FIX1
+mic-grant button · `d9738cd` S6-FIX2 click-to-toggle pivot ·
+this commit S7 docs flip.
+
+**Original status line (preserved for archive):**
+Planned (architecture review pass, no code yet).
 **Branch:** `m33_webpage_shadowing` (created from `m31_m32_extension_upgrades`)
 **Started:** 2026-05-09
 
@@ -614,22 +629,41 @@ of bug.
   and a Greek blog. Score + feedback render in the correct
   script.
 
-**Step M33-S7 — ADR-032 + final docs flip**
+**Step M33-S7 — ADR-032 + final docs flip** ✅
 
-- [ ] M33-S7-01 · ADR-032 in `docs/DECISIONS.md` — locked
-  sub-decisions: offscreen-doc mic strategy + tradeoffs vs.
-  iframe / popup; two-endpoint orchestration vs. single endpoint;
-  word-diff safety net; no-persistence-by-default privacy
-  rationale; per-word annotation rendering pattern.
-- [ ] M33-S7-02 · `docs/PLAN.md` v2.3 → v2.4; M33 row → ✅
-  Complete.
-- [ ] M33-S7-03 · `docs/TASKS.md` archive M33 block under
-  Completed Milestones.
-- [ ] M33-S7-04 · `README.md` — Practice Modes / Browser Ecosystem
-  sections gain Webpage Shadowing entries; LLM service sync-
-  endpoints list adds `/evaluate-pronunciation`; audio service §
-  adds `/tts-sync`; M33 row in implementation status table.
-- [ ] M33-S7-05 · Commit + push to `m33_webpage_shadowing`.
+- [x] M33-S7-01 · ADR-032 in `docs/DECISIONS.md` — single ADR
+  with **six locked sub-decisions** (32a–f):
+  - 32a · `chrome.offscreen` mic strategy + alternatives rejected
+    (iframe / popup) and Manifest changes.
+  - 32b · Mic-permission grant button on Options page (M33-S6-FIX1)
+    with full error UX matrix.
+  - 32c · Two Odoo proxy endpoints rationale + single-endpoint
+    alternative rejected.
+  - 32d · Hybrid LLM model — deterministic word-diff is the source
+    of truth (with the multiset Counter detail), LLM only writes
+    feedback. End-to-end smoke validation recorded
+    (TTS-roundtrip-via-Whisper test that exposed `jumps→dumps` at
+    32 kbps).
+  - 32e · Click-to-toggle UX pivot (M33-S6-FIX2) and the general
+    rule "prefer toggle over hold for any non-trivial recorder".
+  - 32f · No persistence by default + the rationale.
+  Plus four lessons fed back into the codebase (pattern reuse,
+  server-side floor, mic-permission UX requires a visible gesture,
+  toggle over hold) and four revisit triggers.
+- [x] M33-S7-02 · `docs/PLAN.md` v2.3 → v2.4; M33 row flipped to
+  ✅ Complete; status header reflects M0–M33 done (M26 still
+  postponed).
+- [x] M33-S7-03 · `docs/TASKS.md` — M33 block archived under
+  "Completed Milestones (M33)" with all seven commit SHAs preserved.
+  Current Milestone slot empty until next milestone starts.
+- [x] M33-S7-04 · `README.md` — Practice Modes table gains
+  "Webpage Shadowing (browser)" row; Browser Ecosystem section
+  gets a new M33 subsection; LLM service sync-endpoints list adds
+  `/evaluate-pronunciation` (now eight sync endpoints across
+  M17-M33); audio service section adds `/tts-sync`; M33 row added
+  to implementation status table; section heading bumped from
+  M22-M32 → M22-M33.
+- [x] M33-S7-05 · Commit + push to `m33_webpage_shadowing`.
 
 #### Blockers
 

@@ -1,8 +1,8 @@
 # Lexora — Implementation Plan (MVP)
 
-> Version: 2.3 (M33 — Webpage Shadowing — Planned)
+> Version: 2.4 (M33 — Webpage Shadowing — Complete)
 > Last updated: 2026-05-09
-> Status: M0–M25 complete; M26 postponed (resource constraints); M27–M32 complete; M33 planned
+> Status: M0–M25 complete; M26 postponed (resource constraints); M27–M33 complete
 
 ---
 
@@ -60,7 +60,7 @@
 | M30 | AI Speaking Coach & Oral Practice | ✅ Complete | `/my/speaking` portal with topic generation, browser mic recording, Faster-Whisper sync transcription, and Qwen2.5-1.5B feedback (corrections / synonyms / improved version). `language.speaking.session` persists transcripts + feedback per user. 4-language support; 90 s soft cap; sync HTTP pipeline (no RabbitMQ) per ADR-030 |
 | M31 | Browser Extension — Lexora Writer | ✅ Complete | Active-writing assistant. Floating "L" FAB on every focused `<textarea>` / `[contenteditable]`; strict eligibility (skips passwords / search / code editors / login forms). Click → `POST /lexora_api/writer_check` → LLM `POST /analyze-writing` → corrections + improved JSON. Apply-to-text uses the React-compatible native-setter + InputEvent pattern. Server-side safety net guarantees every text change is documented (ADR-031) |
 | M32 | Browser Extension — Slang & Idiom Explainer | ✅ Complete | New "💡 Explain Slang/Idiom" button alongside the M28 "Explain Grammar" button in both Quick Look and YouTube overlays. `POST /lexora_api/explain_slang` → LLM `POST /explain-slang`; returns kind enum (idiom / slang / phrasal_verb / literal / unknown), figurative + literal meaning in the user's native language, example in source language, confidence enum. UI handles the literal and low-confidence branches honestly (ADR-031) |
-| M33 | Browser Extension — Webpage Shadowing | 📝 Planned | Pronunciation practice on any webpage. New "🎤 Practice Pronunciation" button in QL + YouTube overlays expands a Shadowing block: "Play Original" (Edge TTS via new `POST /tts-sync`) and hold-to-record. User audio runs through `/transcribe-sync` then a new `POST /evaluate-pronunciation` LLM endpoint that scores accuracy and flags missed/mispronounced words. MV3 mic permission handled via `chrome.offscreen` document so users grant once per extension instead of once per origin |
+| M33 | Browser Extension — Webpage Shadowing | ✅ Complete | Pronunciation practice on any webpage. "🎤 Practice Pronunciation" button in QL + YouTube overlays expands a Shadowing block with ▶ Play Original (Edge TTS via `POST /tts-sync`) and click-to-toggle Start/Stop Recording (mic on `chrome.offscreen` doc — granted once per extension). User audio runs through `/transcribe-sync` → `/evaluate-pronunciation`; deterministic Python word-diff is the source of truth for score + missed/mispronounced words; LLM contributes only the localised feedback string (ADR-032) |
 
 ---
 
