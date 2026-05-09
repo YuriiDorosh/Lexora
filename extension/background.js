@@ -76,6 +76,26 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     handleWriterCheck(msg).then(sendResponse).catch(() => sendResponse({ status: 'error' }));
   } else if (msg.action === 'lexora-explain-slang') {
     handleExplainSlang(msg).then(sendResponse).catch(() => sendResponse({ status: 'error' }));
+  } else if (msg.action === 'lexora-mic-start') {
+    handleMicStart().then(sendResponse).catch((err) =>
+      sendResponse({ status: 'error', message: String(err && err.message || err) }));
+  } else if (msg.action === 'lexora-mic-stop') {
+    handleMicStop().then(sendResponse).catch((err) =>
+      sendResponse({ status: 'error', message: String(err && err.message || err) }));
+  } else if (msg.action === 'lexora-mic-cancel') {
+    handleMicCancel().then(sendResponse).catch((err) =>
+      sendResponse({ status: 'error', message: String(err && err.message || err) }));
+  } else if (msg.action === 'lexora-mic-ping') {
+    // Diagnostic — used by the M33 DevTools sanity check. Returns
+    // {status, recording, mime_type} without invoking the recorder.
+    handleMicPing().then(sendResponse).catch((err) =>
+      sendResponse({ status: 'error', message: String(err && err.message || err) }));
+  } else if (msg.action === 'lexora-shadow-tts') {
+    handleShadowTts(msg).then(sendResponse).catch((err) =>
+      sendResponse({ status: 'error', message: String(err && err.message || err) }));
+  } else if (msg.action === 'lexora-shadow-evaluate') {
+    handleShadowEvaluate(msg).then(sendResponse).catch((err) =>
+      sendResponse({ status: 'error', message: String(err && err.message || err) }));
   }
   return true; // MUST be at the very end — keeps channel open for all async handlers
 });
@@ -273,6 +293,196 @@ async function handleWriterCheck({ text, language, context }) {
     if (resp.status === 401) return { status: 'unauthorized' };
     if (!resp.ok) return { status: 'error', message: `HTTP ${resp.status}` };
     return resp.json();
+  } catch (err) {
+    return { status: 'error', message: err.message };
+  }
+}
+
+// ── M33 — Offscreen mic surface (Webpage Shadowing) ────────────────────────
+//
+// Recording happens in the chrome.offscreen document at offscreen.html
+// (see ADR-032 / M33-S4). The user grants mic permission ONCE per
+// extension; subsequent records on any tab reuse the grant.
+//
+// Routing:
+//   content.js → chrome.runtime.sendMessage({action:'lexora-mic-start'})
+//     → bg.js (this listener)
+//     → ensureOffscreen() then chrome.runtime.sendMessage(
+//         {target:'offscreen', action:'mic-start'})
+//     → offscreen.js handles, sendResponse comes back here
+//     → we forward the response to the originating content script's
+//       sendResponse callback.
+// ───────────────────────────────────────────────────────────────────────────
+
+const _OFFSCREEN_URL = 'offscreen.html';
+
+async function _ensureOffscreen() {
+  if (!chrome.offscreen) {
+    throw new Error('chrome.offscreen API not available — Chrome 116+ required');
+  }
+  // hasDocument throws on some Chromium builds when no offscreen doc has
+  // ever been created — guard with try/catch and assume false.
+  let exists = false;
+  try {
+    exists = await chrome.offscreen.hasDocument();
+  } catch (err) {
+    console.warn('[Lexora BG] chrome.offscreen.hasDocument threw:', err);
+    exists = false;
+  }
+  if (exists) return;
+
+  console.log('[Lexora BG] creating offscreen document for mic capture');
+  await chrome.offscreen.createDocument({
+    url:           _OFFSCREEN_URL,
+    reasons:       ['USER_MEDIA'],
+    justification: 'Record speech for pronunciation practice (Lexora M33 — Webpage Shadowing)',
+  });
+}
+
+async function _sendToOffscreen(action) {
+  // chrome.runtime.sendMessage with a Promise return form (MV3).
+  return chrome.runtime.sendMessage({ target: 'offscreen', action });
+}
+
+async function handleMicStart() {
+  await _ensureOffscreen();
+  const resp = await _sendToOffscreen('mic-start');
+  console.log('[Lexora BG] mic-start →', resp);
+  return resp || { status: 'error', message: 'No response from offscreen.' };
+}
+
+async function handleMicStop() {
+  if (!chrome.offscreen || !(await _hasOffscreenSafely())) {
+    return { status: 'error', message: 'No active offscreen recorder.' };
+  }
+  const resp = await _sendToOffscreen('mic-stop');
+  if (resp && resp.audio_b64) {
+    console.log('[Lexora BG] mic-stop →',
+      'mime=' + resp.mime_type,
+      'duration_ms=' + resp.duration_ms,
+      'size_bytes=' + resp.size_bytes);
+  } else {
+    console.log('[Lexora BG] mic-stop →', resp);
+  }
+  return resp || { status: 'error', message: 'No response from offscreen.' };
+}
+
+async function handleMicCancel() {
+  if (!chrome.offscreen || !(await _hasOffscreenSafely())) {
+    return { status: 'ok' };  // nothing to cancel
+  }
+  return await _sendToOffscreen('mic-cancel');
+}
+
+async function handleMicPing() {
+  // Diagnostic — surfaces the offscreen doc's recording state without
+  // invoking getUserMedia. Useful for debugging routing without burning
+  // a permission prompt.
+  if (!chrome.offscreen) {
+    return { status: 'error', message: 'chrome.offscreen API unavailable.' };
+  }
+  if (!(await _hasOffscreenSafely())) {
+    return { status: 'ok', offscreen: false, recording: false };
+  }
+  const resp = await _sendToOffscreen('ping');
+  return { status: 'ok', offscreen: true, ...(resp || {}) };
+}
+
+async function _hasOffscreenSafely() {
+  try {
+    return await chrome.offscreen.hasDocument();
+  } catch {
+    return false;
+  }
+}
+
+// ── M33 — Webpage Shadowing proxy handlers ────────────────────────────────
+//
+// content.js / overlay.js can't talk to the Odoo proxy directly because
+// SameSite cookie rules block third-party requests; the same X-Lexora-
+// Session-Id bridge used by every other M22+ handler applies. These two
+// handlers run in the service worker and forward to the Odoo proxies
+// added in M33-S3.
+
+// _b64ToBytes — base64 string → Uint8Array. Used to reconstruct the
+// recorded audio Blob in the service worker before forwarding as
+// multipart to the Odoo proxy.
+function _b64ToBytes(b64) {
+  const bin = atob(b64);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
+// _bytesToB64 — Uint8Array → base64 string. Used to ferry binary audio
+// bytes back to the content script (chrome.runtime.sendMessage can only
+// carry JSON-serialisable values, so we base64 the audio for transport).
+function _bytesToB64(bytes) {
+  // chunked btoa to avoid stack overflow on large buffers
+  let bin = '';
+  const CHUNK = 0x8000;
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    bin += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK));
+  }
+  return btoa(bin);
+}
+
+async function handleShadowTts({ text, language }) {
+  if (!text || !text.trim()) {
+    return { status: 'error', message: 'text required' };
+  }
+  const baseUrl = await getBaseUrl();
+  const sessionHeaders = await getSessionHeader(baseUrl);
+  try {
+    const resp = await fetch(`${baseUrl}/lexora_api/shadow_tts`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json', ...sessionHeaders },
+      body: JSON.stringify({ text, language: language || 'en' }),
+    });
+    if (resp.status === 401) return { status: 'unauthorized' };
+    if (!resp.ok) {
+      let detail = '';
+      try { detail = JSON.stringify(await resp.json()); } catch { detail = resp.statusText; }
+      return { status: 'error', message: `HTTP ${resp.status}: ${detail}` };
+    }
+    const buf = await resp.arrayBuffer();
+    const audio_b64 = _bytesToB64(new Uint8Array(buf));
+    const mime_type = resp.headers.get('Content-Type') || 'audio/mpeg';
+    return { status: 'ok', audio_b64, mime_type, size_bytes: buf.byteLength };
+  } catch (err) {
+    return { status: 'error', message: err.message };
+  }
+}
+
+async function handleShadowEvaluate({ audio_b64, mime_type, reference_text, language }) {
+  if (!audio_b64) return { status: 'error', message: 'audio_b64 required' };
+  if (!reference_text) return { status: 'error', message: 'reference_text required' };
+  const baseUrl = await getBaseUrl();
+  const sessionHeaders = await getSessionHeader(baseUrl);
+
+  try {
+    const bytes = _b64ToBytes(audio_b64);
+    const blob  = new Blob([bytes], { type: mime_type || 'audio/webm' });
+    const fd = new FormData();
+    fd.append('audio', blob, 'recording' + (mime_type === 'audio/webm;codecs=opus' ? '.webm' : '.bin'));
+    fd.append('reference_text', reference_text);
+    fd.append('language', language || 'en');
+
+    const resp = await fetch(`${baseUrl}/lexora_api/shadow_evaluate`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { ...sessionHeaders }, // do NOT set Content-Type — let the
+                                       // browser set the multipart boundary
+      body: fd,
+    });
+    if (resp.status === 401) return { status: 'unauthorized' };
+    if (!resp.ok) {
+      let detail;
+      try { detail = await resp.json(); } catch { detail = { detail: resp.statusText }; }
+      return { status: 'error', http_status: resp.status, ...detail };
+    }
+    return await resp.json();
   } catch (err) {
     return { status: 'error', message: err.message };
   }

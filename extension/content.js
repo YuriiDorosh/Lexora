@@ -475,6 +475,102 @@ const _QL_CSS = `
     display: block; margin-top: 6px;
     font-size: 11px; font-style: italic; color: #f87171;
   }
+
+  /* M33 — Webpage Shadowing (teal/rose accent — distinct from indigo
+     grammar and amber slang). */
+  .lx-ql-shadow-btn {
+    margin-top: 6px; width: 100%; padding: 6px 0;
+    background: rgba(20, 184, 166, 0.15);
+    border: 1px solid rgba(20, 184, 166, 0.4);
+    border-radius: 8px; color: #5eead4; font-size: 12px; font-weight: 600;
+    cursor: pointer; transition: background 0.15s;
+    pointer-events: auto;
+  }
+  .lx-ql-shadow-btn:hover { background: rgba(20, 184, 166, 0.3); }
+  .lx-ql-shadow-btn:disabled { opacity: 0.5; cursor: default; }
+
+  .lx-ql-shadow-block {
+    display: none; margin-top: 8px; padding: 10px 12px;
+    background: rgba(20, 184, 166, 0.06);
+    border-left: 3px solid #14b8a6;
+    border-radius: 0 8px 8px 0;
+    font-size: 12px; line-height: 1.6; color: #e0f2fe;
+  }
+  .lx-ql-shadow-block.lx-visible { display: block; }
+
+  .lx-ql-shadow-reference {
+    margin-bottom: 8px; padding: 6px 10px;
+    background: rgba(255, 255, 255, 0.04);
+    border-radius: 6px;
+    font-size: 13px; line-height: 1.5; color: #f1f5f9;
+  }
+  .lx-ql-shadow-word { display: inline; }
+  .lx-ql-shadow-word-missed {
+    color: #fca5a5; text-decoration: line-through;
+    text-decoration-thickness: 2px;
+  }
+  .lx-ql-shadow-word-mispron {
+    color: #fbbf24;
+    text-decoration: underline wavy;
+    text-decoration-color: #f59e0b;
+  }
+
+  .lx-ql-shadow-controls {
+    display: flex; gap: 6px; flex-wrap: wrap;
+    margin-bottom: 8px;
+  }
+  .lx-ql-shadow-play-btn,
+  .lx-ql-shadow-record-btn {
+    flex: 1 1 auto; padding: 6px 10px;
+    border-radius: 8px; font-size: 12px; font-weight: 600;
+    cursor: pointer; transition: background 0.15s, box-shadow 0.15s;
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    background: rgba(255, 255, 255, 0.06);
+    color: #cbd5e1;
+    user-select: none;
+  }
+  .lx-ql-shadow-play-btn:hover    { background: rgba(255, 255, 255, 0.12); }
+  .lx-ql-shadow-play-btn:disabled { opacity: 0.5; cursor: default; }
+  .lx-ql-shadow-record-btn       { color: #fda4af; }
+  .lx-ql-shadow-record-btn:hover { background: rgba(244, 63, 94, 0.16); }
+  .lx-ql-shadow-record-btn.lx-recording {
+    background: rgba(244, 63, 94, 0.28); color: #ffffff;
+    box-shadow: 0 0 0 2px rgba(244, 63, 94, 0.55),
+                0 0 16px rgba(244, 63, 94, 0.4);
+    animation: lx-ql-rec-pulse 1.4s ease-in-out infinite;
+  }
+  @keyframes lx-ql-rec-pulse {
+    0%, 100% { box-shadow: 0 0 0 2px rgba(244, 63, 94, 0.55),
+                            0 0 12px rgba(244, 63, 94, 0.35); }
+    50%      { box-shadow: 0 0 0 2px rgba(244, 63, 94, 0.85),
+                            0 0 22px rgba(244, 63, 94, 0.6);  }
+  }
+
+  .lx-ql-shadow-status {
+    margin-top: 4px; font-size: 11px; color: #94a3b8;
+    min-height: 14px;
+  }
+  .lx-ql-shadow-result { margin-top: 8px; }
+  .lx-ql-shadow-score {
+    display: inline-block; padding: 4px 10px; border-radius: 999px;
+    font-size: 14px; font-weight: 700;
+    margin-right: 8px;
+  }
+  .lx-ql-shadow-score-green {
+    background: rgba(34, 197, 94, 0.25); color: #bbf7d0;
+  }
+  .lx-ql-shadow-score-amber {
+    background: rgba(245, 158, 11, 0.25); color: #fde68a;
+  }
+  .lx-ql-shadow-score-red {
+    background: rgba(244, 63, 94, 0.25); color: #fda4af;
+  }
+  .lx-ql-shadow-feedback {
+    margin-top: 8px; padding: 6px 10px;
+    background: rgba(20, 184, 166, 0.08);
+    border-radius: 6px;
+    font-size: 12px; font-style: italic; color: #ccfbf1;
+  }
 `;
 
 // ── helpers ────────────────────────────────────────────────────────────────
@@ -644,6 +740,7 @@ function _renderQlOverlay(word, anchorRect, response) {
           ${bodyHtml}
           ${showActions ? `<div class="lx-ql-grammar-block" id="lx-ql-grammar"></div>` : ''}
           ${showActions ? `<div class="lx-ql-slang-block"   id="lx-ql-slang"></div>`   : ''}
+          ${showActions ? `<div class="lx-ql-shadow-block"  id="lx-ql-shadow"></div>`  : ''}
         </div>
         ${showActions ? `
           <div class="lx-ql-footer">
@@ -652,6 +749,7 @@ function _renderQlOverlay(word, anchorRect, response) {
             </div>
             <button class="lx-ql-explain-btn" id="lx-ql-explain">Explain Grammar</button>
             <button class="lx-ql-slang-btn"   id="lx-ql-explain-slang">💡 Explain Slang/Idiom</button>
+            <button class="lx-ql-shadow-btn"  id="lx-ql-practice-shadow">🎤 Practice Pronunciation</button>
             <div class="lx-ql-status" id="lx-ql-status"></div>
           </div>
         ` : ''}
@@ -741,6 +839,23 @@ function _renderQlOverlay(word, anchorRect, response) {
           if (scrollEl) scrollEl.scrollTop = scrollEl.scrollHeight;
         });
       });
+    });
+  }
+
+  // M33 — Practice Pronunciation (Webpage Shadowing)
+  const practiceBtn = shadow.getElementById('lx-ql-practice-shadow');
+  const shadowBlock = shadow.getElementById('lx-ql-shadow');
+  if (practiceBtn && shadowBlock) {
+    practiceBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      // Idempotent: clicking again leaves the block in place. We render
+      // the controls once; subsequent clicks scroll to the block.
+      if (!shadowBlock.classList.contains('lx-visible')) {
+        const lang = _detectLang(word);
+        _renderShadowControls(shadow, shadowBlock, word, lang);
+      }
+      const scrollEl = shadow.querySelector('.lx-ql-scroll');
+      if (scrollEl) scrollEl.scrollTop = scrollEl.scrollHeight;
     });
   }
 
@@ -845,6 +960,263 @@ function _renderSlangBlock(container, resp) {
   }
   container.innerHTML = html;
   container.classList.add('lx-visible');
+}
+
+// ── M33 — Shadowing block (shared by Quick Look + YouTube overlay) ────────
+
+// M33-S5-FIX: pivoted from hold-to-record to click-to-toggle. The
+// _SHADOW_MIN_HOLD_MS constant is no longer needed (no debounce against
+// accidental quick releases) — toggle is naturally robust.
+const _SHADOW_REC_MAX_MS   = 30 * 1000; // 30 s safety auto-stop
+const _SHADOW_WORD_TOKEN_RE = /[\wÀ-ɏͰ-ϿЀ-ӿ'-]+/gu;
+
+// base64 → Uint8Array (binary). atob handles ASCII base64 correctly; we
+// then convert each char code to a byte so we get a real binary buffer
+// rather than a UTF-16 string.
+function _shadowB64ToBytes(b64) {
+  const bin = atob(b64);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
+// Render the initial controls inside a shadow block — reference text
+// pristine, Play / Record buttons, status line. Used by both Quick Look
+// and YouTube overlay; class prefix differentiates the two surfaces.
+function _renderShadowControls(rootEl, container, referenceText, language, prefix = 'lx-ql') {
+  container.innerHTML = `
+    <div class="${prefix}-shadow-reference" id="${prefix}-shadow-ref">${escHtml(referenceText)}</div>
+    <div class="${prefix}-shadow-controls">
+      <button class="${prefix}-shadow-play-btn"   id="${prefix}-shadow-play">▶ Play Original</button>
+      <button class="${prefix}-shadow-record-btn" id="${prefix}-shadow-record">🎙 Start Recording</button>
+    </div>
+    <div class="${prefix}-shadow-status" id="${prefix}-shadow-status">Hear the model, then click Start Recording. Click Stop when you are done.</div>
+    <div class="${prefix}-shadow-result" id="${prefix}-shadow-result"></div>
+  `;
+  container.classList.add('lx-visible');
+
+  const playBtn   = rootEl.getElementById(`${prefix}-shadow-play`);
+  const recBtn    = rootEl.getElementById(`${prefix}-shadow-record`);
+  const statusEl  = rootEl.getElementById(`${prefix}-shadow-status`);
+  const resultEl  = rootEl.getElementById(`${prefix}-shadow-result`);
+  const refEl     = rootEl.getElementById(`${prefix}-shadow-ref`);
+
+  // ── Play Original ─────────────────────────────────────────────────────
+  let _audioEl = null;
+  if (playBtn) {
+    playBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      playBtn.disabled = true;
+      const orig = playBtn.textContent;
+      playBtn.textContent = 'Loading…';
+      statusEl.textContent = 'Fetching pronunciation…';
+
+      _qlSendMessage({
+        action: 'lexora-shadow-tts',
+        text: referenceText,
+        language,
+      }, (resp) => {
+        if (!resp || resp.status !== 'ok' || !resp.audio_b64) {
+          playBtn.textContent = orig;
+          playBtn.disabled = false;
+          statusEl.textContent = (resp && resp.message) || 'Could not load audio.';
+          return;
+        }
+        try {
+          const bytes = _shadowB64ToBytes(resp.audio_b64);
+          const blob  = new Blob([bytes], { type: resp.mime_type || 'audio/mpeg' });
+          if (_audioEl) {
+            try { _audioEl.pause(); } catch {}
+            try { URL.revokeObjectURL(_audioEl.src); } catch {}
+          }
+          _audioEl = new Audio(URL.createObjectURL(blob));
+          _audioEl.onended = () => {
+            playBtn.textContent = orig;
+            playBtn.disabled   = false;
+            statusEl.textContent = 'Click Start Recording when you are ready.';
+          };
+          _audioEl.onerror = () => {
+            playBtn.textContent = orig;
+            playBtn.disabled   = false;
+            statusEl.textContent = 'Audio playback failed.';
+          };
+          playBtn.textContent = '🔊 Playing…';
+          statusEl.textContent = 'Listening to the model…';
+          _audioEl.play();
+        } catch (err) {
+          playBtn.textContent = orig;
+          playBtn.disabled = false;
+          statusEl.textContent = `Audio decode failed: ${err && err.message || err}`;
+        }
+      });
+    });
+  }
+
+  // ── Click-to-toggle Record ────────────────────────────────────────────
+  // Pivot from hold-to-record (M33-S5 first cut) to click-to-toggle:
+  // hold mechanic was cutting recordings off after 1-2 s because micro
+  // mouse movements / taps were firing mouseleave / mouseup / touchend
+  // prematurely. Toggle is robust against those events and matches the
+  // mental model users have from voice memo apps.
+  // 30 s _autoStopTimer kept as a safety cap so a forgotten "Stop" click
+  // doesn't record forever.
+  let _autoStopTimer = null;
+  let _isRecording = false;
+
+  function _stopRecording() {
+    if (!_isRecording) return;
+    _isRecording = false;
+    if (_autoStopTimer) { clearTimeout(_autoStopTimer); _autoStopTimer = null; }
+
+    recBtn.classList.remove('lx-recording');
+    recBtn.textContent = 'Analysing…';
+    recBtn.disabled = true;
+    statusEl.textContent = 'Transcribing your audio…';
+
+    _qlSendMessage({ action: 'lexora-mic-stop' }, (resp) => {
+      if (!resp || resp.status !== 'ok' || !resp.audio_b64) {
+        recBtn.textContent = '🎙 Start Recording';
+        recBtn.disabled = false;
+        statusEl.textContent = (resp && resp.message) || 'Recording failed.';
+        return;
+      }
+
+      statusEl.textContent = 'Evaluating with AI…';
+      _qlSendMessage({
+        action:         'lexora-shadow-evaluate',
+        audio_b64:      resp.audio_b64,
+        mime_type:      resp.mime_type,
+        reference_text: referenceText,
+        language,
+      }, (evalResp) => {
+        recBtn.textContent = '🎙 Start Recording';
+        recBtn.disabled = false;
+        if (!evalResp) {
+          statusEl.textContent = 'No response from server.';
+          return;
+        }
+        if (evalResp.status === 'unauthorized') {
+          statusEl.textContent = 'Sign in to Lexora first.';
+          return;
+        }
+        if (evalResp.status === 'unavailable') {
+          statusEl.textContent = (evalResp.message || 'Service unavailable.');
+          return;
+        }
+        if (evalResp.status !== 'ok') {
+          statusEl.textContent = (evalResp.message || 'Evaluation failed.');
+          return;
+        }
+        statusEl.textContent = `Heard: "${evalResp.transcript || '(silence)'}"`;
+        _renderShadowResult(resultEl, refEl, referenceText, evalResp, prefix);
+      });
+    });
+  }
+
+  function _onRecordToggle(e) {
+    e.preventDefault();
+    e.stopPropagation();
+
+    // Second click → stop.
+    if (_isRecording) {
+      _stopRecording();
+      return;
+    }
+
+    // First click → start.
+    _isRecording = true;
+    recBtn.classList.add('lx-recording');
+    recBtn.textContent = '⏹ Stop Recording';
+    statusEl.textContent = 'Recording… click Stop when you are done.';
+
+    _qlSendMessage({ action: 'lexora-mic-start' }, (resp) => {
+      if (!resp || resp.status !== 'ok') {
+        _isRecording = false;
+        recBtn.classList.remove('lx-recording');
+        recBtn.textContent = '🎙 Start Recording';
+        statusEl.textContent = (resp && resp.message) ||
+          'Microphone not available. Open the extension Options page to grant permission.';
+        return;
+      }
+      // Safety auto-stop — if the user forgets to click Stop, we don't
+      // want to keep recording forever. Triggers the same _stopRecording
+      // path so the rest of the flow is unchanged.
+      _autoStopTimer = setTimeout(() => {
+        if (_isRecording) {
+          statusEl.textContent = 'Auto-stopped after 30 s — analysing…';
+          _stopRecording();
+        }
+      }, _SHADOW_REC_MAX_MS);
+    });
+  }
+
+  if (recBtn) {
+    recBtn.addEventListener('click', _onRecordToggle);
+  }
+}
+
+// Tier the score into a colour class.
+function _shadowScoreTier(score) {
+  if (score >= 80) return 'green';
+  if (score >= 60) return 'amber';
+  return 'red';
+}
+
+// Re-render the reference text with per-word annotations (red strikethrough
+// for missed words, amber wavy underline for mispronounced). Match
+// case-insensitively against the diff results but preserve original casing
+// in the rendered output.
+function _renderShadowAnnotatedReference(refEl, referenceText, missed, mispron, prefix) {
+  const missedSet  = new Set((missed  || []).map((w) => String(w).toLowerCase()));
+  const mispronSet = new Set((mispron || []).map((w) => String(w).toLowerCase()));
+  let out = '';
+  let lastIndex = 0;
+  // Reset regex state per call (global flag means lastIndex is stateful).
+  _SHADOW_WORD_TOKEN_RE.lastIndex = 0;
+  let m;
+  while ((m = _SHADOW_WORD_TOKEN_RE.exec(referenceText)) !== null) {
+    const word = m[0];
+    const start = m.index;
+    if (start > lastIndex) {
+      out += escHtml(referenceText.slice(lastIndex, start));
+    }
+    const lower = word.toLowerCase();
+    let cls = `${prefix}-shadow-word`;
+    if (missedSet.has(lower))      cls += ` ${prefix}-shadow-word-missed`;
+    else if (mispronSet.has(lower)) cls += ` ${prefix}-shadow-word-mispron`;
+    out += `<span class="${cls}">${escHtml(word)}</span>`;
+    lastIndex = start + word.length;
+  }
+  if (lastIndex < referenceText.length) {
+    out += escHtml(referenceText.slice(lastIndex));
+  }
+  refEl.innerHTML = out;
+}
+
+function _renderShadowResult(resultEl, refEl, referenceText, resp, prefix) {
+  const score   = Number.isFinite(resp.score) ? Math.max(0, Math.min(100, Math.round(resp.score))) : 0;
+  const missed  = Array.isArray(resp.missed_words)        ? resp.missed_words        : [];
+  const mispron = Array.isArray(resp.mispronounced_words) ? resp.mispronounced_words : [];
+  const feedback = (resp.feedback || '').toString().trim();
+  const tier    = _shadowScoreTier(score);
+
+  // Re-render the reference paragraph with annotations.
+  if (refEl) {
+    _renderShadowAnnotatedReference(refEl, referenceText, missed, mispron, prefix);
+  }
+
+  let html = `
+    <div>
+      <span class="${prefix}-shadow-score ${prefix}-shadow-score-${tier}">${score}/100</span>
+      <span style="opacity:0.7;font-size:11px;">
+        ${missed.length} missed · ${mispron.length} mispronounced
+      </span>
+    </div>
+  `;
+  if (feedback) {
+    html += `<div class="${prefix}-shadow-feedback">${escHtml(feedback)}</div>`;
+  }
+  resultEl.innerHTML = html;
 }
 
 // ── draggable card (Quick Look) ────────────────────────────────────────────

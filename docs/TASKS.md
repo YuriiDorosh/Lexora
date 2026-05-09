@@ -15,7 +15,663 @@
 
 ## Current Milestone
 
-(none — M31 + M32 closed on 2026-05-09; next milestone TBD)
+(none — M33 closed on 2026-05-09; next milestone TBD)
+
+---
+
+## Completed Milestones (M33)
+
+### M33 — Webpage Shadowing (Extension Pronunciation Practice)
+
+**Status:** Complete and verified (browser smoke confirmed by user;
+click-to-toggle UX pivot landed mid-flight).
+**Branch:** `m33_webpage_shadowing` (created from `m31_m32_extension_upgrades`)
+**Final commits:** `add95fa` planning · `cc43c74` S4 offscreen mic ·
+`444a5c0` S1-S3 backend pipeline · `978abe8` S5 UI · `a12b348` S6-FIX1
+mic-grant button · `d9738cd` S6-FIX2 click-to-toggle pivot ·
+this commit S7 docs flip.
+
+**Original status line (preserved for archive):**
+Planned (architecture review pass, no code yet).
+**Branch:** `m33_webpage_shadowing` (created from `m31_m32_extension_upgrades`)
+**Started:** 2026-05-09
+
+**Scope:** Bring M30's `/my/speaking` mic-and-feedback flow into the
+browser extension. New "🎤 Practice Pronunciation" button in Quick
+Look + YouTube overlays expands a Shadowing block: ▶ Play Original
+fetches Edge TTS for the selected phrase; 🎙 Hold to Record captures
+the user via `chrome.offscreen` document; ~30 s later the user sees
+a 0-100 score badge plus per-word red-strikethrough (missed) and
+amber-underline (mispronounced) annotations.
+
+**Architecture decisions (locked at planning):**
+
+- **Sync over async** (ADR-030/031 rule reapplied) — the user is
+  staring at the result. Two synchronous service calls in series:
+  `/transcribe-sync` (M30, ~10-20 s) → `/evaluate-pronunciation`
+  (NEW, ~10-30 s). Total p50 latency ~30-40 s.
+- **MV3 mic strategy: Offscreen Document API.** Recording happens
+  on `chrome-extension://<id>/offscreen.html`, NOT in the content
+  script. Mic permission is granted **once per extension**, not
+  once per origin. Lifecycle: lazy-create on first record;
+  reuse forever; no auto-close (the offscreen doc is idle when not
+  recording — costs nothing).
+- **Two Odoo proxy endpoints** (not one):
+  - `POST /lexora_api/shadow_tts` — proxies to NEW audio
+    `/tts-sync`, streams `audio/mpeg` bytes back. The browser
+    plays an `<audio>` element directly from the response.
+  - `POST /lexora_api/shadow_evaluate` — multipart orchestrator;
+    chains `/transcribe-sync` then `/evaluate-pronunciation`,
+    returns combined JSON.
+- **Audio service gains `POST /tts-sync`** — reuses the existing
+  `_generate_tts` helper (M6 RabbitMQ path). Returns
+  `Content-Type: audio/mpeg` bytes directly. 500-char cap.
+- **LLM `/evaluate-pronunciation` JSON contract** — four keys:
+  `score` (0-100, defensively clamped), `missed_words` (list,
+  capped 20, each ≤30 chars), `mispronounced_words` (same shape),
+  `feedback` (free text in `language`). Few-shot anchor per
+  language. Server-side safety net: if model returns
+  `score=100, missed=[], mispronounced=[]` but transcript ≠
+  reference (whitespace-normalised), runs a Python word-diff
+  fallback (Levenshtein ≤ 2 OR shared prefix ≥ 3) and recomputes
+  score.
+- **No persistence by default** — extension-side shadowing
+  attempts are NOT saved to `language.speaking.session`. Privacy
+  default; opt-in "save to history" is a future revisit trigger.
+
+#### Sub-steps
+
+**Step M33-S1 — LLM endpoint `POST /evaluate-pronunciation`** ✅ (with architectural pivot)
+
+- [x] M33-S1-01 · `EvaluatePronunciationRequest` Pydantic added
+  (reference_text, transcript, language='en').
+- [x] M33-S1-02–05 · Initial implementation followed the planned
+  "LLM does the diffing" design with `_EVALUATE_PRONUNCIATION_SYSTEM_PROMPT`,
+  per-language `_PRONUNCIATION_EXAMPLES` anchors, defensive coerce.
+  **First smoke pass surfaced that Qwen 1.5B is unreliable at
+  structural diffing** — Case A returned `score=85` with literal
+  `"..."` placeholder strings copied from the few-shot anchor; Case B
+  misidentified the missed word (claimed "lazy" missed when actually
+  the second "the" was dropped). Three prompt iterations didn't help.
+- [x] M33-S1-PIVOT · **Architectural pivot — hybrid model.**
+  Deterministic Python word-diff is now the source of truth for
+  `score / missed_words / mispronounced_words`; the LLM is consulted
+  only for the localised `feedback` string. The 1.5B model's job is
+  reduced to its strength (language-localised prose) and bounded to
+  a single failure mode (empty / wrong-language feedback) which
+  the deterministic per-language template (`_FEEDBACK_FALLBACKS`)
+  handles. Same "fight the contract, not the model" rule from M31.
+- [x] M33-S1-06 · `_word_diff_fallback` helper + `_levenshtein` helper.
+  - Tokenises both strings via `_WORD_TOKEN_RE` (`/[\w'\-]+/u`).
+  - **Multiset-correct counting** — uses `collections.Counter`
+    (not `set`) so reference "the" appearing twice but transcript
+    only having one "the" properly registers a missed second
+    occurrence. (First-pass set-based version had a bug here;
+    fixed in S1 smoke iteration.)
+  - For each reference token in order: consume from the Counter on
+    exact match → `matched`; near-match (Levenshtein ≤ 2 OR shared
+    3-char prefix) → consume + add to `mispronounced_words`;
+    otherwise → `missed_words`.
+  - `score = round(100 * matched / len(ref_tokens))`, clamped 0-100.
+- [x] M33-S1-FEEDBACK · `_llm_feedback` helper — short LLM call
+  asking only for `{"feedback": "..."}` given the diff results
+  pre-summarised. `max_tokens=120`, `temperature=0.4`. Output
+  passes through `_has_target_language_chars` script-validator
+  to reject language drift; on rejection or any failure, the
+  caller substitutes `_fallback_feedback(language, score, ...)`
+  (per-language template chosen by score tier).
+- [x] M33-S1-07 · `@app.post("/evaluate-pronunciation")` caps
+  reference_text and transcript at 1000 chars; empty reference →
+  HTTP 200 with status=error envelope; empty transcript is valid
+  (user said nothing → score 0).
+- [x] M33-S1-08 · `make up-llm-no-cache` → `/health` ready;
+  `/openapi.json` lists `/evaluate-pronunciation` alongside the
+  existing seven sync endpoints.
+- [x] M33-S1-09 · Smoke matrix (post-pivot):
+  - **A** byte-identical → `score=100, missed=[], mispron=[],
+    feedback="Well done! Your pronunciation is excellent."` ✓
+  - **B** "The X the Y" with one "the" dropped →
+    `score=89, missed=["the"], feedback` localised. Multiset fix
+    confirmed working. ✓
+  - **C** multi-word divergence ("had been waiting for two hours
+    when the bus finally arrived" vs. "was waiting for two hour
+    when bus finally arrive") → `score=50, missed=["when","the"],
+    mispron=["had","been","hours","arrived"], feedback` mentions
+    specific words. ✓
+  - **D** Polish (`Wczoraj poszedłem do parku z przyjacielem` vs.
+    `wczoraj poszłam do parku z przyjaciel`) → `score=67,
+    mispron=["poszedłem","przyjacielem"], feedback="Niezła próba —
+    przećwicz słowa, które pominąłeś."` Language clamp held. ✓
+
+**Step M33-S2 — Audio service endpoint `POST /tts-sync`** ✅
+
+- [x] M33-S2-01 · `TtsSyncRequest` Pydantic added; 500-char cap
+  via `TTS_SYNC_MAX_CHARS` env (default 500).
+- [x] M33-S2-02 · `@app.post("/tts-sync")` — reuses existing
+  `_generate_tts(text, language)`. Wraps the call in
+  `asyncio.wait_for(loop.run_in_executor(None, _generate_tts, ...),
+  timeout=TTS_SYNC_TIMEOUT_SEC)` so a hung Edge TTS network call
+  can't block the FastAPI event loop. Returns
+  `Response(content=mp3_bytes, media_type="audio/mpeg")` with
+  diagnostic headers (`X-Lexora-TTS-Engine`, `X-Lexora-TTS-Language`,
+  `Cache-Control: no-store`).
+- [x] M33-S2-03 · 400 on empty text; 413 on overflow (>500); 503
+  on timeout (default 25 s); 415 on engine failure; 415 on empty
+  output bytes.
+- [x] M33-S2-04 · `make up-audio-no-cache`; smokes:
+  - EN ("The quick brown fox...") → HTTP 200, 11433 bytes,
+    `MPEG ADTS, layer III, v2, 32 kbps, 22.05 kHz, Monaural` ✓
+  - PL ("Wczoraj poszedłem do parku.") → HTTP 200, 8299 bytes,
+    same MPEG profile (Edge TTS picked `pl-PL-ZofiaNeural` per M29) ✓
+  - Empty text → HTTP 400 `{"detail":"text is required"}` ✓
+  - 600-char overflow → HTTP 413
+    `{"detail":"text is 600 chars — max is 500"}` ✓
+
+**Step M33-S3 — Odoo proxy endpoints** ✅
+
+- [x] M33-S3-01 · `_MAX_SHADOW_TEXT = 500` and
+  `_AUDIO_SVC = os.environ.get('AUDIO_SERVICE_URL',
+  'http://audio-service:8000').rstrip('/')` constants added at the
+  top of `portal_api.py`.
+- [x] M33-S3-02 · `POST /lexora_api/shadow_tts` — `type='http'`,
+  `auth='none'`, `csrf=False`, `_require_session()` first line.
+  JSON body parsed. text required (400) + capped (413); language
+  validated against `_ALLOWED_LANGUAGES`. Forwards to
+  `{_AUDIO_SVC}/tts-sync` with 30 s timeout. On non-200 from the
+  audio service, surfaces the structured error JSON verbatim with
+  the same HTTP status. On success, streams audio bytes back via
+  `request.make_response(resp.content, headers=...)` with the
+  audio-service's Content-Type preserved + `_cors_headers()` added
+  + diagnostic `X-Lexora-TTS-*` headers passed through.
+- [x] M33-S3-03 · `POST /lexora_api/shadow_evaluate` — multipart
+  endpoint reading `audio` from `request.params` /
+  `request.httprequest.files`, plus `reference_text` and `language`
+  form fields. Validation: reference required + capped at
+  `_MAX_SHADOW_TEXT`; language fallback to 'en'; audio required +
+  non-empty.
+- [x] M33-S3-04 · Stage 1 — multipart forward to audio
+  `/transcribe-sync` (M30 endpoint) with `files={'audio': (filename,
+  bytes, mime)}` + `data={'language': language}`, 120 s timeout.
+  On network failure → `{status:'unavailable',
+  ...zero-defaults...}` HTTP 502. On non-200 from audio service,
+  surfaces the structured detail with the same status.
+- [x] M33-S3-05 · Stage 2 — JSON forward to llm
+  `/evaluate-pronunciation` with `{reference_text, transcript,
+  language}`, 60 s timeout. Same graceful unavailability handling.
+- [x] M33-S3-06 · Combined response shape:
+  `{status:"ok", transcript, duration, detected_language, score,
+  missed_words, mispronounced_words, feedback}`. Defensive
+  `status:"ok"` injection.
+- [x] M33-S3-07 · `--update language_portal --stop-after-init
+  --no-http` → "Modules loaded." 0 errors. Smoke matrix
+  (with session minted via `odoo shell`):
+  - **shadow_tts no session** → HTTP 401
+    `{"status":"unauthorized",...}` ✓
+  - **shadow_tts** with session → HTTP 200, `audio/mpeg`,
+    11433 bytes, valid MP3 written to disk ✓
+  - **shadow_evaluate full pipeline** — fed the M33-S3 TTS output
+    (perfect English audio of the reference sentence) back as the
+    user's recording → Whisper transcribed it as "The quick brown
+    fox **dumps** over the lazy dog" (Whisper's own substitution at
+    32 kbps low-bitrate input — the deterministic diff caught it,
+    which is exactly what the safety net is for); response was
+    `{score:89, mispronounced_words:["jumps"], feedback:"Great
+    job!..."}`. The TTS→Whisper→diff→LLM-feedback pipeline is
+    end-to-end correct. ✓
+
+**Step M33-S2 — Audio service endpoint `POST /tts-sync`**
+
+- [ ] M33-S2-01 · `services/audio/main.py` — new `TtsSyncRequest`
+  Pydantic: `text: str`, `language: str = "en"`. 500-char cap.
+- [ ] M33-S2-02 · `@app.post("/tts-sync")` — reuses the existing
+  `_generate_tts(text, language, engine)` helper. Returns
+  `Response(content=audio_bytes, media_type="audio/mpeg")`. 25 s
+  request timeout (Edge TTS is fast; safety bound).
+- [ ] M33-S2-03 · 503 on `_tts_engine` not initialised; 415 on
+  `_generate_tts` returning empty bytes; 413 if `text` exceeds
+  500 chars.
+- [ ] M33-S2-04 · `make up-audio-no-cache`; curl smoke:
+  ```bash
+  curl -X POST http://localhost:8004/tts-sync \
+    -H 'Content-Type: application/json' \
+    -d '{"text":"hello world","language":"en"}' \
+    -o /tmp/sample.mp3
+  file /tmp/sample.mp3   # → MPEG ADTS, layer III
+  ```
+  Plus pl/uk/el samples (each should produce playable audio
+  with the correct Edge voice).
+
+**Step M33-S3 — Odoo proxy endpoints**
+
+- [ ] M33-S3-01 · `language_portal/controllers/portal_api.py` —
+  new `_MAX_SHADOW_TEXT = 500` constant.
+- [ ] M33-S3-02 · `POST /lexora_api/shadow_tts` —
+  `type='http', auth='none', methods=['POST'], csrf=False`.
+  `_require_session()` first line. Body: `{text, language}`.
+  Validation: text required + capped at 500 chars; language
+  validated against `_ALLOWED_LANGUAGES`. Forward to audio
+  `/tts-sync` with `stream=True` (so we don't buffer the whole
+  MP3 in memory); pipe response bytes back with the same
+  `Content-Type` header. CORS reflection identical to existing
+  routes. 30 s timeout. Error path returns
+  `{status:'unavailable', message:'TTS service unavailable'}`
+  as JSON (not audio) with HTTP 502.
+- [ ] M33-S3-03 · `POST /lexora_api/shadow_evaluate` — multipart
+  endpoint. Reads `audio` (FileStorage), `reference_text` (str),
+  `language` (str) from `request.params`. Validates: audio
+  required, reference_text 1-500 chars, language whitelist.
+- [ ] M33-S3-04 · Stage 1 — forward `audio` to audio
+  `/transcribe-sync` as multipart (`files={'audio': (filename,
+  bytes, 'audio/webm')}`, `data={'language': language}`).
+  120 s timeout. On 4xx/5xx, surface the error verbatim.
+- [ ] M33-S3-05 · Stage 2 — POST
+  `{reference_text, transcript, language}` to llm
+  `/evaluate-pronunciation`, 60 s timeout.
+- [ ] M33-S3-06 · Combine both responses into:
+  ```json
+  {"status":"ok","transcript":"...","duration":4.2,
+   "score":85,"missed_words":[...],
+   "mispronounced_words":[...],"feedback":"..."}
+  ```
+  Defensive `status:"ok"` injection. On any stage-level
+  exception, return `{status:'unavailable', message, transcript:"",
+  score:0, missed_words:[], mispronounced_words:[], feedback:""}`
+  so the UI can render a graceful "service down" state.
+- [ ] M33-S3-07 · `--update language_portal --stop-after-init
+  --no-http`. Curl smoke with espeak-ng-generated audio
+  (`docker exec audio_service espeak-ng -v en --stdout "the
+  quick brown fox" > /tmp/ref.wav`):
+  - Identical reference + audio → high score, empty arrays.
+  - Different reference (e.g. ref="the quick brown fox", audio
+    says "quick brown fox") → score ~75, missed_words=["the"].
+
+**Step M33-S4 — Extension offscreen-doc mic infrastructure** ✅ (code; user-side smoke pending)
+
+- [x] M33-S4-01 · `extension/offscreen.html` — minimal HTML page,
+  loads `offscreen.js`, no visible UI. File-header comment
+  documents the lifecycle and references ADR-032.
+- [x] M33-S4-02 · `extension/offscreen.js` — full MediaRecorder
+  surface:
+  - `_pickMimeType()` falls through `audio/webm;codecs=opus →
+    audio/webm → audio/ogg;codecs=opus → audio/ogg`, returns the
+    first one supported by `MediaRecorder.isTypeSupported`.
+  - `startRecording()` requests `getUserMedia({audio:true})` (the
+    permission UI fires here on first call per extension install,
+    one-time grant), constructs `MediaRecorder` with the picked
+    MIME type, hooks `ondataavailable` → push to `_chunks`,
+    `recorder.start()`. Returns `{status:"ok", mime_type}` or
+    a friendly error code (`NotAllowedError` is mapped to a
+    "Permission denied. Open the extension Options page to retry."
+    message).
+  - `stopRecording()` returns a Promise: stops the recorder, the
+    `onstop` handler assembles a `Blob` from `_chunks`, runs
+    `FileReader.readAsDataURL`, strips the `data:audio/webm;base64,`
+    prefix, returns `{status:"ok", audio_b64, mime_type,
+    duration_ms, size_bytes}`. Always calls `_cleanup()` (releases
+    `MediaStreamTrack`s so the mic indicator turns off) regardless
+    of success or failure.
+  - `cancelRecording()` synchronously stops + cleans up; used by
+    the hold-to-record handler when the user releases the button
+    after <300 ms (likely accidental click).
+  - `ping` action — diagnostic, returns `{status, recording,
+    mime_type}` without invoking the recorder. Lets the SW health-
+    check the offscreen doc without burning a permission prompt.
+  - Message router gates on `msg.target === 'offscreen'` so popup
+    / options / content-script messages pass through untouched.
+- [x] M33-S4-03 · `extension/manifest.json` — `"offscreen"` added to
+  the `permissions` array. `web_accessible_resources` not needed
+  (offscreen pages are loaded via `chrome.offscreen.createDocument`,
+  not by web pages, so they don't require WAR declarations).
+- [x] M33-S4-04 · `extension/background.js`:
+  - `_ensureOffscreen()` — wraps `chrome.offscreen.hasDocument()`
+    in a try/catch (some Chromium builds throw when no offscreen
+    doc has ever been created); on miss, calls
+    `chrome.offscreen.createDocument({url:'offscreen.html',
+    reasons:['USER_MEDIA'], justification:'Record speech for
+    pronunciation practice...'})`. Throws a clear error if
+    `chrome.offscreen` API is missing (Chrome <116).
+  - `_sendToOffscreen(action)` — Promise-form
+    `chrome.runtime.sendMessage({target:'offscreen', action})`.
+  - `handleMicStart` → ensure + send `mic-start`.
+  - `handleMicStop` → guard via `_hasOffscreenSafely`, send
+    `mic-stop`. Logs `mime / duration_ms / size_bytes` on success
+    so the SW console gives useful diagnostics without dumping
+    base64.
+  - `handleMicCancel` → idempotent; returns `{status:'ok'}` if no
+    offscreen doc exists.
+  - `handleMicPing` → diagnostic for M33-S4-05.
+  - Message router cases for `lexora-mic-start` / `lexora-mic-stop`
+    / `lexora-mic-cancel` / `lexora-mic-ping`, all forwarding to
+    the helpers and surfacing exceptions as
+    `{status:'error', message}` (since chrome's `sendResponse`
+    can't carry a thrown Error).
+- [ ] M33-S4-05 · **DevTools sanity (user runs in Chrome)** —
+  reload the unpacked extension, open `chrome://extensions`,
+  click "service worker" under Lexora to open the SW DevTools
+  console, then run:
+  ```js
+  // Diagnostic — should report no offscreen doc yet:
+  await chrome.runtime.sendMessage({action: 'lexora-mic-ping'});
+  // → { status: "ok", offscreen: false, recording: false }
+
+  // Start a recording — first call triggers Chrome's mic permission UI:
+  await chrome.runtime.sendMessage({action: 'lexora-mic-start'});
+  // → { status: "ok", mime_type: "audio/webm;codecs=opus" }
+
+  // Speak for ~3 seconds, then stop:
+  const resp = await chrome.runtime.sendMessage({action: 'lexora-mic-stop'});
+  console.log('mime', resp.mime_type, 'dur_ms', resp.duration_ms,
+              'size', resp.size_bytes, 'b64_len', resp.audio_b64?.length);
+  // → mime audio/webm;codecs=opus dur_ms ~3000 size ~9000 b64_len ~12000
+  ```
+  Acceptance: `audio_b64` is non-empty (typically 8-15 KB for 3 s
+  at Opus); `duration_ms` close to wall-clock; `mime_type` matches
+  what `MediaRecorder` actually used. Subsequent
+  `mic-start` → `mic-stop` cycles on any tab reuse the grant
+  without re-prompting.
+
+**Step M33-S5 — Extension UI (Quick Look + YouTube overlays)** ✅
+
+- [x] M33-S5-01 · `extension/content.js` Quick Look:
+  - "🎤 Practice Pronunciation" button (`#lx-ql-practice-shadow`)
+    added in the QL footer alongside Explain Grammar + Explain
+    Slang. Teal accent palette (`rgba(20,184,166,...)`) keeps it
+    visually distinct from the indigo grammar block and amber
+    slang block.
+  - `<div class="lx-ql-shadow-block" id="lx-ql-shadow">` added
+    in the scroll body, hidden until the practice button is clicked.
+  - On click: `_renderShadowControls(shadow, shadowBlock, word,
+    lang, 'lx-ql')` renders the reference text + ▶ Play Original
+    + 🎙 Hold to Record + status line + result slot, then auto-
+    scrolls the scroll-body to the bottom so the block is in view.
+    Idempotent — clicking again with the block already visible
+    just re-scrolls.
+- [x] M33-S5-02 · ▶ Play Original click handler:
+  - Disables button, label "Loading…", status "Fetching
+    pronunciation…".
+  - Sends `{action:'lexora-shadow-tts', text, language}`.
+  - On `{status:'ok', audio_b64, mime_type}` response:
+    `_shadowB64ToBytes(audio_b64)` → `Uint8Array` → `Blob` with
+    the returned mime type → `URL.createObjectURL` → `new Audio(...)`.
+    Tracks `_audioEl` so a second play cleanly cancels the first.
+    `onended` resets the button and prompts the user to record.
+- [x] M33-S5-03 · 🎙 Hold to Record handler — full state machine:
+  - `mousedown` / `touchstart`: button gains `.lx-recording`
+    (red glow + 1.4 s pulse animation), label "Recording — release
+    when done", status cleared. Sends `{action:'lexora-mic-start'}`
+    via the M33-S4 message router. On error response (mic denied
+    etc.) restores button + shows the error message in status,
+    pointing the user at the Options page.
+  - 30 s safety auto-stop (`_SHADOW_REC_MAX_MS`) so an unresponsive
+    mouseup doesn't record forever (e.g. user drags off-screen).
+  - `mouseup` / `touchend`: if held <300 ms (`_SHADOW_MIN_HOLD_MS`),
+    sends `lexora-mic-cancel` and shows the "Hold the button while
+    speaking" hint. Otherwise sends `lexora-mic-stop`.
+  - `mouseleave` while recording: same path as mouseup with
+    `autoStop=true` (skips the <300 ms hint check).
+  - On `mic-stop` response: label "Analysing…", status
+    "Transcribing your audio…", forwards
+    `{action:'lexora-shadow-evaluate', audio_b64, mime_type,
+    reference_text, language}` to the background. The bg handler
+    decodes the base64, builds FormData with the audio Blob, and
+    POSTs to `/lexora_api/shadow_evaluate`.
+  - On evaluate response: status shows the Whisper transcript
+    ("Heard: ...") and `_renderShadowResult` paints the score
+    badge + annotations + feedback.
+- [x] M33-S5-04 · `_renderShadowResult(resultEl, refEl,
+  referenceText, resp, prefix)` shared helper:
+  - Defensive: clamps `score` to 0-100 + `Math.round`; coerces
+    array fields to `[]` if non-array.
+  - Score badge with tier class (green ≥80 / amber 60-79 / red <60)
+    plus a small "N missed · M mispronounced" caption.
+  - Re-renders the reference paragraph with per-word annotations
+    via `_renderShadowAnnotatedReference`: tokenises with
+    `_SHADOW_WORD_TOKEN_RE` (`/[\wÀ-ɏͰ-ϿЀ-ӿ'-]+/u`,
+    Unicode-aware so Greek / Cyrillic / Polish tokens match);
+    each word wrapped in `<span class="${prefix}-shadow-word">`,
+    with `…-word-missed` (red strikethrough, 2 px thickness) or
+    `…-word-mispron` (wavy amber underline) classes added based on
+    lowercase set membership. Original casing preserved in the
+    rendered output.
+  - Feedback in `<div class="${prefix}-shadow-feedback">` with the
+    teal italic style.
+- [x] M33-S5-05 · `_QL_CSS` extended (~95 new lines) with the
+  full M33 teal/rose palette:
+  - `.lx-ql-shadow-btn` (teal outline)
+  - `.lx-ql-shadow-block` (teal left-border accent + subtle bg)
+  - `.lx-ql-shadow-reference` (rounded box for the reference text)
+  - `.lx-ql-shadow-word`, `…-word-missed` (red strikethrough),
+    `…-word-mispron` (amber wavy underline)
+  - `.lx-ql-shadow-controls` (flex row for the Play + Record
+    buttons)
+  - `.lx-ql-shadow-play-btn` (neutral) and `.lx-ql-shadow-record-btn`
+    (rose); record gains `.lx-recording` with `lx-ql-rec-pulse`
+    keyframe (1.4 s box-shadow pulse) while active
+  - `.lx-ql-shadow-status` (small grey status line)
+  - `.lx-ql-shadow-score` + tier modifiers
+    `…-score-green / …-score-amber / …-score-red` (rounded pill
+    badges)
+  - `.lx-ql-shadow-feedback` (italic teal-on-teal box)
+- [x] M33-S5-06 · `extension/overlay.js` — same architecture
+  mirrored under the `lx-yt-` prefix:
+  - `#lx-yt-practice-shadow` button + `#lx-yt-shadow` block in the
+    overlay HTML. Block lives inside `.lx-yt-scroll` so long
+    feedback / annotations scroll naturally — M28-12d flex sandwich
+    preserved.
+  - `_renderYtShadowControls(rootEl, container, referenceText,
+    language)` and `_renderYtShadowResult(...)` are local twins
+    of the content.js helpers (overlay.js can't import from
+    content.js, but the shape is identical). `_escHtml` already
+    exists in overlay.js; uses `_sendMessage` instead of
+    `_qlSendMessage`.
+  - `_OVERLAY_CSS` gains all the amber/teal/rose rules with
+    `!important` `cursor` and `pointer-events` on buttons (M28-12d
+    rule — YouTube's stylesheet has been seen to override these).
+- [x] M33-S5-07 · `extension/background.js` — `lexora-shadow-tts`
+  and `lexora-shadow-evaluate` cases added to the onMessage router.
+  - `handleShadowTts({text, language})`: POST JSON to
+    `/lexora_api/shadow_tts`; reads response as `ArrayBuffer`;
+    `_bytesToB64` (chunked btoa to avoid stack overflow on large
+    buffers) → returns `{status, audio_b64, mime_type, size_bytes}`.
+  - `handleShadowEvaluate({audio_b64, mime_type, reference_text,
+    language})`: `_b64ToBytes` → `Blob` → `FormData` (NOT setting
+    Content-Type so the browser picks the multipart boundary
+    automatically) → POST to `/lexora_api/shadow_evaluate`. 401
+    surfaced as `{status:'unauthorized'}` so the UI shows the
+    sign-in prompt; non-2xx surfaces the structured error verbatim.
+- [x] M33-S5-08 · All five touched JS files (`content.js`,
+  `overlay.js`, `background.js`, `options.js`, `offscreen.js`)
+  pass `node --check`. Browser smoke (M33-S6) is up to the user.
+
+**Step M33-S6 — Verification** (server-side ✓; user-side smoke pending)
+
+- [x] M33-S6-01 · LLM endpoint smoke matrix — all four cases pass
+  (recorded under S1-09 above).
+- [x] M33-S6-02 · Audio /tts-sync smokes — EN + PL valid MPEG
+  bytes (recorded under S2-04 above).
+- [x] M33-S6-03 · Odoo proxy curl smokes — `/shadow_tts` returns
+  audio bytes, `/shadow_evaluate` end-to-end pipeline confirmed
+  with the TTS-roundtrip test that exposed Whisper's own `jumps→
+  dumps` substitution at low bitrate (recorded under S3-07 above).
+  The deterministic diff caught the substitution exactly as the
+  safety net is designed to.
+- [ ] M33-S6-04 · Browser smoke — user reloads the extension, opens
+  a webpage, selects a 5-10 word sentence, clicks 🎤, ▶ Play
+  Original, 🎙 Hold to Record, releases, sees ~30 s later the
+  score badge + per-word annotation + feedback. First click on a
+  fresh extension install triggers Chrome's mic permission prompt;
+  subsequent records reuse it.
+- [ ] M33-S6-05 · Negative tests — deny mic, hold <300 ms, very
+  long reference, multi-language (Polish article + Greek blog)
+  — recorded by user during smoke.
+
+**Step M33-S6-FIX1 — Mic-permission grant on Options page** ✅
+
+User-side smoke surfaced an edge case anticipated in the M33 plan:
+Chrome auto-blocks `getUserMedia` in the offscreen document on first
+use (NotAllowedError) on some configurations, with no permission
+prompt. The error message ("Open the extension Options page to grant
+permission") was a forward-looking hint — Options had no mic-grant
+flow yet. Quick fix delivers it.
+
+- [x] M33-S6-FIX1-01 · `extension/options.html` — new
+  "Webpage Shadowing (M33)" section with a teal-bordered
+  `.lx-mic-grant-row` block. Contains:
+  - Title "🎙️ Microphone permission".
+  - Hint copy explaining the Chrome `NotAllowedError` race and
+    pointing the user at the button below as the fix.
+  - `<button id="lx-mic-grant-btn">🎙️ Grant Microphone Permission</button>`.
+  - `<div id="lx-mic-status">` for inline status feedback.
+  - Plus styling: teal gradient button, three status states
+    (`.ok` green / `.error` red / `.busy` amber), `<code>`
+    inline pill for hint text.
+- [x] M33-S6-FIX1-02 · `extension/options.js` — click handler:
+  - Calls `navigator.mediaDevices.getUserMedia({audio:true})` —
+    runs on the chrome-extension://<id>/options.html origin, which
+    is the SAME origin as offscreen.html. The grant Chrome remembers
+    here is what the offscreen recorder inherits.
+  - On success: stops every track immediately (we wanted the GRANT,
+    not the stream — releasing the tracks turns the mic indicator
+    off so users don't think we're still recording). Status shows
+    "✓ Permission granted! You can now use 🎤 Practice Pronunciation
+    on any webpage."
+  - On `NotAllowedError`: status shows the chrome://extensions
+    site-permission reset path (once Chrome has hard-denied, the
+    user has to clear the deny manually before the grant button
+    works).
+  - On `NotFoundError` / `OverconstrainedError`: status hints at
+    plugging in a microphone.
+  - On any other error: status renders `<code>{err.name}</code>: {err.message}`
+    via a local `_escHtml` helper for defensive HTML-escape.
+- [x] M33-S6-FIX1-03 · `node --check` passes on the modified
+  `options.js`.
+
+**Step M33-S6-FIX2 — UX pivot: hold-to-record → click-to-toggle** ✅
+
+User browser smoke surfaced a severe UX issue with the hold-to-record
+mechanic from M33-S5: micro mouse movements / brief touches were
+firing `mouseleave` / `mouseup` / `touchend` prematurely and cutting
+the recording off after 1-2 s. The user explicitly requested a pivot
+to a simple "click to start, click to stop" toggle — same model
+voice-memo apps use; naturally robust against the spurious-event class
+of bug.
+
+- [x] M33-S6-FIX2-01 · `extension/content.js` `_renderShadowControls`:
+  - Removed all six event listeners on the record button:
+    `mousedown` / `touchstart` (start), `mouseup` / `touchend` (stop),
+    `mouseleave` / `touchcancel` (cancel-with-autoStop). Removed the
+    `_holdStart` timestamp variable + the `_SHADOW_MIN_HOLD_MS=300`
+    debounce against accidental quick releases (no longer relevant
+    once toggle is the model).
+  - Replaced with a single `click` listener calling `_onRecordToggle`:
+    - First click (when `!_isRecording`): sets `_isRecording=true`,
+      adds `.lx-recording` class (pulse animation preserved), label
+      flips to **"⏹ Stop Recording"**, sends `lexora-mic-start`.
+      Status: "Recording… click Stop when you are done." On the
+      mic-start error path, button reverts to "🎙 Start Recording"
+      with the existing Options-page hint.
+    - Second click (when `_isRecording`): calls `_stopRecording()`
+      which clears `.lx-recording`, label flips to "Analysing…",
+      button disabled, sends `lexora-mic-stop` + the existing
+      `lexora-shadow-evaluate` chain. On result render, button
+      label resets to "🎙 Start Recording" and re-enables.
+  - 30 s `_SHADOW_REC_MAX_MS` auto-stop **kept** as a safety bound:
+    if the user forgets to click Stop, the timer fires
+    `_stopRecording()` (same path) with a status note
+    "Auto-stopped after 30 s — analysing…".
+  - Initial button label updated from "🎙 Hold to Record" → "🎙 Start
+    Recording"; initial status updated from "...hold the record button
+    while you say it" → "...click Start Recording. Click Stop when
+    you are done."; post-Play-Original status updated from "Hold the
+    record button when you're ready." → "Click Start Recording when
+    you are ready."
+  - Note: `_renderShadowControls` is shared by Quick Look and (in the
+    future) any other surface using `prefix='lx-ql'`. The toggle
+    behaviour is encapsulated inside the helper, so call sites don't
+    need to change.
+- [x] M33-S6-FIX2-02 · `extension/overlay.js` `_renderYtShadowControls`:
+  - Identical pivot mirrored under `lx-yt-` prefix and
+    `_sendMessage` / `_YT_SHADOW_REC_MAX_MS`. Same six event
+    listeners removed; same single `click` handler with the same
+    `_isRecording` state machine; same label / status copy updated;
+    same 30 s auto-stop safety preserved.
+  - `_YT_SHADOW_MIN_HOLD_MS` constant removed from the file header.
+- [x] M33-S6-FIX2-03 · Verification:
+  - `node --check` passes on all 5 extension JS files
+    (`content.js`, `overlay.js`, `background.js`, `options.js`,
+    `offscreen.js`).
+  - Grep confirms no remaining `mousedown` / `mouseup` / `mouseleave` /
+    `touchstart` / `touchend` / `touchcancel` listeners on the
+    record-button surface; the remaining matches across `content.js`
+    and `overlay.js` are all unrelated (icon hover detection, card
+    drag handlers, click-outside-to-close, M31 writer-FAB
+    anti-blur).
+
+**Step M33-S6 — Verification**
+
+- [ ] M33-S6-01 · LLM endpoint smoke matrix (S1-09).
+- [ ] M33-S6-02 · Audio /tts-sync smoke (ear-check the saved
+  .mp3 files).
+- [ ] M33-S6-03 · Odoo proxy curl smoke for both
+  `/shadow_tts` (saves bytes to disk) and `/shadow_evaluate`
+  (sends a known-good audio + reference, expects high score).
+- [ ] M33-S6-04 · Browser smoke: select a 5-10 word sentence on
+  Wikipedia → 🎤 → ▶ Play Original (TTS plays cleanly) → 🎙
+  Hold to Record (red glow) → release → ~30 s wait → score
+  badge + annotations render. First click on a fresh extension
+  triggers Chrome's mic permission prompt; subsequent records
+  on any tab reuse the grant.
+- [ ] M33-S6-05 · Negative tests: deny mic → friendly error
+  message in the block. Hold for <300 ms → "Hold while speaking"
+  hint, no POST. Reference text >500 chars → client-side
+  truncation with a "(truncated)" hint.
+- [ ] M33-S6-06 · Multi-language: same flow on a Polish article
+  and a Greek blog. Score + feedback render in the correct
+  script.
+
+**Step M33-S7 — ADR-032 + final docs flip** ✅
+
+- [x] M33-S7-01 · ADR-032 in `docs/DECISIONS.md` — single ADR
+  with **six locked sub-decisions** (32a–f):
+  - 32a · `chrome.offscreen` mic strategy + alternatives rejected
+    (iframe / popup) and Manifest changes.
+  - 32b · Mic-permission grant button on Options page (M33-S6-FIX1)
+    with full error UX matrix.
+  - 32c · Two Odoo proxy endpoints rationale + single-endpoint
+    alternative rejected.
+  - 32d · Hybrid LLM model — deterministic word-diff is the source
+    of truth (with the multiset Counter detail), LLM only writes
+    feedback. End-to-end smoke validation recorded
+    (TTS-roundtrip-via-Whisper test that exposed `jumps→dumps` at
+    32 kbps).
+  - 32e · Click-to-toggle UX pivot (M33-S6-FIX2) and the general
+    rule "prefer toggle over hold for any non-trivial recorder".
+  - 32f · No persistence by default + the rationale.
+  Plus four lessons fed back into the codebase (pattern reuse,
+  server-side floor, mic-permission UX requires a visible gesture,
+  toggle over hold) and four revisit triggers.
+- [x] M33-S7-02 · `docs/PLAN.md` v2.3 → v2.4; M33 row flipped to
+  ✅ Complete; status header reflects M0–M33 done (M26 still
+  postponed).
+- [x] M33-S7-03 · `docs/TASKS.md` — M33 block archived under
+  "Completed Milestones (M33)" with all seven commit SHAs preserved.
+  Current Milestone slot empty until next milestone starts.
+- [x] M33-S7-04 · `README.md` — Practice Modes table gains
+  "Webpage Shadowing (browser)" row; Browser Ecosystem section
+  gets a new M33 subsection; LLM service sync-endpoints list adds
+  `/evaluate-pronunciation` (now eight sync endpoints across
+  M17-M33); audio service section adds `/tts-sync`; M33 row added
+  to implementation status table; section heading bumped from
+  M22-M32 → M22-M33.
+- [x] M33-S7-05 · Commit + push to `m33_webpage_shadowing`.
+
+#### Blockers
+
+(none yet — primary risk is mic-permission UX on unusual
+Chromium builds; smoke on Step 6 will surface any divergence
+from the standard `chrome.offscreen` flow)
+
+---
 
 ---
 

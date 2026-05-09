@@ -124,6 +124,56 @@
     }
     select:focus { border-color: #818cf8; }
     select option { background: #1e293b; color: #f1f5f9; }
+
+    /* M33 — mic-permission grant block */
+    .lx-mic-grant-row {
+      padding: 14px 16px;
+      background: rgba(20, 184, 166, 0.08);
+      border: 1px solid rgba(20, 184, 166, 0.25);
+      border-radius: 10px;
+      margin-bottom: 12px;
+    }
+    .lx-mic-grant-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: #ccfbf1;
+      margin-bottom: 4px;
+    }
+    .lx-mic-grant-hint {
+      font-size: 11px;
+      color: rgba(255, 255, 255, 0.55);
+      line-height: 1.45;
+      margin-bottom: 12px;
+    }
+    .lx-mic-grant-btn {
+      padding: 10px 16px;
+      background: linear-gradient(90deg, #14b8a6, #0d9488);
+      border: none;
+      border-radius: 8px;
+      color: #fff;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .lx-mic-grant-btn:disabled {
+      opacity: 0.5;
+      cursor: progress;
+    }
+    .lx-mic-status {
+      margin-top: 10px;
+      font-size: 12px;
+      line-height: 1.5;
+      min-height: 16px;
+    }
+    .lx-mic-status.ok    { color: #4ade80; }
+    .lx-mic-status.error { color: #fca5a5; }
+    .lx-mic-status.busy  { color: #fde68a; }
+    .lx-mic-status code {
+      background: rgba(255, 255, 255, 0.08);
+      padding: 1px 4px;
+      border-radius: 3px;
+      font-size: 11px;
+    }
   </style>
 </head>
 <body>
@@ -149,6 +199,24 @@
       </span>
     </span>
   </label>
+
+  <div class="lx-section-divider"></div>
+  <div class="lx-section-label">Webpage Shadowing (M33)</div>
+
+  <div class="lx-mic-grant-row">
+    <div class="lx-mic-grant-title">🎙️ Microphone permission</div>
+    <div class="lx-mic-grant-hint">
+      The "🎤 Practice Pronunciation" button records your voice via the
+      extension's offscreen document. Chrome occasionally auto-blocks this
+      with <code>NotAllowedError</code> on first use. Click below to grant
+      permission explicitly on this page — once granted, every record
+      action on every webpage works without re-prompting.
+    </div>
+    <button id="lx-mic-grant-btn" class="lx-mic-grant-btn" type="button">
+      🎙️ Grant Microphone Permission
+    </button>
+    <div id="lx-mic-status" class="lx-mic-status"></div>
+  </div>
 
   <div class="lx-section-divider"></div>
   <div class="lx-section-label">Slang &amp; Idiom Explainer (M32)</div>

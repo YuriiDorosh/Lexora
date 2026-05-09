@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<!--
+  Lexora — offscreen recording surface (M33).
+
+  This page lives at chrome-extension://<id>/offscreen.html and is loaded
+  via chrome.offscreen.createDocument() from the service worker. It has
+  no visible UI; its sole job is to host getUserMedia() + MediaRecorder
+  on the EXTENSION's origin so the user grants mic permission ONCE per
+  extension (instead of once per webpage origin).
+
+  Lifecycle is driven by chrome.runtime messages from the service worker:
+    {target:'offscreen', action:'mic-start'}   → start recording
+    {target:'offscreen', action:'mic-stop'}    → stop, return base64 audio
+    {target:'offscreen', action:'mic-cancel'}  → discard in-flight recording
+
+  See ADR-032 (M33-S7) for the rationale.
+-->
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Lexora Offscreen</title>
+</head>
+<body>
+  <script src="offscreen.js"></script>
+</body>
+</html>

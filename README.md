@@ -21,7 +21,7 @@
 
 1. [Concept](#1-concept)
 2. [Feature Catalogue](#2-feature-catalogue)
-3. [The Browser Ecosystem (M22–M32)](#3-the-browser-ecosystem-m22m32)
+3. [The Browser Ecosystem (M22–M33)](#3-the-browser-ecosystem-m22m33)
 4. [Backend Architecture](#4-backend-architecture)
 5. [Async Microservices](#5-async-microservices)
 6. [Spaced Repetition (SM-2)](#6-spaced-repetition-sm-2)
@@ -104,6 +104,7 @@ fees, no external databases — just Docker Compose on a CPU-only Linux server.
 | **AI Speaking Coach** | Browser-mic recording → Faster-Whisper sync transcription → Qwen2.5-1.5B feedback (corrections / synonyms / improved version). 90 s soft cap; works in en/uk/el/pl; sessions persisted at `/my/speaking/<id>` |
 | **Lexora Writer** (browser) | Floating "L" FAB on every focused `<textarea>` / `[contenteditable]` across the web. One click → grammar fixes + polished version + Apply-to-text. Compatible with React/Vue controlled inputs; strict eligibility skips passwords, search, code editors |
 | **Slang & Idiom Explainer** (browser) | "💡 Explain Slang/Idiom" button in the Quick Look + YouTube subtitle overlays. Classifies the phrase (idiom / slang / phrasal verb / literal) and renders figurative + literal meaning + a usage example in the user's chosen native language |
+| **Webpage Shadowing** (browser) | "🎤 Practice Pronunciation" button in the Quick Look + YouTube overlays. ▶ Play Original streams Edge TTS for the selected sentence; click-to-toggle 🎙 Start/Stop Recording captures the user's voice on a `chrome.offscreen` document (mic permission granted once per extension). Whisper transcribes; deterministic Python word-diff scores accuracy and flags missed/mispronounced words; LLM writes the localised feedback line |
 | **Phrasebook** | 6 tourist kits × ~15 phrases × 3 languages; one-click "Practice in Roleplay" |
 | **Idioms Hub** | 100+ phrasal verbs (EN) + idioms (UK/EL); flip-card UI; save-to-vocabulary button |
 
@@ -117,7 +118,7 @@ fees, no external databases — just Docker Compose on a CPU-only Linux server.
 
 ---
 
-## 3. The Browser Ecosystem (M22–M32)
+## 3. The Browser Ecosystem (M22–M33)
 
 The Chrome Extension is the centrepiece of the immersion strategy. It turns every
 browser tab into a capture and practice surface.
@@ -295,6 +296,46 @@ response in an amber-themed scrollable block.
   consider checking a dictionary"* so the user knows Qwen 1.5B may
   be wobbly on regional slang or obscure idioms.
 
+### M33 — Webpage Shadowing (Pronunciation Practice)
+
+Brings the `/my/speaking` mic-and-feedback flow from the portal into the
+browser extension. Select a sentence on any webpage → "🎤 Practice
+Pronunciation" → expands a teal Shadowing block with two affordances:
+
+- **▶ Play Original**: Edge TTS audio streamed from `POST /tts-sync`,
+  played inline via `<audio>` so the user hears a perfect rendering
+  before practising.
+- **🎙 Start / ⏹ Stop Recording (click-to-toggle)**: captures the user's
+  voice on a `chrome.offscreen` document. Pivoted from hold-to-record in
+  M33-S6-FIX2 because hold cut recordings off after 1-2 s on micro mouse
+  movements (ADR-032 § 32e).
+
+After Stop, the flow runs:
+1. **Whisper transcription** via `/lexora_api/shadow_evaluate` → `/transcribe-sync`.
+2. **Pronunciation evaluation** via `/evaluate-pronunciation` — the
+   structured fields (`score`, `missed_words`, `mispronounced_words`)
+   come from a deterministic Python word-diff (multiset-correct
+   Counter-based, Levenshtein ≤ 2 OR shared 3-char prefix for
+   "mispronounced"); only the localised `feedback` string comes from the
+   LLM, with a per-language template fallback if the model drifts to the
+   wrong script (ADR-032 § 32d).
+3. **UI render**: a colour-tiered score badge (green ≥80 / amber 60-79 /
+   red <60), the reference paragraph re-rendered with red strikethrough
+   on missed words and amber wavy underline on mispronounced words, plus
+   the feedback line.
+
+**MV3 mic permission**: the offscreen-document strategy means users grant
+mic access **once per extension** instead of once per webpage origin
+(ADR-032 § 32a). When Chrome silently blocks the offscreen `getUserMedia`
+on first use, the Options page exposes a "🎙️ Grant Microphone Permission"
+button on a visible UI surface that explicitly registers the grant
+(ADR-032 § 32b).
+
+**Privacy default**: shadowing attempts are **not** persisted — every
+record→evaluate cycle is ephemeral. The portal's `/my/speaking` (M30)
+remains the persistent surface for users who want to review progress over
+time (ADR-032 § 32f).
+
 ---
 
 ## 4. Backend Architecture
@@ -378,10 +419,12 @@ response in an amber-themed scrollable block.
   Grammar Explainer button in the browser extension; `POST /generate-topic` and
   `POST /analyze-speech` for the AI Speaking Coach (M30); `POST /analyze-writing` for
   the Lexora Writer FAB (M31); `POST /explain-slang` for the Slang & Idiom Explainer
-  button (M32). All six bypass RabbitMQ because the user can't proceed without the
-  result; ADR-030 + ADR-031 document the sync-over-async rule and the shared endpoint
-  pattern (Pydantic + few-shot anchor + tolerant parser + defensive coerce + stub
-  fallback + server-side `status` injection)
+  button (M32); `POST /evaluate-pronunciation` for Webpage Shadowing (M33). All seven
+  bypass RabbitMQ because the user can't proceed without the result; ADR-030 + ADR-031
+  + ADR-032 document the sync-over-async rule and the shared endpoint pattern
+  (Pydantic + few-shot anchor + tolerant parser + defensive coerce + stub fallback +
+  server-side `status` injection — eight sync endpoints across M17–M33 follow this
+  exact shape)
 
 ### Anki Import Service (port 8003)
 
@@ -404,10 +447,17 @@ response in an amber-themed scrollable block.
   `int8` quantization on CPU; 2–4× faster than openai-whisper
 - **Voice map:** `en → en-US-JennyNeural`, `uk → uk-UA-PolinaNeural`,
   `el → el-GR-AthinaNeural`, `pl → pl-PL-ZofiaNeural`
-- **Sync endpoint:** `POST /transcribe-sync` (M30) for the Speaking Coach —
-  multipart audio upload, returns `{transcript, duration, language}`. 90 s soft
-  cap (`AUDIO_SYNC_MAX_SECONDS`) and 15 MB hard guard (`AUDIO_SYNC_MAX_BYTES`),
-  both env-configurable. Reuses the loaded Whisper model — no extra RAM.
+- **Sync endpoints:**
+  - `POST /transcribe-sync` (M30) for the Speaking Coach — multipart audio upload,
+    returns `{transcript, duration, language}`. 90 s soft cap
+    (`AUDIO_SYNC_MAX_SECONDS`) and 15 MB hard guard (`AUDIO_SYNC_MAX_BYTES`), both
+    env-configurable. Reuses the loaded Whisper model — no extra RAM.
+  - `POST /tts-sync` (M33) for Webpage Shadowing's "▶ Play Original" — JSON body
+    `{text, language}`, returns `audio/mpeg` bytes directly so the browser feeds
+    them to an `<audio>` element. 500-char cap (`TTS_SYNC_MAX_CHARS`); 25 s safety
+    timeout (`TTS_SYNC_TIMEOUT_SEC`) wrapping the existing `_generate_tts`
+    helper via `asyncio.wait_for(loop.run_in_executor(...))` so a hung Edge TTS
+    network call can't block the FastAPI event loop.
 
 ---
 
@@ -747,6 +797,7 @@ Key variables in `.env` (see `env.example` for the full list):
 | M30 | ✅ Complete | AI Speaking Coach — `/my/speaking` portal: browser-mic recording → Faster-Whisper sync transcription → Qwen2.5-1.5B feedback (corrections / synonyms / improved version). 90 s soft cap; 4-language support; sessions persisted in `language.speaking.session` (ADR-030) |
 | M31 | ✅ Complete | Lexora Writer — floating "L" FAB on every focused `<textarea>` / `[contenteditable]`; sends field text to `/analyze-writing`; React-compatible Apply-to-text via the native HTMLTextAreaElement setter + `InputEvent`; strict eligibility skips passwords / search / code editors / login forms; Options-page toggle; server-side safety net guarantees every change is documented (ADR-031) |
 | M32 | ✅ Complete | Slang & Idiom Explainer — "💡 Explain Slang/Idiom" button alongside the M28 grammar button in Quick Look + YouTube overlays; `/explain-slang` returns five-key JSON (kind / figurative / literal / example / confidence); dual language clamp (explanation in user's native language, example in source); honest UI for `kind:'literal'` and `confidence:'low'` branches; native-language picker in Options (ADR-031) |
+| M33 | ✅ Complete | Webpage Shadowing — "🎤 Practice Pronunciation" button in Quick Look + YouTube overlays. ▶ Play Original streams Edge TTS via `/tts-sync`; click-to-toggle Start/Stop Recording captures voice on a `chrome.offscreen` document (mic permission once per extension); `/transcribe-sync` → `/evaluate-pronunciation` → score badge (green/amber/red) + per-word red-strikethrough/amber-wavy-underline annotation + localised feedback. Deterministic Python word-diff is the source of truth for the structured fields; LLM only writes feedback. Click-to-toggle UX + Options-page mic-grant button + no-persistence default (ADR-032) |
 
 ---
 

@@ -292,6 +292,91 @@ const _OVERLAY_CSS = `
     display:block; margin-top:6px;
     font-size:11px; font-style:italic; color:#f87171;
   }
+
+  /* M33 — Webpage Shadowing (teal/rose accent) */
+  .lx-yt-shadow-btn {
+    display:block; width:100%; margin-top:6px; padding:6px 0;
+    background: rgba(20, 184, 166, 0.15);
+    border: 1px solid rgba(20, 184, 166, 0.4);
+    border-radius:8px; color:#5eead4; font-size:12px; font-weight:600;
+    cursor: pointer !important; pointer-events: auto !important;
+    transition: background 0.15s;
+  }
+  .lx-yt-shadow-btn:hover    { background: rgba(20, 184, 166, 0.3); }
+  .lx-yt-shadow-btn:disabled { opacity:0.5; cursor:default !important; }
+
+  .lx-yt-shadow-block {
+    display:none; margin-top:8px; padding:10px 12px;
+    background: rgba(20, 184, 166, 0.06);
+    border-left: 3px solid #14b8a6;
+    border-radius: 0 8px 8px 0;
+    font-size:12px; line-height:1.6; color:#e0f2fe;
+  }
+  .lx-yt-shadow-block.lx-visible { display:block; }
+
+  .lx-yt-shadow-reference {
+    margin-bottom:8px; padding:6px 10px;
+    background: rgba(255, 255, 255, 0.04);
+    border-radius:6px;
+    font-size:13px; line-height:1.5; color:#f1f5f9;
+  }
+  .lx-yt-shadow-word { display:inline; }
+  .lx-yt-shadow-word-missed {
+    color:#fca5a5; text-decoration: line-through;
+    text-decoration-thickness: 2px;
+  }
+  .lx-yt-shadow-word-mispron {
+    color:#fbbf24;
+    text-decoration: underline wavy;
+    text-decoration-color: #f59e0b;
+  }
+
+  .lx-yt-shadow-controls {
+    display:flex; gap:6px; flex-wrap:wrap; margin-bottom:8px;
+  }
+  .lx-yt-shadow-play-btn,
+  .lx-yt-shadow-record-btn {
+    flex:1 1 auto; padding:6px 10px;
+    border-radius:8px; font-size:12px; font-weight:600;
+    cursor:pointer !important; pointer-events:auto !important;
+    border:1px solid rgba(255,255,255,0.18);
+    background: rgba(255, 255, 255, 0.06);
+    color:#cbd5e1;
+    user-select:none;
+    transition: background 0.15s, box-shadow 0.15s;
+  }
+  .lx-yt-shadow-play-btn:hover    { background: rgba(255, 255, 255, 0.12); }
+  .lx-yt-shadow-play-btn:disabled { opacity:0.5; cursor:default !important; }
+  .lx-yt-shadow-record-btn       { color:#fda4af; }
+  .lx-yt-shadow-record-btn:hover { background: rgba(244, 63, 94, 0.16); }
+  .lx-yt-shadow-record-btn.lx-recording {
+    background: rgba(244, 63, 94, 0.28); color:#ffffff;
+    box-shadow: 0 0 0 2px rgba(244, 63, 94, 0.55),
+                0 0 16px rgba(244, 63, 94, 0.4);
+    animation: lx-yt-rec-pulse 1.4s ease-in-out infinite;
+  }
+  @keyframes lx-yt-rec-pulse {
+    0%, 100% { box-shadow: 0 0 0 2px rgba(244, 63, 94, 0.55),
+                            0 0 12px rgba(244, 63, 94, 0.35); }
+    50%      { box-shadow: 0 0 0 2px rgba(244, 63, 94, 0.85),
+                            0 0 22px rgba(244, 63, 94, 0.6);  }
+  }
+
+  .lx-yt-shadow-status { margin-top:4px; font-size:11px; color:#94a3b8; min-height:14px; }
+  .lx-yt-shadow-result { margin-top:8px; }
+  .lx-yt-shadow-score {
+    display:inline-block; padding:4px 10px; border-radius:999px;
+    font-size:14px; font-weight:700; margin-right:8px;
+  }
+  .lx-yt-shadow-score-green { background: rgba(34, 197, 94, 0.25);  color:#bbf7d0; }
+  .lx-yt-shadow-score-amber { background: rgba(245, 158, 11, 0.25); color:#fde68a; }
+  .lx-yt-shadow-score-red   { background: rgba(244, 63, 94, 0.25);  color:#fda4af; }
+  .lx-yt-shadow-feedback {
+    margin-top:8px; padding:6px 10px;
+    background: rgba(20, 184, 166, 0.08);
+    border-radius:6px;
+    font-size:12px; font-style:italic; color:#ccfbf1;
+  }
 `;
 
 // ── Utilities ──────────────────────────────────────────────────────────────
@@ -371,6 +456,227 @@ function _renderYtSlangBlock(container, resp) {
   container.innerHTML = html;
   container.classList.add('lx-visible');
 }
+
+// M33 — YouTube-flavour shadowing controls + result renderer.
+// Mirrors content.js's _renderShadowControls / _renderShadowResult but
+// scoped to the .lx-yt-* class prefix and overlay.querySelector tree.
+
+// M33-S5-FIX: pivoted from hold-to-record to click-to-toggle.
+// _YT_SHADOW_MIN_HOLD_MS is no longer used (no debounce needed for toggle).
+const _YT_SHADOW_REC_MAX_MS  = 30 * 1000;
+const _YT_SHADOW_WORD_TOKEN_RE = /[\wÀ-ɏͰ-ϿЀ-ӿ'-]+/gu;
+
+function _ytShadowB64ToBytes(b64) {
+  const bin = atob(b64);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
+function _ytShadowScoreTier(score) {
+  if (score >= 80) return 'green';
+  if (score >= 60) return 'amber';
+  return 'red';
+}
+
+function _renderYtShadowAnnotated(refEl, referenceText, missed, mispron) {
+  const missedSet  = new Set((missed  || []).map((w) => String(w).toLowerCase()));
+  const mispronSet = new Set((mispron || []).map((w) => String(w).toLowerCase()));
+  let out = '';
+  let lastIndex = 0;
+  _YT_SHADOW_WORD_TOKEN_RE.lastIndex = 0;
+  let m;
+  while ((m = _YT_SHADOW_WORD_TOKEN_RE.exec(referenceText)) !== null) {
+    const word = m[0];
+    const start = m.index;
+    if (start > lastIndex) out += _escHtml(referenceText.slice(lastIndex, start));
+    const lower = word.toLowerCase();
+    let cls = 'lx-yt-shadow-word';
+    if (missedSet.has(lower))      cls += ' lx-yt-shadow-word-missed';
+    else if (mispronSet.has(lower)) cls += ' lx-yt-shadow-word-mispron';
+    out += `<span class="${cls}">${_escHtml(word)}</span>`;
+    lastIndex = start + word.length;
+  }
+  if (lastIndex < referenceText.length) {
+    out += _escHtml(referenceText.slice(lastIndex));
+  }
+  refEl.innerHTML = out;
+}
+
+function _renderYtShadowResult(resultEl, refEl, referenceText, resp) {
+  const score = Number.isFinite(resp.score) ? Math.max(0, Math.min(100, Math.round(resp.score))) : 0;
+  const missed   = Array.isArray(resp.missed_words)        ? resp.missed_words        : [];
+  const mispron  = Array.isArray(resp.mispronounced_words) ? resp.mispronounced_words : [];
+  const feedback = (resp.feedback || '').toString().trim();
+  const tier  = _ytShadowScoreTier(score);
+
+  if (refEl) _renderYtShadowAnnotated(refEl, referenceText, missed, mispron);
+
+  let html = `
+    <div>
+      <span class="lx-yt-shadow-score lx-yt-shadow-score-${tier}">${score}/100</span>
+      <span style="opacity:0.7;font-size:11px;">
+        ${missed.length} missed · ${mispron.length} mispronounced
+      </span>
+    </div>
+  `;
+  if (feedback) {
+    html += `<div class="lx-yt-shadow-feedback">${_escHtml(feedback)}</div>`;
+  }
+  resultEl.innerHTML = html;
+}
+
+function _renderYtShadowControls(rootEl, container, referenceText, language) {
+  container.innerHTML = `
+    <div class="lx-yt-shadow-reference" id="lx-yt-shadow-ref">${_escHtml(referenceText)}</div>
+    <div class="lx-yt-shadow-controls">
+      <button class="lx-yt-shadow-play-btn"   id="lx-yt-shadow-play">▶ Play Original</button>
+      <button class="lx-yt-shadow-record-btn" id="lx-yt-shadow-record">🎙 Start Recording</button>
+    </div>
+    <div class="lx-yt-shadow-status" id="lx-yt-shadow-status">Hear the model, then click Start Recording. Click Stop when you are done.</div>
+    <div class="lx-yt-shadow-result" id="lx-yt-shadow-result"></div>
+  `;
+  container.classList.add('lx-visible');
+
+  const playBtn  = rootEl.querySelector('#lx-yt-shadow-play');
+  const recBtn   = rootEl.querySelector('#lx-yt-shadow-record');
+  const statusEl = rootEl.querySelector('#lx-yt-shadow-status');
+  const resultEl = rootEl.querySelector('#lx-yt-shadow-result');
+  const refEl    = rootEl.querySelector('#lx-yt-shadow-ref');
+
+  let _audioEl = null;
+  if (playBtn) {
+    playBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      playBtn.disabled = true;
+      const orig = playBtn.textContent;
+      playBtn.textContent = 'Loading…';
+      statusEl.textContent = 'Fetching pronunciation…';
+      _sendMessage({ action: 'lexora-shadow-tts', text: referenceText, language }, (resp) => {
+        if (!resp || resp.status !== 'ok' || !resp.audio_b64) {
+          playBtn.textContent = orig;
+          playBtn.disabled = false;
+          statusEl.textContent = (resp && resp.message) || 'Could not load audio.';
+          return;
+        }
+        try {
+          const blob = new Blob([_ytShadowB64ToBytes(resp.audio_b64)],
+                                { type: resp.mime_type || 'audio/mpeg' });
+          if (_audioEl) {
+            try { _audioEl.pause(); } catch {}
+            try { URL.revokeObjectURL(_audioEl.src); } catch {}
+          }
+          _audioEl = new Audio(URL.createObjectURL(blob));
+          _audioEl.onended = () => {
+            playBtn.textContent = orig; playBtn.disabled = false;
+            statusEl.textContent = 'Click Start Recording when you are ready.';
+          };
+          _audioEl.onerror = () => {
+            playBtn.textContent = orig; playBtn.disabled = false;
+            statusEl.textContent = 'Audio playback failed.';
+          };
+          playBtn.textContent = '🔊 Playing…';
+          statusEl.textContent = 'Listening to the model…';
+          _audioEl.play();
+        } catch (err) {
+          playBtn.textContent = orig; playBtn.disabled = false;
+          statusEl.textContent = `Audio decode failed: ${err && err.message || err}`;
+        }
+      });
+    });
+  }
+
+  // ── Click-to-toggle Record ────────────────────────────────────────────
+  // Pivot from hold-to-record (M33-S5 first cut). YouTube overlay had the
+  // same micro-movement issue as the QL overlay; toggle is robust and
+  // mirrors the QL implementation exactly.
+  let _autoStopTimer = null;
+  let _isRecording = false;
+
+  function _stopRecording() {
+    if (!_isRecording) return;
+    _isRecording = false;
+    if (_autoStopTimer) { clearTimeout(_autoStopTimer); _autoStopTimer = null; }
+
+    recBtn.classList.remove('lx-recording');
+    recBtn.textContent = 'Analysing…';
+    recBtn.disabled = true;
+    statusEl.textContent = 'Transcribing your audio…';
+
+    _sendMessage({ action: 'lexora-mic-stop' }, (resp) => {
+      if (!resp || resp.status !== 'ok' || !resp.audio_b64) {
+        recBtn.textContent = '🎙 Start Recording';
+        recBtn.disabled = false;
+        statusEl.textContent = (resp && resp.message) || 'Recording failed.';
+        return;
+      }
+      statusEl.textContent = 'Evaluating with AI…';
+      _sendMessage({
+        action:         'lexora-shadow-evaluate',
+        audio_b64:      resp.audio_b64,
+        mime_type:      resp.mime_type,
+        reference_text: referenceText,
+        language,
+      }, (evalResp) => {
+        recBtn.textContent = '🎙 Start Recording';
+        recBtn.disabled = false;
+        if (!evalResp) {
+          statusEl.textContent = 'No response from server.'; return;
+        }
+        if (evalResp.status === 'unauthorized') {
+          statusEl.textContent = 'Sign in to Lexora first.'; return;
+        }
+        if (evalResp.status === 'unavailable') {
+          statusEl.textContent = (evalResp.message || 'Service unavailable.'); return;
+        }
+        if (evalResp.status !== 'ok') {
+          statusEl.textContent = (evalResp.message || 'Evaluation failed.'); return;
+        }
+        statusEl.textContent = `Heard: "${evalResp.transcript || '(silence)'}"`;
+        _renderYtShadowResult(resultEl, refEl, referenceText, evalResp);
+      });
+    });
+  }
+
+  function _onRecordToggle(e) {
+    e.preventDefault();
+    e.stopPropagation();
+
+    if (_isRecording) {
+      _stopRecording();
+      return;
+    }
+
+    _isRecording = true;
+    recBtn.classList.add('lx-recording');
+    recBtn.textContent = '⏹ Stop Recording';
+    statusEl.textContent = 'Recording… click Stop when you are done.';
+
+    _sendMessage({ action: 'lexora-mic-start' }, (resp) => {
+      if (!resp || resp.status !== 'ok') {
+        _isRecording = false;
+        recBtn.classList.remove('lx-recording');
+        recBtn.textContent = '🎙 Start Recording';
+        statusEl.textContent = (resp && resp.message) ||
+          'Microphone not available. Open the extension Options page to grant permission.';
+        return;
+      }
+      // 30 s safety auto-stop — mirrors the QL implementation. If the
+      // user forgets to click Stop we don't record forever.
+      _autoStopTimer = setTimeout(() => {
+        if (_isRecording) {
+          statusEl.textContent = 'Auto-stopped after 30 s — analysing…';
+          _stopRecording();
+        }
+      }, _YT_SHADOW_REC_MAX_MS);
+    });
+  }
+
+  if (recBtn) {
+    recBtn.addEventListener('click', _onRecordToggle);
+  }
+}
+
 
 function _getSubtitleLanguage() {
   const video = document.querySelector('video');
@@ -639,6 +945,7 @@ function _showOverlay(word, wasPaused, timestamp, lang, video, response) {
           ${bodyHtml}
           ${showActions ? `<div class="lx-yt-grammar-block" id="lx-yt-grammar"></div>` : ''}
           ${showActions ? `<div class="lx-yt-slang-block"   id="lx-yt-slang"></div>`   : ''}
+          ${showActions ? `<div class="lx-yt-shadow-block"  id="lx-yt-shadow"></div>`  : ''}
         </div>
         ${showActions ? `
         <div class="lx-yt-footer">
@@ -648,6 +955,7 @@ function _showOverlay(word, wasPaused, timestamp, lang, video, response) {
           </div>
           <button class="lx-yt-explain-btn" id="lx-yt-explain">Explain Grammar</button>
           <button class="lx-yt-slang-btn"   id="lx-yt-explain-slang">💡 Explain Slang/Idiom</button>
+          <button class="lx-yt-shadow-btn"  id="lx-yt-practice-shadow">🎤 Practice Pronunciation</button>
           <div class="lx-yt-status" id="lx-yt-status"></div>
         </div>` : ''}
       </div>
@@ -743,6 +1051,20 @@ function _showOverlay(word, wasPaused, timestamp, lang, video, response) {
           if (scrollEl) scrollEl.scrollTop = scrollEl.scrollHeight;
         });
       });
+    });
+  }
+
+  // M33 — Practice Pronunciation (Webpage Shadowing)
+  const practiceBtn = overlay.querySelector('#lx-yt-practice-shadow');
+  const shadowBlock = overlay.querySelector('#lx-yt-shadow');
+  if (practiceBtn && shadowBlock) {
+    practiceBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (!shadowBlock.classList.contains('lx-visible')) {
+        _renderYtShadowControls(overlay, shadowBlock, word, lang);
+      }
+      const scrollEl = overlay.querySelector('.lx-yt-scroll');
+      if (scrollEl) scrollEl.scrollTop = scrollEl.scrollHeight;
     });
   }
 

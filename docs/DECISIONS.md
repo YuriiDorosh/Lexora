@@ -803,3 +803,143 @@ Five top-level keys, two enum-clamped values, three free-text fields. The contra
 - **Add a polling pattern** if M31 latency on the target server pushes past ~45 s p95 — the sync HTTP connection becomes fragile on flaky mobile networks beyond that.
 - **Curated-idiom lookup ahead of the LLM** for M32: the M19 `language.idiom` table already has 100+ curated entries with high-quality figurative meanings. A future M-thirty-something could short-circuit `/explain-slang` for any phrase that matches a curated row, falling back to the LLM only for the long tail. M32 deliberately doesn't do this — keeping the milestone scope tight — but the architecture supports it.
 - **Per-`(source_lang, native_lang)` few-shot anchors** if the cross-lingual quality gap widens: today `_SLANG_EXAMPLES` is keyed only by `native_language` (with the same English example sentence across all anchors). The 1.5B handles this fine; a 3B might benefit from anchors that vary the source language too.
+
+---
+
+## ADR-032: Webpage Shadowing — extension pronunciation practice (M33)
+
+**Status:** Accepted (M33, 2026-05-09)
+
+**Context:** M33 brings the M30 `/my/speaking` mic-and-feedback flow into the browser extension. A user reading any webpage can select a sentence, click "🎤 Practice Pronunciation", hear a perfect Edge TTS rendering, record themselves saying the same sentence, and receive a 0-100 score plus per-word red/amber annotations within ~30 seconds. This is the first browser-extension feature that records audio. The architectural risks (mic permission UX, structural diffing on a 1.5B model, browser hold-to-record reliability) all surfaced and were resolved during implementation. Six locked sub-decisions document what shipped and why.
+
+### Sub-decision 32a: MV3 microphone strategy — `chrome.offscreen` Document API
+
+**Problem:** content scripts run in the page's origin (`https://example.com`). `getUserMedia()` from a content script triggers a permission prompt **per origin**. A user practising shadowing on Wikipedia, Reddit, and a Polish news site would see the prompt three times. The recording would also be torn down on page navigation.
+
+**Decision:** record audio in `chrome.offscreen` document at `chrome-extension://<id>/offscreen.html`. The offscreen page lives on the **extension's origin**, so:
+
+- Mic permission is granted **once per extension**. Chrome remembers the grant for `chrome-extension://<id>/*` forever.
+- Recording survives content-script tear-down (page navigation, tab refresh) — the offscreen doc is its own runtime context.
+- Communication is via `chrome.runtime.sendMessage` from the service worker; content scripts never touch the recorder directly.
+
+**Lifecycle:**
+```
+content.js: click "🎙 Start Recording"
+  → bg.js: ensure offscreen exists
+      if (!await chrome.offscreen.hasDocument()) {
+        await chrome.offscreen.createDocument({
+          url: 'offscreen.html',
+          reasons: ['USER_MEDIA'],
+          justification: 'Record speech for pronunciation practice'
+        });
+      }
+  → bg.js → chrome.runtime.sendMessage({target:'offscreen', action:'mic-start'})
+  → offscreen.js: getUserMedia + MediaRecorder.start()
+
+content.js: click "⏹ Stop Recording"
+  → bg.js → chrome.runtime.sendMessage({target:'offscreen', action:'mic-stop'})
+  → offscreen.js: recorder.stop() → blob → base64 → response back to bg
+  → bg.js → relays to content.js's sendResponse callback
+```
+
+**Alternatives considered and rejected:**
+
+- **Hidden iframe injection.** Predates `chrome.offscreen` (Chrome 116+). Works on Chrome/Edge but is brittle on Firefox MV3 and on enterprise-locked Chromebooks where iframe injection is blocked by CSP. `chrome.offscreen` is the official MV3 path and the future-proof choice.
+- **Popup-based recording.** Popups close when they lose focus. The original M33 plan considered hold-to-record (which would force the popup to stay open while the user's mouse was on the webpage); after the M33-S6-FIX2 pivot to click-to-toggle, the user clicks Stop on the same surface where they clicked Start, but the popup model would still tear the popup down between clicks if focus shifted.
+- **Direct content-script `getUserMedia`.** The per-origin permission prompt is the showstopper.
+
+**Manifest changes:** `"offscreen"` added to `permissions`. `host_permissions` unchanged — the offscreen doc is on the extension's own origin, no external host access needed.
+
+### Sub-decision 32b: Mic-permission grant button on the Options page (M33-S6-FIX1)
+
+**Problem found in user smoke:** Chrome auto-blocked `getUserMedia` in the offscreen document on first use with `NotAllowedError`. The permission prompt didn't appear — Chrome silently denied because the offscreen document had no UI surface where a permission prompt could be associated with a user gesture. The original M33-S4 implementation surfaced the error with a hint pointing to the Options page, but the Options page had nowhere to go.
+
+**Decision:** add a "🎙️ Grant Microphone Permission" button to `options.html`. The Options page lives at `chrome-extension://<id>/options.html` — the same origin as `offscreen.html`. When the user clicks the button, `getUserMedia` runs **with a clear user gesture on a visible UI surface**, Chrome shows its standard permission prompt, and the resulting grant is shared by every page on the extension's origin (including the offscreen recorder). Tracks are stopped immediately after the grant lands so we don't leave the mic indicator on.
+
+**Error UX:**
+- `NotAllowedError`: shows the `chrome://extensions` → Details → Site permissions → Microphone reset path. Once Chrome has hard-denied, granting again requires a manual reset.
+- `NotFoundError` / `OverconstrainedError`: hints at plugging in a microphone.
+- Other errors: renders `<code>{err.name}</code>: {err.message}` via a defensive `_escHtml` helper.
+
+**Why this matters:** the alternative (waiting for Chrome to fix the silent-block heuristic) is unbounded. Putting the grant on a visible UI page means the user always has a clear escape hatch when the offscreen recorder fails.
+
+### Sub-decision 32c: Two Odoo proxy endpoints, not one
+
+**Decision:** the orchestration is split across two distinct endpoints so neither one waits unnecessarily on the other:
+
+- **`POST /lexora_api/shadow_tts`** — fetch reference TTS audio.
+  - JSON body `{text, language}`. Forwards to audio-service `/tts-sync`.
+  - Streams `audio/mpeg` bytes back to the extension; the browser plays an `<audio>` element directly from the response. **Not** wrapped in JSON.
+  - 30 s timeout (Edge TTS is normally <1 s; 30 s is a safety bound).
+- **`POST /lexora_api/shadow_evaluate`** — orchestrate transcription + evaluation.
+  - Multipart body `audio + reference_text + language`.
+  - Stage 1: forward audio to `/transcribe-sync` (M30, 120 s timeout).
+  - Stage 2: send `{reference_text, transcript, language}` to `/evaluate-pronunciation` (NEW, 60 s timeout).
+  - Returns combined JSON `{status, transcript, duration, detected_language, score, missed_words, mispronounced_words, feedback}`.
+
+**Single-endpoint alternative considered:** one `/lexora_api/shadowing` with a `mode=tts | evaluate` flag returning audio-or-JSON depending on payload. Rejected because:
+
+- Mixing binary and JSON responses on the same endpoint forces every caller to inspect `Content-Type` before parsing — uglier than two endpoints with single responsibilities.
+- The Play-Original click happens before the user even records; bundling it into the evaluate endpoint would defer audio playback until after recording, breaking the listen-then-mimic learning flow.
+- Two endpoints align with the existing M22-M32 proxy pattern (each `/lexora_api/*` route does one thing).
+
+### Sub-decision 32d: Hybrid LLM model — deterministic word-diff is the source of truth, LLM only writes feedback
+
+**Problem found during M33-S1 smoke:** Qwen 1.5B is unreliable at structural diffing. Three prompt iterations + few-shot anchors didn't fix it:
+
+- Byte-identical input → returned `score=85` with literal `"..."` placeholder strings copied verbatim from the few-shot anchor.
+- Multi-word divergence → misidentified which words were missed (claimed "lazy" missed when actually the second "the" was dropped).
+
+**Decision:** **deterministic Python word-diff is authoritative** for `score / missed_words / mispronounced_words`. The LLM is consulted **only** for the localised `feedback` string (its actual strength). The 1.5B model's job is reduced to language-localised prose; the structural failure mode is bounded to "feedback is empty or wrong language", which the per-language `_FEEDBACK_FALLBACKS` template handles.
+
+**Diff implementation highlights:**
+
+- **Multiset-correct counting** via `collections.Counter`. The first-pass `set`-based version had a bug — reference `"the X the Y"` with one transcript `"the"` matched both reference `"the"`s against the single transcript token, missing the dropped second occurrence. Counter decrement fixes it.
+- **Near-match heuristic**: Levenshtein distance ≤ 2 OR shared 3-character prefix → token classified as `mispronounced`. Distinct from `missed` (no match candidate at all).
+- **`_has_target_language_chars`** script-validator on the LLM feedback string. Drift to wrong-script feedback is rejected and the per-language fallback substitutes.
+
+**Same "fight the contract, not the model" rule** as M31's empty-corrections fix and M32's confidence clamping. When a 1.5B model can't be reliably out-prompted on a UX-critical structural rule, **guarantee the contract in Python**. Prompt engineering is a 90 %-solution; server-side post-processing is the floor.
+
+**End-to-end smoke validation:** the proxy chain test fed `/shadow_tts` output (perfect English audio of `"The quick brown fox jumps over the lazy dog."`) back through `/shadow_evaluate` as the user's "recording". Whisper at 32 kbps low-bitrate transcribed it as `"The quick brown fox **dumps** over the lazy dog."` The deterministic diff caught the `jumps→dumps` substitution and returned `{score:89, mispronounced_words:["jumps"], feedback:"Great job!..."}`. **The safety net works even when both sides are AI-generated** — Whisper's own quirks are exactly what the diff machinery is for.
+
+### Sub-decision 32e: Click-to-toggle, not hold-to-record (M33-S6-FIX2)
+
+**Problem found in user browser smoke:** the M33-S5 first cut used `mousedown`/`mouseup` for hold-to-record. Recordings cut off after 1-2 seconds because:
+
+- Micro mouse movements fired `mouseleave` (the cancel-with-autoStop branch).
+- Tap-then-tap on touchscreens fired `touchend` between taps.
+- Browser quirks on some platforms fire spurious `mouseup` events during scroll.
+
+**Decision:** pivot to **click-to-toggle**. First click starts recording (label "⏹ Stop Recording", `.lx-recording` glow + pulse). Second click stops (label "Analysing…", disabled). Single `click` listener on the record button; no `mousedown` / `mouseup` / `mouseleave` / `touchstart` / `touchend` / `touchcancel` involvement.
+
+**30 s safety auto-stop preserved** so a forgotten Stop click doesn't record forever. The auto-stop fires the same `_stopRecording()` code path as a manual click; status shows "Auto-stopped after 30 s — analysing…" so the user knows what happened.
+
+**Why this matches user mental model better:** voice memo apps (iOS Voice Memos, WhatsApp voice messages, Telegram, Instagram) are all click-to-start / click-to-stop. Hold-to-record is a walkie-talkie metaphor that works for very short messages but breaks down for sentence-length practice (typically 3-10 seconds).
+
+**General rule recorded:** when binding a UI affordance to an audio recorder that needs to stay alive longer than ~1 s, prefer toggle over hold. Hold is an invitation for spurious-event-class bugs.
+
+### Sub-decision 32f: No persistence by default
+
+**Decision:** M33 does NOT write shadowing attempts to `language.speaking.session` or any other model. Every record→evaluate cycle is ephemeral.
+
+**Rationale:**
+
+- The session model from M30 is portal-scoped; reusing it from the extension would require auth-bridging the session creation flow through the extension's session-cookie mechanism. Out of scope for M33.
+- Users practising on the open web don't expect every word they say to be logged. Privacy-respecting default.
+- An opt-in "Save to my pronunciation history" toggle is an obvious M-thirty-something extension; documented as a revisit trigger, not a milestone scope item.
+
+**Trade-off:** users can't review their progress over time from the extension. The portal-side `/my/speaking` (M30) remains the persistent surface; users who want history-tracking practice there. The extension is the "any webpage" entry point for spontaneous practice.
+
+### Lessons fed back into the codebase
+
+- **Pattern reuse rule extended.** M33 adds two new sync endpoints (`/evaluate-pronunciation`, `/tts-sync`) to the table in ADR-031: same Pydantic + system prompt + few-shot anchor + `response_format={"type":"json_object"}` + tolerant parser + defensive coerce + stub fallback + server-side `status` injection. Eight sync endpoints across M17–M33 now follow the same shape.
+- **Server-side floor over prompt-engineering ceiling** (M31/M33 reapplied). Three milestones now have a deterministic Python fallback layered behind the LLM (M31's full-text catch-all correction, M32's enum clamping + confidence floor, M33's word-diff). Each one was added in response to a real smoke failure, not pre-emptively.
+- **Mic permission UX requires a visible UI gesture.** Offscreen documents alone aren't enough — the M33-S6-FIX1 mic-grant button on the Options page is the canonical pattern for any future feature that needs `getUserMedia`.
+- **Toggle over hold for any non-trivial recorder.** Documented in 32e.
+
+### Revisit triggers
+
+- **Qwen 3B upgrade.** If feedback quality on Slavic / Greek input becomes a complaint, the LLM_MODEL_REPO env var swaps the model. The deterministic diff gives us a perfect telemetry signal — the rate at which `_llm_feedback` returns `""` (rejected by the language-drift validator) is exactly the quality metric to watch.
+- **Polling pattern for flaky networks.** Total p50 latency is ~30-40 s (Whisper ~10-20 s + Qwen ~10-30 s). On a flaky mobile connection a single 40 s HTTP request is fragile. If users hit timeouts, the sync endpoints stay but the browser fires-and-checks via a session-status route.
+- **Save-to-history opt-in.** Future milestone (32f).
+- **Per-`(source_lang, native_lang)` few-shot anchors.** `_PRONUNCIATION_EXAMPLES` is currently keyed only by `native_language`. A 3B model might benefit from cross-lingual anchors when the source and native languages differ.
