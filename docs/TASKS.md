@@ -178,40 +178,90 @@ amber-underline (mispronounced) annotations.
   - Different reference (e.g. ref="the quick brown fox", audio
     says "quick brown fox") → score ~75, missed_words=["the"].
 
-**Step M33-S4 — Extension offscreen-doc mic infrastructure**
+**Step M33-S4 — Extension offscreen-doc mic infrastructure** ✅ (code; user-side smoke pending)
 
-- [ ] M33-S4-01 · `extension/offscreen.html` — minimal HTML page,
-  loads `offscreen.js`. No visible UI.
-- [ ] M33-S4-02 · `extension/offscreen.js`:
-  - Listens for `chrome.runtime.onMessage` actions:
-    `lexora-mic-start` → `getUserMedia({audio:true})` →
-    `MediaRecorder.start()`, prefer `audio/webm;codecs=opus`.
-  - `lexora-mic-stop` → `recorder.stop()`, on `dataavailable` →
-    blob → `FileReader.readAsDataURL` → strip data-URL prefix →
-    base64 string → reply via `sendResponse({status:'ok',
-    audio_b64, mime_type, duration_ms})`. Then release the
-    `MediaStreamTrack` so the mic indicator goes away.
-  - `lexora-mic-cancel` → discard any in-flight recording, release
-    tracks. Used if the user releases the hold-to-record button
+- [x] M33-S4-01 · `extension/offscreen.html` — minimal HTML page,
+  loads `offscreen.js`, no visible UI. File-header comment
+  documents the lifecycle and references ADR-032.
+- [x] M33-S4-02 · `extension/offscreen.js` — full MediaRecorder
+  surface:
+  - `_pickMimeType()` falls through `audio/webm;codecs=opus →
+    audio/webm → audio/ogg;codecs=opus → audio/ogg`, returns the
+    first one supported by `MediaRecorder.isTypeSupported`.
+  - `startRecording()` requests `getUserMedia({audio:true})` (the
+    permission UI fires here on first call per extension install,
+    one-time grant), constructs `MediaRecorder` with the picked
+    MIME type, hooks `ondataavailable` → push to `_chunks`,
+    `recorder.start()`. Returns `{status:"ok", mime_type}` or
+    a friendly error code (`NotAllowedError` is mapped to a
+    "Permission denied. Open the extension Options page to retry."
+    message).
+  - `stopRecording()` returns a Promise: stops the recorder, the
+    `onstop` handler assembles a `Blob` from `_chunks`, runs
+    `FileReader.readAsDataURL`, strips the `data:audio/webm;base64,`
+    prefix, returns `{status:"ok", audio_b64, mime_type,
+    duration_ms, size_bytes}`. Always calls `_cleanup()` (releases
+    `MediaStreamTrack`s so the mic indicator turns off) regardless
+    of success or failure.
+  - `cancelRecording()` synchronously stops + cleans up; used by
+    the hold-to-record handler when the user releases the button
     after <300 ms (likely accidental click).
-- [ ] M33-S4-03 · `extension/manifest.json` — add `"offscreen"`
-  to `permissions` array.
-- [ ] M33-S4-04 · `extension/background.js`:
-  - `_ensureOffscreen()` async helper: `if (!await
-    chrome.offscreen.hasDocument()) { await
-    chrome.offscreen.createDocument({url:'offscreen.html',
+  - `ping` action — diagnostic, returns `{status, recording,
+    mime_type}` without invoking the recorder. Lets the SW health-
+    check the offscreen doc without burning a permission prompt.
+  - Message router gates on `msg.target === 'offscreen'` so popup
+    / options / content-script messages pass through untouched.
+- [x] M33-S4-03 · `extension/manifest.json` — `"offscreen"` added to
+  the `permissions` array. `web_accessible_resources` not needed
+  (offscreen pages are loaded via `chrome.offscreen.createDocument`,
+  not by web pages, so they don't require WAR declarations).
+- [x] M33-S4-04 · `extension/background.js`:
+  - `_ensureOffscreen()` — wraps `chrome.offscreen.hasDocument()`
+    in a try/catch (some Chromium builds throw when no offscreen
+    doc has ever been created); on miss, calls
+    `chrome.offscreen.createDocument({url:'offscreen.html',
     reasons:['USER_MEDIA'], justification:'Record speech for
-    pronunciation practice'}); }`.
-  - New message router cases: `lexora-mic-start`,
-    `lexora-mic-stop`, `lexora-mic-cancel` — all forward to the
-    offscreen doc and relay the response back to the requesting
-    tab.
-- [ ] M33-S4-05 · DevTools sanity: open the service-worker
-  console, send `chrome.runtime.sendMessage({action:'lexora-mic-start'})`
-  twice with a `lexora-mic-stop` between → second response should
-  contain a non-empty `audio_b64`. The first record on a fresh
-  extension install triggers Chrome's mic permission UI; subsequent
-  records reuse the grant.
+    pronunciation practice...'})`. Throws a clear error if
+    `chrome.offscreen` API is missing (Chrome <116).
+  - `_sendToOffscreen(action)` — Promise-form
+    `chrome.runtime.sendMessage({target:'offscreen', action})`.
+  - `handleMicStart` → ensure + send `mic-start`.
+  - `handleMicStop` → guard via `_hasOffscreenSafely`, send
+    `mic-stop`. Logs `mime / duration_ms / size_bytes` on success
+    so the SW console gives useful diagnostics without dumping
+    base64.
+  - `handleMicCancel` → idempotent; returns `{status:'ok'}` if no
+    offscreen doc exists.
+  - `handleMicPing` → diagnostic for M33-S4-05.
+  - Message router cases for `lexora-mic-start` / `lexora-mic-stop`
+    / `lexora-mic-cancel` / `lexora-mic-ping`, all forwarding to
+    the helpers and surfacing exceptions as
+    `{status:'error', message}` (since chrome's `sendResponse`
+    can't carry a thrown Error).
+- [ ] M33-S4-05 · **DevTools sanity (user runs in Chrome)** —
+  reload the unpacked extension, open `chrome://extensions`,
+  click "service worker" under Lexora to open the SW DevTools
+  console, then run:
+  ```js
+  // Diagnostic — should report no offscreen doc yet:
+  await chrome.runtime.sendMessage({action: 'lexora-mic-ping'});
+  // → { status: "ok", offscreen: false, recording: false }
+
+  // Start a recording — first call triggers Chrome's mic permission UI:
+  await chrome.runtime.sendMessage({action: 'lexora-mic-start'});
+  // → { status: "ok", mime_type: "audio/webm;codecs=opus" }
+
+  // Speak for ~3 seconds, then stop:
+  const resp = await chrome.runtime.sendMessage({action: 'lexora-mic-stop'});
+  console.log('mime', resp.mime_type, 'dur_ms', resp.duration_ms,
+              'size', resp.size_bytes, 'b64_len', resp.audio_b64?.length);
+  // → mime audio/webm;codecs=opus dur_ms ~3000 size ~9000 b64_len ~12000
+  ```
+  Acceptance: `audio_b64` is non-empty (typically 8-15 KB for 3 s
+  at Opus); `duration_ms` close to wall-clock; `mime_type` matches
+  what `MediaRecorder` actually used. Subsequent
+  `mic-start` → `mic-stop` cycles on any tab reuse the grant
+  without re-prompting.
 
 **Step M33-S5 — Extension UI (Quick Look + YouTube overlays)**
 

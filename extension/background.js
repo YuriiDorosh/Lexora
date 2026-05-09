@@ -76,6 +76,20 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     handleWriterCheck(msg).then(sendResponse).catch(() => sendResponse({ status: 'error' }));
   } else if (msg.action === 'lexora-explain-slang') {
     handleExplainSlang(msg).then(sendResponse).catch(() => sendResponse({ status: 'error' }));
+  } else if (msg.action === 'lexora-mic-start') {
+    handleMicStart().then(sendResponse).catch((err) =>
+      sendResponse({ status: 'error', message: String(err && err.message || err) }));
+  } else if (msg.action === 'lexora-mic-stop') {
+    handleMicStop().then(sendResponse).catch((err) =>
+      sendResponse({ status: 'error', message: String(err && err.message || err) }));
+  } else if (msg.action === 'lexora-mic-cancel') {
+    handleMicCancel().then(sendResponse).catch((err) =>
+      sendResponse({ status: 'error', message: String(err && err.message || err) }));
+  } else if (msg.action === 'lexora-mic-ping') {
+    // Diagnostic — used by the M33 DevTools sanity check. Returns
+    // {status, recording, mime_type} without invoking the recorder.
+    handleMicPing().then(sendResponse).catch((err) =>
+      sendResponse({ status: 'error', message: String(err && err.message || err) }));
   }
   return true; // MUST be at the very end — keeps channel open for all async handlers
 });
@@ -275,6 +289,104 @@ async function handleWriterCheck({ text, language, context }) {
     return resp.json();
   } catch (err) {
     return { status: 'error', message: err.message };
+  }
+}
+
+// ── M33 — Offscreen mic surface (Webpage Shadowing) ────────────────────────
+//
+// Recording happens in the chrome.offscreen document at offscreen.html
+// (see ADR-032 / M33-S4). The user grants mic permission ONCE per
+// extension; subsequent records on any tab reuse the grant.
+//
+// Routing:
+//   content.js → chrome.runtime.sendMessage({action:'lexora-mic-start'})
+//     → bg.js (this listener)
+//     → ensureOffscreen() then chrome.runtime.sendMessage(
+//         {target:'offscreen', action:'mic-start'})
+//     → offscreen.js handles, sendResponse comes back here
+//     → we forward the response to the originating content script's
+//       sendResponse callback.
+// ───────────────────────────────────────────────────────────────────────────
+
+const _OFFSCREEN_URL = 'offscreen.html';
+
+async function _ensureOffscreen() {
+  if (!chrome.offscreen) {
+    throw new Error('chrome.offscreen API not available — Chrome 116+ required');
+  }
+  // hasDocument throws on some Chromium builds when no offscreen doc has
+  // ever been created — guard with try/catch and assume false.
+  let exists = false;
+  try {
+    exists = await chrome.offscreen.hasDocument();
+  } catch (err) {
+    console.warn('[Lexora BG] chrome.offscreen.hasDocument threw:', err);
+    exists = false;
+  }
+  if (exists) return;
+
+  console.log('[Lexora BG] creating offscreen document for mic capture');
+  await chrome.offscreen.createDocument({
+    url:           _OFFSCREEN_URL,
+    reasons:       ['USER_MEDIA'],
+    justification: 'Record speech for pronunciation practice (Lexora M33 — Webpage Shadowing)',
+  });
+}
+
+async function _sendToOffscreen(action) {
+  // chrome.runtime.sendMessage with a Promise return form (MV3).
+  return chrome.runtime.sendMessage({ target: 'offscreen', action });
+}
+
+async function handleMicStart() {
+  await _ensureOffscreen();
+  const resp = await _sendToOffscreen('mic-start');
+  console.log('[Lexora BG] mic-start →', resp);
+  return resp || { status: 'error', message: 'No response from offscreen.' };
+}
+
+async function handleMicStop() {
+  if (!chrome.offscreen || !(await _hasOffscreenSafely())) {
+    return { status: 'error', message: 'No active offscreen recorder.' };
+  }
+  const resp = await _sendToOffscreen('mic-stop');
+  if (resp && resp.audio_b64) {
+    console.log('[Lexora BG] mic-stop →',
+      'mime=' + resp.mime_type,
+      'duration_ms=' + resp.duration_ms,
+      'size_bytes=' + resp.size_bytes);
+  } else {
+    console.log('[Lexora BG] mic-stop →', resp);
+  }
+  return resp || { status: 'error', message: 'No response from offscreen.' };
+}
+
+async function handleMicCancel() {
+  if (!chrome.offscreen || !(await _hasOffscreenSafely())) {
+    return { status: 'ok' };  // nothing to cancel
+  }
+  return await _sendToOffscreen('mic-cancel');
+}
+
+async function handleMicPing() {
+  // Diagnostic — surfaces the offscreen doc's recording state without
+  // invoking getUserMedia. Useful for debugging routing without burning
+  // a permission prompt.
+  if (!chrome.offscreen) {
+    return { status: 'error', message: 'chrome.offscreen API unavailable.' };
+  }
+  if (!(await _hasOffscreenSafely())) {
+    return { status: 'ok', offscreen: false, recording: false };
+  }
+  const resp = await _sendToOffscreen('ping');
+  return { status: 'ok', offscreen: true, ...(resp || {}) };
+}
+
+async function _hasOffscreenSafely() {
+  try {
+    return await chrome.offscreen.hasDocument();
+  } catch {
+    return false;
   }
 }
 
