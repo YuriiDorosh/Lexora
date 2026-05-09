@@ -429,6 +429,52 @@ const _QL_CSS = `
     font-size: 12px; line-height: 1.6; color: #ddd6fe;
   }
   .lx-ql-grammar-block.lx-visible { display: block; }
+
+  /* M32 — Slang/Idiom Explainer (sibling of grammar block, amber accent) */
+  .lx-ql-slang-btn {
+    margin-top: 6px; width: 100%; padding: 6px 0;
+    background: rgba(245,158,11,0.15);
+    border: 1px solid rgba(245,158,11,0.4);
+    border-radius: 8px; color: #fde68a; font-size: 12px; font-weight: 600;
+    cursor: pointer; transition: background 0.15s;
+    pointer-events: auto;
+  }
+  .lx-ql-slang-btn:hover { background: rgba(245,158,11,0.3); }
+  .lx-ql-slang-btn:disabled { opacity: 0.5; cursor: default; }
+
+  .lx-ql-slang-block {
+    display: none; margin-top: 8px; padding: 10px 12px;
+    background: rgba(245,158,11,0.08);
+    border-left: 3px solid #f59e0b;
+    border-radius: 0 8px 8px 0;
+    font-size: 12px; line-height: 1.6; color: #fef3c7;
+  }
+  .lx-ql-slang-block.lx-visible { display: block; }
+  .lx-ql-slang-kind {
+    display: inline-block; margin-bottom: 6px;
+    padding: 1px 8px; border-radius: 999px;
+    background: rgba(245,158,11,0.25); color: #fbbf24;
+    font-size: 10px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.5px;
+  }
+  .lx-ql-slang-figurative {
+    margin: 4px 0 6px;
+    font-size: 13px; font-weight: 600; color: #fef3c7;
+  }
+  .lx-ql-slang-literal {
+    margin-bottom: 6px;
+    font-size: 11px; font-style: italic; color: #fde68a; opacity: 0.85;
+  }
+  .lx-ql-slang-example {
+    margin-top: 6px; padding: 6px 10px;
+    background: rgba(255,255,255,0.04);
+    border-radius: 6px;
+    font-size: 11px; font-style: italic; color: #fef3c7;
+  }
+  .lx-ql-slang-uncertain {
+    display: block; margin-top: 6px;
+    font-size: 11px; font-style: italic; color: #f87171;
+  }
 `;
 
 // ── helpers ────────────────────────────────────────────────────────────────
@@ -597,6 +643,7 @@ function _renderQlOverlay(word, anchorRect, response) {
         <div class="lx-ql-scroll">
           ${bodyHtml}
           ${showActions ? `<div class="lx-ql-grammar-block" id="lx-ql-grammar"></div>` : ''}
+          ${showActions ? `<div class="lx-ql-slang-block"   id="lx-ql-slang"></div>`   : ''}
         </div>
         ${showActions ? `
           <div class="lx-ql-footer">
@@ -604,6 +651,7 @@ function _renderQlOverlay(word, anchorRect, response) {
               <button class="lx-ql-add-btn" id="lx-ql-add">➕ Add to Vocabulary</button>
             </div>
             <button class="lx-ql-explain-btn" id="lx-ql-explain">Explain Grammar</button>
+            <button class="lx-ql-slang-btn"   id="lx-ql-explain-slang">💡 Explain Slang/Idiom</button>
             <div class="lx-ql-status" id="lx-ql-status"></div>
           </div>
         ` : ''}
@@ -657,6 +705,45 @@ function _renderQlOverlay(word, anchorRect, response) {
     });
   }
 
+  // M32 — Explain Slang/Idiom button
+  const slangBtn   = shadow.getElementById('lx-ql-explain-slang');
+  const slangBlock = shadow.getElementById('lx-ql-slang');
+  if (slangBtn && slangBlock) {
+    slangBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      slangBtn.disabled = true;
+      const originalLabel = slangBtn.textContent;
+      slangBtn.textContent = 'Looking up…';
+
+      const sourceLang = _detectLang(word);
+      const timer = setTimeout(() => {
+        slangBlock.innerHTML = '<em>LLM timed out — try again.</em>';
+        slangBlock.classList.add('lx-visible');
+        slangBtn.textContent = originalLabel;
+        slangBtn.disabled = false;
+      }, 65000);
+
+      // Read user's chosen explanation language; default 'en' until the
+      // Options dropdown is populated.
+      chrome.storage.sync.get('lexora_native_language', (cfg) => {
+        const nativeLang = (cfg && cfg.lexora_native_language) || 'en';
+        _qlSendMessage({
+          action: 'lexora-explain-slang',
+          phrase: word,
+          source_language: sourceLang,
+          native_language: nativeLang,
+        }, (resp) => {
+          clearTimeout(timer);
+          _renderSlangBlock(slangBlock, resp);
+          slangBtn.textContent = originalLabel;
+          slangBtn.disabled = false;
+          const scrollEl = shadow.querySelector('.lx-ql-scroll');
+          if (scrollEl) scrollEl.scrollTop = scrollEl.scrollHeight;
+        });
+      });
+    });
+  }
+
   const addBtn   = shadow.getElementById('lx-ql-add');
   const statusEl = shadow.getElementById('lx-ql-status');
   if (addBtn) {
@@ -684,6 +771,80 @@ function _renderQlOverlay(word, anchorRect, response) {
       );
     });
   }
+}
+
+// ── M32 — Slang/Idiom render helper (shared shape across QL + YouTube) ────
+
+const _SLANG_KIND_LABELS = {
+  idiom: 'Idiom', slang: 'Slang', phrasal_verb: 'Phrasal Verb',
+  literal: 'Literal', unknown: 'Unknown',
+};
+
+// Build the inner HTML for a slang block. Caller decides which container
+// element to drop it into (Quick Look or YouTube overlay) — the shape and
+// CSS class names are shared between both surfaces.
+function _renderSlangBlock(container, resp) {
+  if (!container) return;
+  if (!resp) {
+    container.innerHTML = '<em>No response from background.</em>';
+    container.classList.add('lx-visible');
+    return;
+  }
+  if (resp.status === 'context_invalidated') {
+    container.innerHTML = '<em>Refresh this tab to restore Lexora.</em>';
+    container.classList.add('lx-visible');
+    return;
+  }
+  if (resp.status === 'unauthorized') {
+    container.innerHTML = '<em>Please sign in to Lexora first.</em>';
+    container.classList.add('lx-visible');
+    return;
+  }
+  if (resp.status === 'unavailable') {
+    container.innerHTML = `<em>${escHtml(resp.message || 'LLM unavailable.')}</em>`;
+    container.classList.add('lx-visible');
+    return;
+  }
+  if (resp.status === 'error') {
+    container.innerHTML = `<em>${escHtml(resp.message || 'Could not look up phrase.')}</em>`;
+    container.classList.add('lx-visible');
+    return;
+  }
+
+  const kind = (resp.kind || 'unknown').toLowerCase();
+  const figurative = (resp.figurative_meaning || '').trim();
+  const literal    = (resp.literal_meaning    || '').trim();
+  const example    = (resp.example            || '').trim();
+  const confidence = (resp.confidence || 'low').toLowerCase();
+  const kindLabel  = _SLANG_KIND_LABELS[kind] || _SLANG_KIND_LABELS.unknown;
+
+  // Special branch: literal phrases get a "this is literal" notice rather
+  // than a fake figurative explanation, so users aren't misled.
+  if (kind === 'literal') {
+    let html = `<span class="lx-ql-slang-kind">${escHtml(kindLabel)}</span>`;
+    html += `<div class="lx-ql-slang-figurative">This phrase translates literally — no figurative meaning.</div>`;
+    if (literal) html += `<div class="lx-ql-slang-literal">${escHtml(literal)}</div>`;
+    container.innerHTML = html;
+    container.classList.add('lx-visible');
+    return;
+  }
+
+  let html = `<span class="lx-ql-slang-kind">${escHtml(kindLabel)}</span>`;
+  if (figurative) html += `<div class="lx-ql-slang-figurative">${escHtml(figurative)}</div>`;
+  if (literal && literal !== figurative) {
+    html += `<div class="lx-ql-slang-literal">Literally: ${escHtml(literal)}</div>`;
+  }
+  if (example) {
+    html += `<div class="lx-ql-slang-example">"${escHtml(example)}"</div>`;
+  }
+  if (confidence === 'low') {
+    html += `<em class="lx-ql-slang-uncertain">⚠ AI is uncertain — consider checking a dictionary.</em>`;
+  }
+  if (!figurative && !literal && !example) {
+    html += `<em>Could not classify this phrase.</em>`;
+  }
+  container.innerHTML = html;
+  container.classList.add('lx-visible');
 }
 
 // ── draggable card (Quick Look) ────────────────────────────────────────────

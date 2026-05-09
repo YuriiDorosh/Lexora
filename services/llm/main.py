@@ -971,3 +971,212 @@ def analyze_writing_endpoint(req: AnalyzeWritingRequest):
     result = _analyze_writing(text, req.language, req.context)
     result["status"] = "ok"
     return result
+
+
+# =============================================================================
+# M32 — Slang & Idiom Explainer
+# =============================================================================
+#
+# POST /explain-slang — sync FastAPI endpoint used by the Quick Look and
+# YouTube subtitle overlays' new "Explain Slang/Idiom" button. Classifies
+# a selected phrase as idiom / slang / phrasal_verb / literal / unknown
+# and returns figurative + literal meaning + a usage example, with the
+# explanation text rendered in the user's NATIVE language (not the source
+# language of the phrase itself).
+#
+# Architectural shape: same as /analyze-writing — Pydantic + system prompt
+# + few-shot anchor + response_format=json_object + tolerant parser +
+# defensive coerce + stub fallback when _llm_ready=False.
+#
+# JSON contract — five top-level keys:
+#
+#   {
+#     "kind":               "idiom" | "slang" | "phrasal_verb" |
+#                           "literal" | "unknown",
+#     "figurative_meaning": "...",   # in native_language
+#     "literal_meaning":    "...",   # word-for-word translation
+#     "example":            "...",   # one short usage (in source_language)
+#     "confidence":         "high" | "medium" | "low"
+#   }
+# =============================================================================
+
+
+class ExplainSlangRequest(BaseModel):
+    phrase: str
+    source_language: str = "en"
+    native_language: str = "en"
+
+
+_VALID_KINDS = {"idiom", "slang", "phrasal_verb", "literal", "unknown"}
+_VALID_CONFIDENCES = {"high", "medium", "low"}
+
+
+# 100 words max (M18-FIX-09 rule). Plain prose, explicit JSON shape, dual
+# language clamp (figurative_meaning in native; example in source).
+_EXPLAIN_SLANG_SYSTEM_PROMPT = (
+    "You are a phraseology expert. Reply with ONLY a JSON object — no "
+    "preamble, no markdown — in this shape:\n"
+    '{"kind":"idiom|slang|phrasal_verb|literal|unknown",'
+    '"figurative_meaning":"...","literal_meaning":"...","example":"...",'
+    '"confidence":"high|medium|low"}\n'
+    "kind: classify the phrase. Use \"literal\" when the phrase is just "
+    "a normal sentence with no figurative reading.\n"
+    "figurative_meaning: what the phrase REALLY means, in the user's "
+    "native language. For \"literal\" phrases, repeat the literal "
+    "translation here.\n"
+    "literal_meaning: word-for-word translation, in the user's native "
+    "language. Useful so the user sees both readings.\n"
+    "example: one short natural sentence using the phrase, in the "
+    "phrase's ORIGINAL language.\n"
+    "confidence: high if you're certain it's a fixed idiom, low if "
+    "you're guessing."
+)
+
+
+# Few-shot anchor per native_language. Each anchor demonstrates the
+# JSON shape with figurative_meaning + literal_meaning written in the
+# native language. Closes the M30 lesson — naming the language alone is
+# not enough for Qwen 1.5B; in-language pattern-matching is the strongest
+# signal we have.
+_SLANG_EXAMPLES = {
+    "en": (
+        '{"kind":"idiom",'
+        '"figurative_meaning":"to die",'
+        '"literal_meaning":"to kick a bucket",'
+        '"example":"Sadly, my old laptop finally kicked the bucket last week.",'
+        '"confidence":"high"}'
+    ),
+    "uk": (
+        '{"kind":"idiom",'
+        '"figurative_meaning":"померти",'
+        '"literal_meaning":"вдарити по відру",'
+        '"example":"Sadly, my old laptop finally kicked the bucket last week.",'
+        '"confidence":"high"}'
+    ),
+    "el": (
+        '{"kind":"idiom",'
+        '"figurative_meaning":"πεθαίνω",'
+        '"literal_meaning":"κλωτσάω τον κουβά",'
+        '"example":"Sadly, my old laptop finally kicked the bucket last week.",'
+        '"confidence":"high"}'
+    ),
+    "pl": (
+        '{"kind":"idiom",'
+        '"figurative_meaning":"umrzeć",'
+        '"literal_meaning":"kopnąć w wiadro",'
+        '"example":"Sadly, my old laptop finally kicked the bucket last week.",'
+        '"confidence":"high"}'
+    ),
+}
+
+
+def _explain_slang(phrase: str, source_language: str, native_language: str) -> dict:
+    """Return {kind, figurative_meaning, literal_meaning, example, confidence}.
+
+    Stub on _llm_ready=False — returns a minimal "unknown" payload so the
+    UI never wedges. Tolerant JSON parser + defensive coerce for the
+    Slavic-quoting quirk documented in ADR-027.
+    """
+    if not _llm_ready or _llm is None:
+        return {
+            "kind": "unknown",
+            "figurative_meaning": "",
+            "literal_meaning": phrase,
+            "example": "",
+            "confidence": "low",
+            "stub": True,
+        }
+
+    src_name = LANG_NAMES.get(source_language, source_language or "English")
+    nat_name = LANG_NAMES.get(native_language, native_language or "English")
+    example  = _SLANG_EXAMPLES.get(native_language, _SLANG_EXAMPLES["en"])
+
+    # User message follows the M31 sandwich: language gate → in-language
+    # anchor → repeat language gate → user's phrase. The figurative and
+    # literal meanings must land in `nat_name`; the example stays in
+    # `src_name`.
+    user_lines = [
+        f"Source phrase is in {src_name}. Reply: figurative_meaning and "
+        f"literal_meaning MUST be written in {nat_name}; example MUST be "
+        f"in {src_name}.",
+        f"Example response (figurative/literal explanations in {nat_name}, "
+        f"example sentence in English):",
+        example,
+        f"Now analyse the user's phrase. Use the same JSON shape; write "
+        f"figurative_meaning and literal_meaning in {nat_name}.",
+        f"Phrase ({src_name}): {phrase.strip()}",
+    ]
+    user_content = "\n\n".join(user_lines)
+
+    messages = [
+        {"role": "system", "content": _EXPLAIN_SLANG_SYSTEM_PROMPT},
+        {"role": "user",   "content": user_content},
+    ]
+
+    try:
+        result = _llm.create_chat_completion(
+            messages=messages,
+            max_tokens=300,
+            temperature=0.3,
+            repeat_penalty=1.1,
+            response_format={"type": "json_object"},
+        )
+        raw = result["choices"][0]["message"]["content"].strip()
+    except Exception as exc:
+        _logger.error("explain-slang generation failed: %s", exc)
+        return {
+            "kind": "unknown",
+            "figurative_meaning": "",
+            "literal_meaning": phrase,
+            "example": "",
+            "confidence": "low",
+            "error": str(exc),
+        }
+
+    try:
+        parsed = _parse_enrichment_json(raw)
+    except Exception as exc:
+        _logger.error("explain-slang JSON parse failed: %s — raw=%r",
+                      exc, raw[:200])
+        return {
+            "kind": "unknown",
+            "figurative_meaning": "",
+            "literal_meaning": phrase,
+            "example": "",
+            "confidence": "low",
+            "parse_error": True,
+        }
+
+    # Defensive coerce — clamp kind/confidence to the allowed sets, force
+    # all string fields to str, fall back to safe defaults.
+    kind = str(parsed.get("kind") or "unknown").strip().lower()
+    if kind not in _VALID_KINDS:
+        kind = "unknown"
+
+    confidence = str(parsed.get("confidence") or "low").strip().lower()
+    if confidence not in _VALID_CONFIDENCES:
+        confidence = "low"
+
+    return {
+        "kind":               kind,
+        "figurative_meaning": str(parsed.get("figurative_meaning") or "").strip(),
+        "literal_meaning":    str(parsed.get("literal_meaning")    or "").strip(),
+        "example":            str(parsed.get("example")            or "").strip(),
+        "confidence":         confidence,
+    }
+
+
+@app.post("/explain-slang")
+def explain_slang_endpoint(req: ExplainSlangRequest):
+    phrase = (req.phrase or "").strip()
+    if not phrase:
+        return {
+            "status": "error", "message": "Empty phrase",
+            "kind": "unknown", "figurative_meaning": "",
+            "literal_meaning": "", "example": "", "confidence": "low",
+        }
+    if len(phrase) > 1000:
+        phrase = phrase[:1000]
+    result = _explain_slang(phrase, req.source_language, req.native_language)
+    result["status"] = "ok"
+    return result

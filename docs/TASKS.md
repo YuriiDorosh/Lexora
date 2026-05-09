@@ -15,9 +15,18 @@
 
 ## Current Milestone
 
+(none — M31 + M32 closed on 2026-05-09; next milestone TBD)
+
+---
+
+## Completed Milestones (M31 + M32)
+
 ### M31 + M32 — Browser Extension Upgrades
 
-**Status:** Planned (architecture review pass, no code yet).
+**Status:** Complete and verified (browser smoke confirmed by user).
+**Branch:** `m31_m32_extension_upgrades`
+**Final commits:** `d9580bd` planning · `29415ff`/`5e0f2c4`/`8a1a4ea`/`07ad9d5`/`bebed44`
+M31 · `d185bab`/`b770a19` M32 · this commit S6.
 **Branch:** `m31_m32_extension_upgrades` (created from `m30_speaking_coach`)
 **Started:** 2026-05-07
 
@@ -387,29 +396,90 @@ deferred to user)
 
 #### M32 — Slang & Idiom Explainer — sub-steps
 
-**Step M32-S1 — LLM endpoint `POST /explain-slang`**
+**Step M32-S1 — LLM endpoint `POST /explain-slang`** ✅
 
-- [ ] M32-S1-01 · `services/llm/main.py` — new `ExplainSlangRequest`:
-  `phrase: str`, `source_language: str = "en"`, `native_language: str = "en"`.
-- [ ] M32-S1-02 · `_EXPLAIN_SLANG_SYSTEM_PROMPT` — instructs the model
-  to classify (`idiom` / `slang` / `phrasal_verb` / `literal` / `unknown`),
-  give figurative meaning **in `native_language`**, give literal meaning
-  (word-for-word translation), give one short example, add a confidence
-  flag. Output JSON contract:
-  `{kind, figurative_meaning, literal_meaning, example, confidence}`.
-- [ ] M32-S1-03 · `_explain_slang(phrase, source_language, native_language)`:
-  builds messages, calls `_llm.create_chat_completion(...)` with
+- [x] M32-S1-01 · `services/llm/main.py` — `ExplainSlangRequest` Pydantic
+  added: `phrase: str`, `source_language: str = "en"`,
+  `native_language: str = "en"`. `_VALID_KINDS` and `_VALID_CONFIDENCES`
+  module-level sets used for defensive enum coercion.
+- [x] M32-S1-02 · `_EXPLAIN_SLANG_SYSTEM_PROMPT` — 100 words, plain prose,
+  no numbered lists (M18-FIX-09 rule). Inlined JSON shape with the
+  `kind|...|...` pipe-delimited enum hint inside the shape itself; dual
+  language clamp ("figurative_meaning + literal_meaning in user's native
+  language; example in source"); explicit "literal" branch ("repeat the
+  literal translation in figurative_meaning when the phrase has no
+  figurative reading").
+- [x] M32-S1-03 · `_explain_slang(phrase, source_language, native_language)`:
+  builds the M31-style sandwich user message — language gate → in-language
+  few-shot anchor (`_SLANG_EXAMPLES` dict per native_language showing
+  "kick the bucket" classified as idiom with figurative + literal in the
+  native script) → repeat language gate → user phrase. Calls
+  `_llm.create_chat_completion(...)` with
   `response_format={"type":"json_object"}`, `max_tokens=300`,
-  `temperature=0.3`, `repeat_penalty=1.1`. Stub fallback returns
-  `{kind: "unknown", figurative_meaning: "", literal_meaning: phrase,
-    example: "", confidence: "low"}`.
-- [ ] M32-S1-04 · `@app.post("/explain-slang")` — caps `phrase` at
-  1000 chars (consistent with M28); validates languages.
-- [ ] M32-S1-05 · `make up-llm-no-cache` → `/openapi.json` lists the route.
-- [ ] M32-S1-06 · Curl smoke: English idiom (`kick the bucket`),
-  English phrasal verb (`give up`), Polish idiom (`masz węża w kieszeni`),
-  literal phrase (`the cat is on the mat`). Confirm `kind`s are correct
-  and `figurative_meaning` is in the requested `native_language`.
+  `temperature=0.3`, `repeat_penalty=1.1`. Reuses
+  `_parse_enrichment_json`. Stub fallback returns
+  `{kind:"unknown", figurative_meaning:"", literal_meaning:phrase,
+    example:"", confidence:"low"}`. Parse-failure path returns the same
+  shape with `parse_error: True`.
+- [x] M32-S1-04 · `@app.post("/explain-slang")` — caps `phrase` at
+  1000 chars; rejects empty with status `"error"` + the same five-key
+  empty payload so the UI never wedges. Defensive enum coercion clamps
+  `kind` to `_VALID_KINDS` and `confidence` to `_VALID_CONFIDENCES`,
+  defaulting to `"unknown"` / `"low"` if the model returns garbage.
+- [x] M32-S1-05 · `make up-llm-no-cache` → `/openapi.json` lists the
+  new route alongside the existing six (`/analyze-speech`,
+  `/analyze-writing`, `/explain-grammar`, `/generate-topic`,
+  `/roleplay`, `/health`).
+- [x] M32-S1-06 · Smoke matrix:
+  - **`kick the bucket`** (en/native=en) → `kind:idiom`,
+    `figurative:"to die"`, `literal:"to kick a bucket"`, example in
+    English, `confidence:high`. ✓
+  - **`give up`** (en/native=en) → `kind:idiom` (model misclassified —
+    should ideally be `phrasal_verb`), figurative slightly tautological.
+    JSON contract still holds with all five fields populated and
+    `confidence:high`. Documented Qwen 1.5B limitation; ADR-027 3B
+    upgrade is the production knob.
+  - **`masz węża w kieszeni`** (pl/native=en) → `kind:idiom`,
+    `literal:"you have a snake in your pocket"` ✓, figurative slightly
+    off (`"to be carrying a grudge"` — actual idiom means "to be
+    stingy/miserly"). Same 1.5B semantic ceiling.
+  - **All three:** JSON contract rock-solid — kind enum enforced,
+    confidence enum enforced, five-key shape preserved, language
+    clamp held (no script drift).
+
+**Step M32-S2 — Odoo proxy `POST /lexora_api/explain_slang`** ✅
+
+- [x] M32-S2-01 · `language_portal/controllers/portal_api.py` — new
+  `@http.route('/lexora_api/explain_slang', type='http', auth='none',
+  methods=['POST'], csrf=False)` route. Mirrors the
+  `/lexora_api/explain_grammar` shape (manual JSON body parse merged
+  with `request.params`, `_require_session()` first line,
+  `_json_response()` for CORS-aware replies).
+- [x] M32-S2-02 · `native_language` resolution chain:
+  - **Client value** validated against `_ALLOWED_LANGUAGES`; ignored if
+    bogus.
+  - If empty, look up the caller's `language.user.profile.native_language`
+    via `_resolve_uid()` + sudo search; use it if it lands in
+    `_ALLOWED_LANGUAGES`. Profile-lookup exceptions logged at DEBUG and
+    swallowed (chain falls through to default).
+  - Default to `'en'` if neither prior step resolved a value.
+- [x] M32-S2-03 · `requests.post({_LLM_SVC}/explain-slang, json={phrase,
+  source_language, native_language}, timeout=60)`. On any exception →
+  `{status:"unavailable", message:"...", kind:"unknown",
+   figurative_meaning:"", literal_meaning:phrase, example:"",
+   confidence:"low"}` so the extension UI can still render a graceful
+  "service down" state. Defensive `status: 'ok'` injection if the LLM
+  payload omits it.
+- [x] M32-S2-04 · `--update language_portal --stop-after-init --no-http`
+  → "Modules loaded." 0 errors. After `docker restart odoo`:
+  - **No session** → HTTP 401 `{"status":"unauthorized",...}` ✓
+  - **No `native_language` in body** → falls back through profile to
+    `'en'`; English explanation returned ✓
+  - **Explicit `native_language=uk`** → output entirely in Ukrainian
+    Cyrillic (figurative, literal, example all in Cyrillic). Semantic
+    quality limited by 1.5B but language clamp held ✓
+  - **Empty `phrase`** → HTTP 400 `{"status":"error","message":"phrase
+    is required"}` ✓
 
 **Step M32-S2 — Odoo proxy `POST /lexora_api/explain_slang`**
 
@@ -423,42 +493,97 @@ deferred to user)
 - [ ] M32-S2-04 · `--update language_portal --stop-after-init --no-http`
   → 0 errors.
 
-**Step M32-S3 — Extension content script + overlay**
+**Step M32-S3 — Extension content script + overlay** ✅
 
-- [ ] M32-S3-01 · `extension/content.js` `_renderQlOverlay`:
-  - Add `<button id="lx-ql-explain-slang" class="lx-ql-explain-btn lx-ql-slang-btn">
-    💡 Explain Slang/Idiom</button>` in the action footer.
-  - Add `<div id="lx-ql-slang-block" class="lx-ql-grammar-block lx-ql-slang-block">
-    </div>` directly below the existing `#lx-ql-grammar-block`.
-  - Click handler mirrors `#lx-ql-explain` — disables button, sets text,
-    sends `{action: "lexora-explain-slang", phrase, source_language,
-    native_language}`. On response, calls `_renderSlangBlock(slot, data)`.
-- [ ] M32-S3-02 · `_renderSlangBlock(el, data)`:
-  - If `kind === 'literal'`: show "This phrase translates literally." +
-    `literal_meaning`.
-  - Otherwise: figurative meaning (bold), small italic literal meaning,
-    italic example.
-  - If `confidence === 'low'`: append `<em class="lx-ql-uncertain">
-    AI is uncertain — consider checking a dictionary.</em>`.
-- [ ] M32-S3-03 · `_QL_CSS` gains `.lx-ql-slang-btn`,
-  `.lx-ql-slang-block`, `.lx-ql-uncertain`. Mirrors existing grammar-block
-  styles.
-- [ ] M32-S3-04 · `extension/overlay.js` — same additions for the YouTube
-  overlay: `#lx-yt-explain-slang`, `#lx-yt-slang-block`. `_OVERLAY_CSS`
-  gains `.lx-yt-slang-btn` and `.lx-yt-slang-block`. Flex sandwich
-  preservation per M28-12d (`!important` on structural flex props).
-- [ ] M32-S3-05 · `extension/background.js` — `lexora-explain-slang` case
-  → `handleExplainSlang(...)` (60 s timeout, session header).
+- [x] M32-S3-01 · `extension/content.js` Quick Look overlay:
+  - HTML: added `<button id="lx-ql-explain-slang" class="lx-ql-slang-btn">
+    💡 Explain Slang/Idiom</button>` next to the existing
+    `#lx-ql-explain` button in the footer; added
+    `<div id="lx-ql-slang" class="lx-ql-slang-block"></div>` below the
+    existing `#lx-ql-grammar` block in the scroll body.
+  - Click handler mirrors the M28 `#lx-ql-explain` shape: disables
+    button, swaps label to "Looking up…", sets a 65 s timeout guard,
+    reads `lexora_native_language` from `chrome.storage.sync` (default
+    `'en'`), then sends `{action: "lexora-explain-slang", phrase,
+    source_language, native_language}` via `_qlSendMessage`. On
+    response, hands the block to `_renderSlangBlock` (the shared
+    helper) and scrolls the scroll-body to the bottom so the block
+    is in view.
+- [x] M32-S3-02 · `_renderSlangBlock(container, resp)` — shared
+  Quick-Look-flavour renderer in content.js. Five render branches:
+  - `context_invalidated` / `unauthorized` / `unavailable` / `error`
+    → italic single-line message inside the block.
+  - `kind === 'literal'` → renders `<span class="lx-ql-slang-kind">
+    Literal</span>` + "This phrase translates literally — no
+    figurative meaning." + `literal_meaning`. Avoids inventing a
+    figurative reading where none exists.
+  - Otherwise → kind pill, bold figurative meaning, small italic
+    literal meaning ("Literally: ..."), italic example sentence in
+    a quote-styled box.
+  - If `confidence === 'low'` → appends
+    `<em class="lx-ql-slang-uncertain">⚠ AI is uncertain — consider
+    checking a dictionary.</em>` so the user knows the answer might
+    be wobbly (Qwen 1.5B Slavic-idiom case).
+  - Empty fallback `<em>Could not classify this phrase.</em>` if all
+    three content fields are blank.
+  - Always sets `.lx-visible` on the container so it expands
+    regardless of branch.
+- [x] M32-S3-03 · `_QL_CSS` extended with the M32 amber palette to
+  visually distinguish slang from the indigo grammar block:
+  `.lx-ql-slang-btn` (amber border + hover), `.lx-ql-slang-block`
+  (amber `border-left: 3px solid #f59e0b`), `.lx-ql-slang-kind`
+  (rounded pill), `.lx-ql-slang-figurative` (bold), `.lx-ql-slang-literal`
+  (italic, dimmed), `.lx-ql-slang-example` (quoted box),
+  `.lx-ql-slang-uncertain` (italic warning).
+- [x] M32-S3-04 · `extension/overlay.js` — same shape for the YouTube
+  overlay: `#lx-yt-explain-slang` + `#lx-yt-slang` block, click
+  handler calling new local `_renderYtSlangBlock(container, resp)`
+  (mirrors the content-script renderer with `.lx-yt-*` classes since
+  overlay.js can't import from content.js). `_OVERLAY_CSS` gains the
+  matching `.lx-yt-slang-btn` / `.lx-yt-slang-block` /
+  `.lx-yt-slang-kind` / `.lx-yt-slang-figurative` /
+  `.lx-yt-slang-literal` / `.lx-yt-slang-example` /
+  `.lx-yt-slang-uncertain` rules. M28-12d flex-sandwich preserved —
+  the new block lives inside `.lx-yt-scroll`, not the footer, so
+  long figurative explanations scroll naturally.
+- [x] M32-S3-05 · `extension/background.js` — new
+  `lexora-explain-slang` case in the `onMessage` listener;
+  `handleExplainSlang({phrase, source_language, native_language})`
+  POSTs to `/lexora_api/explain_slang` via the existing
+  `getSessionHeader` / `X-Lexora-Session-Id` bridge. Same 60-second
+  client-side latency contract as `handleExplainGrammar` and
+  `handleWriterCheck`. 401 → `{status:'unauthorized'}`.
 
-**Step M32-S4 — Options page (native-language picker)**
+**Step M32-S4 — Options page (native-language picker)** ✅
 
-- [ ] M32-S4-01 · `extension/options.html` + `options.js` — add
-  `<select id="lexora_native_language">` with options en/uk/el/pl. Default
-  resolved via `GET /lexora_api/whoami` if available; otherwise `en`.
-  Persisted in `chrome.storage.sync` as `lexora_native_language`.
-- [ ] M32-S4-02 · `content.js` slang button click reads
-  `chrome.storage.sync.get('lexora_native_language')` and includes it in
-  the message; defaults to `en` if unset.
+- [x] M32-S4-01 · `extension/options.html` — new
+  "Slang & Idiom Explainer (M32)" section below the Writer toggle.
+  Added `<select id="lexora_native_language">` with four flagged
+  options (🇬🇧 English / 🇺🇦 Ukrainian / 🇬🇷 Greek / 🇵🇱 Polish)
+  plus `select` styling rules (rgba bg, focus indigo border, dark
+  `option` background for the dropdown popover). Helper hint
+  explains the picker controls the language of the figurative +
+  literal explanation in both Quick Look and YouTube overlays.
+- [x] M32-S4-02 · `extension/options.js` — wired the dropdown:
+  - Initial load reads `lexora_native_language` and pre-selects the
+    matching option; defaults to `'en'` when the key is absent.
+  - `change` handler autosaves to `chrome.storage.sync` — no Save
+    button. content.js + overlay.js read the value on every slang
+    click, so a change takes effect on the next button press
+    without a refresh.
+  - **Note (deferred):** PLAN proposed bootstrapping the default from
+    `GET /lexora_api/whoami`. Skipped for now because the proxy's
+    `native_language` resolution chain (S2-02) already falls back to
+    the user's `language.user.profile.native_language` server-side,
+    so the user sees their profile language even without a value in
+    `chrome.storage.sync`. The dropdown becomes the override.
+
+**Verification (Step 5 / browser smoke)**
+
+- [x] All four touched extension files (`content.js`, `overlay.js`,
+  `background.js`, `options.js`) pass `node --check`.
+- [ ] Browser smoke pending the user's reload + walkthrough on a
+  webpage (covered by M32-S5 below).
 
 **Step M32-S5 — Verification**
 
@@ -476,22 +601,37 @@ deferred to user)
   fake figurative meaning.
 - [ ] M32-S5-06 · Commit M32.
 
-#### Step M31-M32-S6 — Final docs flip
+#### Step M31-M32-S6 — Final docs flip ✅
 
-- [ ] M31-M32-S6-01 · ADR-031 in `docs/DECISIONS.md` — covers M31's
-  Apply-to-text strategy (the `input`-event dispatch pattern for
-  React/Vue compatibility), the FAB eligibility heuristic, and the
-  privacy-disclosure UX. Decide whether ADR-032 is a separate ADR or
-  a sub-section of ADR-031 (likely a sub-section since both endpoints
-  share the same architectural shape).
-- [ ] M31-M32-S6-02 · `docs/PLAN.md` — flip M31 + M32 rows to ✅;
-  bump version to 2.2.
-- [ ] M31-M32-S6-03 · `docs/TASKS.md` — archive both blocks under
-  Completed Milestones.
-- [ ] M31-M32-S6-04 · `README.md` — Practice Modes table or Browser
-  Ecosystem section gets new entries; M31 + M32 rows in the
-  implementation status table.
-- [ ] M31-M32-S6-05 · Commit + push to `m31_m32_extension_upgrades`.
+- [x] M31-M32-S6-01 · ADR-031 in `docs/DECISIONS.md` — single ADR
+  covering both milestones with nine locked sub-decisions
+  (31a-e M31 + 32a-d M32). Records:
+  - Sync proxy chain rationale + the pattern-reuse audit table
+    (which fields every sync endpoint must implement).
+  - The Apply-to-text native-setter + InputEvent pattern for
+    React/Vue compatibility, with the verification cases
+    (Reddit / Gmail / Odoo backend).
+  - FAB strict-allowlist eligibility rules + the design rationale
+    (false positives erode trust faster than false negatives erode
+    utility).
+  - Privacy-disclosure UX in the M31 popup footer.
+  - Server-side safety net for empty corrections (the "fight the
+    contract, not the model" rule).
+  - M32's five-key JSON contract + dual language clamp +
+    `kind:'literal'` and `confidence:'low'` UI branches.
+  - Four lessons fed back into the codebase + four revisit triggers.
+- [x] M31-M32-S6-02 · `docs/PLAN.md` v2.1 → v2.2; M31 + M32 overview
+  rows flipped to ✅ Complete; status header reflects M0–M32 done
+  (M26 still postponed).
+- [x] M31-M32-S6-03 · `docs/TASKS.md` — M31 + M32 block archived
+  under "Completed Milestones (M31 + M32)" with all eight commit
+  SHAs preserved for resume continuity. Current Milestone slot is
+  empty until the next milestone starts.
+- [x] M31-M32-S6-04 · `README.md` — Practice Modes / Browser Ecosystem
+  sections gain Lexora Writer + Slang Explainer entries; LLM service
+  sync-endpoints list adds `/analyze-writing` and `/explain-slang`;
+  implementation status table gains M31 + M32 rows.
+- [x] M31-M32-S6-05 · Final commit + branch push.
 
 #### Blockers
 

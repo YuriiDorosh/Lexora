@@ -697,6 +697,114 @@ class LexoraApiController(http.Controller):
             result['status'] = 'ok'
         return _json_response(result)
 
+    # ------------------------------------------------------------------
+    # POST /lexora_api/explain_slang  (M32 — Slang & Idiom Explainer)
+    # ------------------------------------------------------------------
+    @http.route('/lexora_api/explain_slang', type='http', auth='none',
+                methods=['POST'], csrf=False)
+    def explain_slang(self, **kw):
+        """Proxy a slang/idiom explanation request to the LLM service.
+
+        Used by the Quick Look (content.js) and YouTube subtitle
+        (overlay.js) overlays' new "Explain Slang/Idiom" button. Sends
+        the selected phrase to the LLM service's /explain-slang endpoint
+        and passes the JSON back unchanged (defensive status injection).
+
+        Request body (JSON):
+            phrase           (str, required) — the phrase to classify.
+                                                Capped at _MAX_WORD_LEN
+                                                (1000) chars.
+            source_language  (str, optional) — language of the phrase
+                                                itself (en/uk/el/pl).
+                                                Default 'en'.
+            native_language  (str, optional) — language to render the
+                                                figurative/literal
+                                                explanations in. Resolution
+                                                order: client value →
+                                                caller's
+                                                language.user.profile.
+                                                native_language → 'en'.
+
+        Response (LLM payload + injected status):
+            {"status":"ok",
+             "kind":"idiom" | "slang" | "phrasal_verb" | "literal" |
+                    "unknown",
+             "figurative_meaning":"...",
+             "literal_meaning":"...",
+             "example":"...",
+             "confidence":"high" | "medium" | "low"}
+            {"status":"error",       "message":"phrase is required", ...}
+            {"status":"unavailable", "message":"LLM service unavailable..."}
+
+        Latency: same envelope as /explain_grammar / /writer_check —
+        Qwen2.5-1.5B on the target server typically returns in
+        10-25 seconds for a single phrase.
+        """
+        err = _require_session()
+        if err:
+            return err
+
+        try:
+            raw = request.httprequest.get_data(as_text=True)
+            data = json.loads(raw) if raw else {}
+        except (ValueError, UnicodeDecodeError):
+            data = {}
+        data = {**request.params, **data}
+
+        phrase = (data.get('phrase') or '').strip()[:_MAX_WORD_LEN]
+        if not phrase:
+            return _json_response(
+                {'status': 'error', 'message': 'phrase is required'}, 400)
+
+        source_language = (data.get('source_language') or 'en').strip().lower()
+        if source_language not in _ALLOWED_LANGUAGES:
+            source_language = 'en'
+
+        # native_language resolution: client → profile → 'en'.
+        native_language = (data.get('native_language') or '').strip().lower()
+        if native_language and native_language not in _ALLOWED_LANGUAGES:
+            native_language = ''
+        if not native_language:
+            try:
+                uid = _resolve_uid()
+                profile = request.env['language.user.profile'].sudo().search(
+                    [('user_id', '=', uid)], limit=1)
+                if profile and profile.native_language in _ALLOWED_LANGUAGES:
+                    native_language = profile.native_language
+            except Exception as exc:
+                _logger.debug('explain_slang profile lookup failed: %s', exc)
+        if not native_language:
+            native_language = 'en'
+
+        try:
+            import requests as _req
+            resp = _req.post(
+                f'{_LLM_SVC}/explain-slang',
+                json={
+                    'phrase': phrase,
+                    'source_language': source_language,
+                    'native_language': native_language,
+                },
+                timeout=60,
+            )
+            resp.raise_for_status()
+            result = json.loads(resp.content.decode('utf-8', errors='replace'))
+        except Exception as exc:
+            _logger.warning('explain_slang proxy error: %s', exc)
+            return _json_response({
+                'status': 'unavailable',
+                'message': 'LLM service unavailable — please try again shortly.',
+                'kind': 'unknown',
+                'figurative_meaning': '',
+                'literal_meaning': phrase,
+                'example': '',
+                'confidence': 'low',
+            })
+
+        if 'status' not in result:
+            result['status'] = 'ok'
+        return _json_response(result)
+
 
 # -------------------------------------------------------------------------
 # Helpers

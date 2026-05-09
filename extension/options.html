@@ -111,6 +111,19 @@
       color: rgba(255, 255, 255, 0.35);
       margin-bottom: 12px;
     }
+    select {
+      width: 100%;
+      background: rgba(255,255,255,0.08);
+      border: 1px solid rgba(255,255,255,0.15);
+      border-radius: 8px;
+      color: #f1f5f9;
+      font-size: 14px;
+      padding: 10px 12px;
+      outline: none;
+      cursor: pointer;
+    }
+    select:focus { border-color: #818cf8; }
+    select option { background: #1e293b; color: #f1f5f9; }
   </style>
 </head>
 <body>
@@ -136,6 +149,22 @@
       </span>
     </span>
   </label>
+
+  <div class="lx-section-divider"></div>
+  <div class="lx-section-label">Slang &amp; Idiom Explainer (M32)</div>
+
+  <label for="lexora_native_language">Explanation language</label>
+  <select id="lexora_native_language">
+    <option value="en">🇬🇧 English</option>
+    <option value="uk">🇺🇦 Ukrainian</option>
+    <option value="el">🇬🇷 Greek</option>
+    <option value="pl">🇵🇱 Polish</option>
+  </select>
+  <p class="hint">
+    When you click "💡 Explain Slang/Idiom" in the Quick Look or YouTube
+    overlay, the figurative meaning and literal translation will be
+    rendered in this language.
+  </p>
 
   <script src="options.js"></script>
 </body>

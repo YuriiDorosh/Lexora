@@ -21,7 +21,7 @@
 
 1. [Concept](#1-concept)
 2. [Feature Catalogue](#2-feature-catalogue)
-3. [The Browser Ecosystem (M22–M28)](#3-the-browser-ecosystem-m22m28)
+3. [The Browser Ecosystem (M22–M32)](#3-the-browser-ecosystem-m22m32)
 4. [Backend Architecture](#4-backend-architecture)
 5. [Async Microservices](#5-async-microservices)
 6. [Spaced Repetition (SM-2)](#6-spaced-repetition-sm-2)
@@ -102,6 +102,8 @@ fees, no external databases — just Docker Compose on a CPU-only Linux server.
 | **Sentence Builder** | Word-ordering game using grammar dataset sentences; click-to-order tiles; XP reward |
 | **AI Roleplay** | 6 scenarios (café, job interview, doctor, hotel, airport, market); LLM native speaker with inline grammar corrections; conversation history persisted |
 | **AI Speaking Coach** | Browser-mic recording → Faster-Whisper sync transcription → Qwen2.5-1.5B feedback (corrections / synonyms / improved version). 90 s soft cap; works in en/uk/el/pl; sessions persisted at `/my/speaking/<id>` |
+| **Lexora Writer** (browser) | Floating "L" FAB on every focused `<textarea>` / `[contenteditable]` across the web. One click → grammar fixes + polished version + Apply-to-text. Compatible with React/Vue controlled inputs; strict eligibility skips passwords, search, code editors |
+| **Slang & Idiom Explainer** (browser) | "💡 Explain Slang/Idiom" button in the Quick Look + YouTube subtitle overlays. Classifies the phrase (idiom / slang / phrasal verb / literal) and renders figurative + literal meaning + a usage example in the user's chosen native language |
 | **Phrasebook** | 6 tourist kits × ~15 phrases × 3 languages; one-click "Practice in Roleplay" |
 | **Idioms Hub** | 100+ phrasal verbs (EN) + idioms (UK/EL); flip-card UI; save-to-vocabulary button |
 
@@ -115,7 +117,7 @@ fees, no external databases — just Docker Compose on a CPU-only Linux server.
 
 ---
 
-## 3. The Browser Ecosystem (M22–M28)
+## 3. The Browser Ecosystem (M22–M32)
 
 The Chrome Extension is the centrepiece of the immersion strategy. It turns every
 browser tab into a capture and practice surface.
@@ -240,6 +242,59 @@ by the local Qwen 1.5B model.
 - **Latency UX**: button shows "Explaining…" immediately; overlay stays open so the user
   can read translations while the model generates (~10–40 s on E5-2680v2 CPU).
 
+### M31 — Lexora Writer (Active Writing Assistant)
+
+A floating "L" button appears beside every focused `<textarea>` and
+`[contenteditable]` element on every webpage — Reddit comment boxes, Gmail
+compose, GitHub PR descriptions, Notion, Odoo backend long-text fields. One
+click sends the field's value to the LLM and replaces it with a polished
+version.
+
+- **Strict eligibility filter**: skips `[type=password]`, `[role="search"]`
+  ancestors, code editors (Monaco / CodeMirror / ACE / github.dev / replit /
+  codesandbox), login/signup forms, and our own Shadow-DOM overlays. False
+  positives erode trust faster than false negatives erode utility.
+- **Apply-to-text** uses the canonical "native input setter" pattern —
+  `Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set
+  .call(input, improved)` — to bypass React's wrapped setter on controlled
+  inputs, then dispatches `InputEvent('input', {bubbles:true,
+  inputType:'insertReplacementText'})` and `Event('change', {bubbles:true})`
+  so React/Vue/Svelte/Solid all pick up the change. Verified on Reddit's
+  React-controlled textarea (the character counter visibly updates after
+  Apply).
+- **Server-side safety net** in `/analyze-writing` synthesises a catch-all
+  correction entry whenever the LLM returns a polished `improved` but an
+  empty `corrections` array — guarantees the user always sees a
+  documented reason for the text change (ADR-031).
+- **Privacy disclosure** in the popup footer: *"Text is sent to your Lexora
+  server for analysis."* The Writer is proactive (FAB on every field), so
+  the disclosure is non-optional.
+- **Options-page toggle** to disable the FAB globally; live-hides via
+  `chrome.storage.onChanged` without refreshing open tabs.
+
+### M32 — Slang & Idiom Explainer
+
+A new "💡 Explain Slang/Idiom" button alongside the M28 "Explain Grammar"
+button in both the Quick Look (any webpage) and YouTube subtitle overlays.
+Sends the selected phrase to `POST /explain-slang` and renders the
+response in an amber-themed scrollable block.
+
+- **Five-key JSON contract**: `{kind, figurative_meaning, literal_meaning,
+  example, confidence}`. `kind` ∈ `{idiom, slang, phrasal_verb, literal,
+  unknown}`; `confidence` ∈ `{high, medium, low}`. Both enums clamped
+  server-side defensively.
+- **Dual language clamp**: figurative + literal explanations in the
+  user's **native language** (set via the Options-page dropdown);
+  example sentence in the phrase's **source language** so the user
+  sees the idiom in its natural habitat.
+- **`kind:'literal'` UI branch** — when the model classifies a phrase
+  as literal, the renderer shows *"This phrase translates literally
+  — no figurative meaning"* instead of inventing a fake idiomatic
+  reading. Better to acknowledge "this is just a sentence."
+- **`confidence:'low'` UI branch** — appends *"⚠ AI is uncertain —
+  consider checking a dictionary"* so the user knows Qwen 1.5B may
+  be wobbly on regional slang or obscure idioms.
+
 ---
 
 ## 4. Backend Architecture
@@ -321,9 +376,12 @@ by the local Qwen 1.5B model.
   stub to prevent queue wedging
 - **Sync endpoints:** `POST /roleplay` for AI Roleplay; `POST /explain-grammar` for the
   Grammar Explainer button in the browser extension; `POST /generate-topic` and
-  `POST /analyze-speech` for the AI Speaking Coach (M30). All four bypass RabbitMQ
-  because the user can't proceed without the result; ADR-030 documents the
-  sync-over-async rule
+  `POST /analyze-speech` for the AI Speaking Coach (M30); `POST /analyze-writing` for
+  the Lexora Writer FAB (M31); `POST /explain-slang` for the Slang & Idiom Explainer
+  button (M32). All six bypass RabbitMQ because the user can't proceed without the
+  result; ADR-030 + ADR-031 document the sync-over-async rule and the shared endpoint
+  pattern (Pydantic + few-shot anchor + tolerant parser + defensive coerce + stub
+  fallback + server-side `status` injection)
 
 ### Anki Import Service (port 8003)
 
@@ -687,6 +745,8 @@ Key variables in `.env` (see `env.example` for the full list):
 | M28 | ✅ Complete | "Explain Grammar" in Quick Look + YouTube overlays; Qwen 1.5B via Odoo proxy; draggable scrollable overlays |
 | M29 | ✅ Complete | Polish (`pl` / 🇵🇱) as a first-class language across DB, services, extension, portal; 1055 entries backfilled; canonical `LANGUAGE_SELECTION` import enforced (ADR-029) |
 | M30 | ✅ Complete | AI Speaking Coach — `/my/speaking` portal: browser-mic recording → Faster-Whisper sync transcription → Qwen2.5-1.5B feedback (corrections / synonyms / improved version). 90 s soft cap; 4-language support; sessions persisted in `language.speaking.session` (ADR-030) |
+| M31 | ✅ Complete | Lexora Writer — floating "L" FAB on every focused `<textarea>` / `[contenteditable]`; sends field text to `/analyze-writing`; React-compatible Apply-to-text via the native HTMLTextAreaElement setter + `InputEvent`; strict eligibility skips passwords / search / code editors / login forms; Options-page toggle; server-side safety net guarantees every change is documented (ADR-031) |
+| M32 | ✅ Complete | Slang & Idiom Explainer — "💡 Explain Slang/Idiom" button alongside the M28 grammar button in Quick Look + YouTube overlays; `/explain-slang` returns five-key JSON (kind / figurative / literal / example / confidence); dual language clamp (explanation in user's native language, example in source); honest UI for `kind:'literal'` and `confidence:'low'` branches; native-language picker in Options (ADR-031) |
 
 ---
 
