@@ -531,6 +531,67 @@ flow yet. Quick fix delivers it.
 - [x] M33-S6-FIX1-03 · `node --check` passes on the modified
   `options.js`.
 
+**Step M33-S6-FIX2 — UX pivot: hold-to-record → click-to-toggle** ✅
+
+User browser smoke surfaced a severe UX issue with the hold-to-record
+mechanic from M33-S5: micro mouse movements / brief touches were
+firing `mouseleave` / `mouseup` / `touchend` prematurely and cutting
+the recording off after 1-2 s. The user explicitly requested a pivot
+to a simple "click to start, click to stop" toggle — same model
+voice-memo apps use; naturally robust against the spurious-event class
+of bug.
+
+- [x] M33-S6-FIX2-01 · `extension/content.js` `_renderShadowControls`:
+  - Removed all six event listeners on the record button:
+    `mousedown` / `touchstart` (start), `mouseup` / `touchend` (stop),
+    `mouseleave` / `touchcancel` (cancel-with-autoStop). Removed the
+    `_holdStart` timestamp variable + the `_SHADOW_MIN_HOLD_MS=300`
+    debounce against accidental quick releases (no longer relevant
+    once toggle is the model).
+  - Replaced with a single `click` listener calling `_onRecordToggle`:
+    - First click (when `!_isRecording`): sets `_isRecording=true`,
+      adds `.lx-recording` class (pulse animation preserved), label
+      flips to **"⏹ Stop Recording"**, sends `lexora-mic-start`.
+      Status: "Recording… click Stop when you are done." On the
+      mic-start error path, button reverts to "🎙 Start Recording"
+      with the existing Options-page hint.
+    - Second click (when `_isRecording`): calls `_stopRecording()`
+      which clears `.lx-recording`, label flips to "Analysing…",
+      button disabled, sends `lexora-mic-stop` + the existing
+      `lexora-shadow-evaluate` chain. On result render, button
+      label resets to "🎙 Start Recording" and re-enables.
+  - 30 s `_SHADOW_REC_MAX_MS` auto-stop **kept** as a safety bound:
+    if the user forgets to click Stop, the timer fires
+    `_stopRecording()` (same path) with a status note
+    "Auto-stopped after 30 s — analysing…".
+  - Initial button label updated from "🎙 Hold to Record" → "🎙 Start
+    Recording"; initial status updated from "...hold the record button
+    while you say it" → "...click Start Recording. Click Stop when
+    you are done."; post-Play-Original status updated from "Hold the
+    record button when you're ready." → "Click Start Recording when
+    you are ready."
+  - Note: `_renderShadowControls` is shared by Quick Look and (in the
+    future) any other surface using `prefix='lx-ql'`. The toggle
+    behaviour is encapsulated inside the helper, so call sites don't
+    need to change.
+- [x] M33-S6-FIX2-02 · `extension/overlay.js` `_renderYtShadowControls`:
+  - Identical pivot mirrored under `lx-yt-` prefix and
+    `_sendMessage` / `_YT_SHADOW_REC_MAX_MS`. Same six event
+    listeners removed; same single `click` handler with the same
+    `_isRecording` state machine; same label / status copy updated;
+    same 30 s auto-stop safety preserved.
+  - `_YT_SHADOW_MIN_HOLD_MS` constant removed from the file header.
+- [x] M33-S6-FIX2-03 · Verification:
+  - `node --check` passes on all 5 extension JS files
+    (`content.js`, `overlay.js`, `background.js`, `options.js`,
+    `offscreen.js`).
+  - Grep confirms no remaining `mousedown` / `mouseup` / `mouseleave` /
+    `touchstart` / `touchend` / `touchcancel` listeners on the
+    record-button surface; the remaining matches across `content.js`
+    and `overlay.js` are all unrelated (icon hover detection, card
+    drag handlers, click-outside-to-close, M31 writer-FAB
+    anti-blur).
+
 **Step M33-S6 — Verification**
 
 - [ ] M33-S6-01 · LLM endpoint smoke matrix (S1-09).

@@ -964,7 +964,9 @@ function _renderSlangBlock(container, resp) {
 
 // ── M33 — Shadowing block (shared by Quick Look + YouTube overlay) ────────
 
-const _SHADOW_MIN_HOLD_MS  = 300;     // <300 ms held → likely accidental click
+// M33-S5-FIX: pivoted from hold-to-record to click-to-toggle. The
+// _SHADOW_MIN_HOLD_MS constant is no longer needed (no debounce against
+// accidental quick releases) — toggle is naturally robust.
 const _SHADOW_REC_MAX_MS   = 30 * 1000; // 30 s safety auto-stop
 const _SHADOW_WORD_TOKEN_RE = /[\wÀ-ɏͰ-ϿЀ-ӿ'-]+/gu;
 
@@ -986,9 +988,9 @@ function _renderShadowControls(rootEl, container, referenceText, language, prefi
     <div class="${prefix}-shadow-reference" id="${prefix}-shadow-ref">${escHtml(referenceText)}</div>
     <div class="${prefix}-shadow-controls">
       <button class="${prefix}-shadow-play-btn"   id="${prefix}-shadow-play">▶ Play Original</button>
-      <button class="${prefix}-shadow-record-btn" id="${prefix}-shadow-record">🎙 Hold to Record</button>
+      <button class="${prefix}-shadow-record-btn" id="${prefix}-shadow-record">🎙 Start Recording</button>
     </div>
-    <div class="${prefix}-shadow-status" id="${prefix}-shadow-status">Hear the model, then hold the record button while you say it.</div>
+    <div class="${prefix}-shadow-status" id="${prefix}-shadow-status">Hear the model, then click Start Recording. Click Stop when you are done.</div>
     <div class="${prefix}-shadow-result" id="${prefix}-shadow-result"></div>
   `;
   container.classList.add('lx-visible');
@@ -1031,7 +1033,7 @@ function _renderShadowControls(rootEl, container, referenceText, language, prefi
           _audioEl.onended = () => {
             playBtn.textContent = orig;
             playBtn.disabled   = false;
-            statusEl.textContent = 'Hold the record button when you’re ready.';
+            statusEl.textContent = 'Click Start Recording when you are ready.';
           };
           _audioEl.onerror = () => {
             playBtn.textContent = orig;
@@ -1050,54 +1052,21 @@ function _renderShadowControls(rootEl, container, referenceText, language, prefi
     });
   }
 
-  // ── Hold to Record ────────────────────────────────────────────────────
-  let _holdStart = 0;
+  // ── Click-to-toggle Record ────────────────────────────────────────────
+  // Pivot from hold-to-record (M33-S5 first cut) to click-to-toggle:
+  // hold mechanic was cutting recordings off after 1-2 s because micro
+  // mouse movements / taps were firing mouseleave / mouseup / touchend
+  // prematurely. Toggle is robust against those events and matches the
+  // mental model users have from voice memo apps.
+  // 30 s _autoStopTimer kept as a safety cap so a forgotten "Stop" click
+  // doesn't record forever.
   let _autoStopTimer = null;
   let _isRecording = false;
 
-  function _startHold(e) {
-    if (_isRecording) return;
-    e.preventDefault();
-    e.stopPropagation();
-    _holdStart = Date.now();
-    _isRecording = true;
-    recBtn.classList.add('lx-recording');
-    recBtn.textContent = 'Recording — release when done';
-    statusEl.textContent = '';
-
-    _qlSendMessage({ action: 'lexora-mic-start' }, (resp) => {
-      if (!resp || resp.status !== 'ok') {
-        _isRecording = false;
-        recBtn.classList.remove('lx-recording');
-        recBtn.textContent = '🎙 Hold to Record';
-        statusEl.textContent = (resp && resp.message) ||
-          'Microphone not available. Open the extension Options page to grant permission.';
-      } else {
-        // Safety auto-stop so we don't record forever if mouseup is lost
-        // (e.g. user drags off-screen).
-        _autoStopTimer = setTimeout(() => {
-          if (_isRecording) _stopHold(null, /*autoStop=*/true);
-        }, _SHADOW_REC_MAX_MS);
-      }
-    });
-  }
-
-  function _stopHold(e, autoStop = false) {
+  function _stopRecording() {
     if (!_isRecording) return;
-    if (e) { e.preventDefault(); e.stopPropagation(); }
     _isRecording = false;
     if (_autoStopTimer) { clearTimeout(_autoStopTimer); _autoStopTimer = null; }
-
-    const heldMs = Date.now() - _holdStart;
-    if (heldMs < _SHADOW_MIN_HOLD_MS && !autoStop) {
-      // Likely an accidental click — cancel cleanly with a hint.
-      _qlSendMessage({ action: 'lexora-mic-cancel' }, () => {
-        recBtn.classList.remove('lx-recording');
-        recBtn.textContent = '🎙 Hold to Record';
-        statusEl.textContent = 'Hold the button while speaking — try again.';
-      });
-      return;
-    }
 
     recBtn.classList.remove('lx-recording');
     recBtn.textContent = 'Analysing…';
@@ -1106,7 +1075,7 @@ function _renderShadowControls(rootEl, container, referenceText, language, prefi
 
     _qlSendMessage({ action: 'lexora-mic-stop' }, (resp) => {
       if (!resp || resp.status !== 'ok' || !resp.audio_b64) {
-        recBtn.textContent = '🎙 Hold to Record';
+        recBtn.textContent = '🎙 Start Recording';
         recBtn.disabled = false;
         statusEl.textContent = (resp && resp.message) || 'Recording failed.';
         return;
@@ -1120,7 +1089,7 @@ function _renderShadowControls(rootEl, container, referenceText, language, prefi
         reference_text: referenceText,
         language,
       }, (evalResp) => {
-        recBtn.textContent = '🎙 Hold to Record';
+        recBtn.textContent = '🎙 Start Recording';
         recBtn.disabled = false;
         if (!evalResp) {
           statusEl.textContent = 'No response from server.';
@@ -1144,13 +1113,45 @@ function _renderShadowControls(rootEl, container, referenceText, language, prefi
     });
   }
 
+  function _onRecordToggle(e) {
+    e.preventDefault();
+    e.stopPropagation();
+
+    // Second click → stop.
+    if (_isRecording) {
+      _stopRecording();
+      return;
+    }
+
+    // First click → start.
+    _isRecording = true;
+    recBtn.classList.add('lx-recording');
+    recBtn.textContent = '⏹ Stop Recording';
+    statusEl.textContent = 'Recording… click Stop when you are done.';
+
+    _qlSendMessage({ action: 'lexora-mic-start' }, (resp) => {
+      if (!resp || resp.status !== 'ok') {
+        _isRecording = false;
+        recBtn.classList.remove('lx-recording');
+        recBtn.textContent = '🎙 Start Recording';
+        statusEl.textContent = (resp && resp.message) ||
+          'Microphone not available. Open the extension Options page to grant permission.';
+        return;
+      }
+      // Safety auto-stop — if the user forgets to click Stop, we don't
+      // want to keep recording forever. Triggers the same _stopRecording
+      // path so the rest of the flow is unchanged.
+      _autoStopTimer = setTimeout(() => {
+        if (_isRecording) {
+          statusEl.textContent = 'Auto-stopped after 30 s — analysing…';
+          _stopRecording();
+        }
+      }, _SHADOW_REC_MAX_MS);
+    });
+  }
+
   if (recBtn) {
-    recBtn.addEventListener('mousedown',  _startHold);
-    recBtn.addEventListener('touchstart', _startHold, { passive: false });
-    recBtn.addEventListener('mouseup',    (e) => _stopHold(e, false));
-    recBtn.addEventListener('mouseleave', (e) => { if (_isRecording) _stopHold(e, true); });
-    recBtn.addEventListener('touchend',   (e) => _stopHold(e, false));
-    recBtn.addEventListener('touchcancel',(e) => _stopHold(e, true));
+    recBtn.addEventListener('click', _onRecordToggle);
   }
 }
 

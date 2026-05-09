@@ -461,7 +461,8 @@ function _renderYtSlangBlock(container, resp) {
 // Mirrors content.js's _renderShadowControls / _renderShadowResult but
 // scoped to the .lx-yt-* class prefix and overlay.querySelector tree.
 
-const _YT_SHADOW_MIN_HOLD_MS = 300;
+// M33-S5-FIX: pivoted from hold-to-record to click-to-toggle.
+// _YT_SHADOW_MIN_HOLD_MS is no longer used (no debounce needed for toggle).
 const _YT_SHADOW_REC_MAX_MS  = 30 * 1000;
 const _YT_SHADOW_WORD_TOKEN_RE = /[\wÀ-ɏͰ-ϿЀ-ӿ'-]+/gu;
 
@@ -530,9 +531,9 @@ function _renderYtShadowControls(rootEl, container, referenceText, language) {
     <div class="lx-yt-shadow-reference" id="lx-yt-shadow-ref">${_escHtml(referenceText)}</div>
     <div class="lx-yt-shadow-controls">
       <button class="lx-yt-shadow-play-btn"   id="lx-yt-shadow-play">▶ Play Original</button>
-      <button class="lx-yt-shadow-record-btn" id="lx-yt-shadow-record">🎙 Hold to Record</button>
+      <button class="lx-yt-shadow-record-btn" id="lx-yt-shadow-record">🎙 Start Recording</button>
     </div>
-    <div class="lx-yt-shadow-status" id="lx-yt-shadow-status">Hear the model, then hold the record button while you say it.</div>
+    <div class="lx-yt-shadow-status" id="lx-yt-shadow-status">Hear the model, then click Start Recording. Click Stop when you are done.</div>
     <div class="lx-yt-shadow-result" id="lx-yt-shadow-result"></div>
   `;
   container.classList.add('lx-visible');
@@ -568,7 +569,7 @@ function _renderYtShadowControls(rootEl, container, referenceText, language) {
           _audioEl = new Audio(URL.createObjectURL(blob));
           _audioEl.onended = () => {
             playBtn.textContent = orig; playBtn.disabled = false;
-            statusEl.textContent = 'Hold the record button when you’re ready.';
+            statusEl.textContent = 'Click Start Recording when you are ready.';
           };
           _audioEl.onerror = () => {
             playBtn.textContent = orig; playBtn.disabled = false;
@@ -585,48 +586,17 @@ function _renderYtShadowControls(rootEl, container, referenceText, language) {
     });
   }
 
-  let _holdStart = 0;
+  // ── Click-to-toggle Record ────────────────────────────────────────────
+  // Pivot from hold-to-record (M33-S5 first cut). YouTube overlay had the
+  // same micro-movement issue as the QL overlay; toggle is robust and
+  // mirrors the QL implementation exactly.
   let _autoStopTimer = null;
   let _isRecording = false;
 
-  function _startHold(e) {
-    if (_isRecording) return;
-    e.preventDefault(); e.stopPropagation();
-    _holdStart = Date.now();
-    _isRecording = true;
-    recBtn.classList.add('lx-recording');
-    recBtn.textContent = 'Recording — release when done';
-    statusEl.textContent = '';
-    _sendMessage({ action: 'lexora-mic-start' }, (resp) => {
-      if (!resp || resp.status !== 'ok') {
-        _isRecording = false;
-        recBtn.classList.remove('lx-recording');
-        recBtn.textContent = '🎙 Hold to Record';
-        statusEl.textContent = (resp && resp.message) ||
-          'Microphone not available. Open the extension Options page to grant permission.';
-      } else {
-        _autoStopTimer = setTimeout(() => {
-          if (_isRecording) _stopHold(null, true);
-        }, _YT_SHADOW_REC_MAX_MS);
-      }
-    });
-  }
-
-  function _stopHold(e, autoStop = false) {
+  function _stopRecording() {
     if (!_isRecording) return;
-    if (e) { e.preventDefault(); e.stopPropagation(); }
     _isRecording = false;
     if (_autoStopTimer) { clearTimeout(_autoStopTimer); _autoStopTimer = null; }
-
-    const heldMs = Date.now() - _holdStart;
-    if (heldMs < _YT_SHADOW_MIN_HOLD_MS && !autoStop) {
-      _sendMessage({ action: 'lexora-mic-cancel' }, () => {
-        recBtn.classList.remove('lx-recording');
-        recBtn.textContent = '🎙 Hold to Record';
-        statusEl.textContent = 'Hold the button while speaking — try again.';
-      });
-      return;
-    }
 
     recBtn.classList.remove('lx-recording');
     recBtn.textContent = 'Analysing…';
@@ -635,7 +605,7 @@ function _renderYtShadowControls(rootEl, container, referenceText, language) {
 
     _sendMessage({ action: 'lexora-mic-stop' }, (resp) => {
       if (!resp || resp.status !== 'ok' || !resp.audio_b64) {
-        recBtn.textContent = '🎙 Hold to Record';
+        recBtn.textContent = '🎙 Start Recording';
         recBtn.disabled = false;
         statusEl.textContent = (resp && resp.message) || 'Recording failed.';
         return;
@@ -648,7 +618,7 @@ function _renderYtShadowControls(rootEl, container, referenceText, language) {
         reference_text: referenceText,
         language,
       }, (evalResp) => {
-        recBtn.textContent = '🎙 Hold to Record';
+        recBtn.textContent = '🎙 Start Recording';
         recBtn.disabled = false;
         if (!evalResp) {
           statusEl.textContent = 'No response from server.'; return;
@@ -668,13 +638,42 @@ function _renderYtShadowControls(rootEl, container, referenceText, language) {
     });
   }
 
+  function _onRecordToggle(e) {
+    e.preventDefault();
+    e.stopPropagation();
+
+    if (_isRecording) {
+      _stopRecording();
+      return;
+    }
+
+    _isRecording = true;
+    recBtn.classList.add('lx-recording');
+    recBtn.textContent = '⏹ Stop Recording';
+    statusEl.textContent = 'Recording… click Stop when you are done.';
+
+    _sendMessage({ action: 'lexora-mic-start' }, (resp) => {
+      if (!resp || resp.status !== 'ok') {
+        _isRecording = false;
+        recBtn.classList.remove('lx-recording');
+        recBtn.textContent = '🎙 Start Recording';
+        statusEl.textContent = (resp && resp.message) ||
+          'Microphone not available. Open the extension Options page to grant permission.';
+        return;
+      }
+      // 30 s safety auto-stop — mirrors the QL implementation. If the
+      // user forgets to click Stop we don't record forever.
+      _autoStopTimer = setTimeout(() => {
+        if (_isRecording) {
+          statusEl.textContent = 'Auto-stopped after 30 s — analysing…';
+          _stopRecording();
+        }
+      }, _YT_SHADOW_REC_MAX_MS);
+    });
+  }
+
   if (recBtn) {
-    recBtn.addEventListener('mousedown',  _startHold);
-    recBtn.addEventListener('touchstart', _startHold, { passive: false });
-    recBtn.addEventListener('mouseup',    (e) => _stopHold(e, false));
-    recBtn.addEventListener('mouseleave', (e) => { if (_isRecording) _stopHold(e, true); });
-    recBtn.addEventListener('touchend',   (e) => _stopHold(e, false));
-    recBtn.addEventListener('touchcancel',(e) => _stopHold(e, true));
+    recBtn.addEventListener('click', _onRecordToggle);
   }
 }
 
