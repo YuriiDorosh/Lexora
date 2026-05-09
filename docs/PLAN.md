@@ -1,8 +1,8 @@
 # Lexora — Implementation Plan (MVP)
 
-> Version: 2.2 (M31–M32 — Browser Extension Upgrades — Complete)
+> Version: 2.3 (M33 — Webpage Shadowing — Planned)
 > Last updated: 2026-05-09
-> Status: M0–M25 complete; M26 postponed (resource constraints); M27–M32 complete
+> Status: M0–M25 complete; M26 postponed (resource constraints); M27–M32 complete; M33 planned
 
 ---
 
@@ -60,6 +60,7 @@
 | M30 | AI Speaking Coach & Oral Practice | ✅ Complete | `/my/speaking` portal with topic generation, browser mic recording, Faster-Whisper sync transcription, and Qwen2.5-1.5B feedback (corrections / synonyms / improved version). `language.speaking.session` persists transcripts + feedback per user. 4-language support; 90 s soft cap; sync HTTP pipeline (no RabbitMQ) per ADR-030 |
 | M31 | Browser Extension — Lexora Writer | ✅ Complete | Active-writing assistant. Floating "L" FAB on every focused `<textarea>` / `[contenteditable]`; strict eligibility (skips passwords / search / code editors / login forms). Click → `POST /lexora_api/writer_check` → LLM `POST /analyze-writing` → corrections + improved JSON. Apply-to-text uses the React-compatible native-setter + InputEvent pattern. Server-side safety net guarantees every text change is documented (ADR-031) |
 | M32 | Browser Extension — Slang & Idiom Explainer | ✅ Complete | New "💡 Explain Slang/Idiom" button alongside the M28 "Explain Grammar" button in both Quick Look and YouTube overlays. `POST /lexora_api/explain_slang` → LLM `POST /explain-slang`; returns kind enum (idiom / slang / phrasal_verb / literal / unknown), figurative + literal meaning in the user's native language, example in source language, confidence enum. UI handles the literal and low-confidence branches honestly (ADR-031) |
+| M33 | Browser Extension — Webpage Shadowing | 📝 Planned | Pronunciation practice on any webpage. New "🎤 Practice Pronunciation" button in QL + YouTube overlays expands a Shadowing block: "Play Original" (Edge TTS via new `POST /tts-sync`) and hold-to-record. User audio runs through `/transcribe-sync` then a new `POST /evaluate-pronunciation` LLM endpoint that scores accuracy and flags missed/mispronounced words. MV3 mic permission handled via `chrome.offscreen` document so users grant once per extension instead of once per origin |
 
 ---
 
@@ -2221,3 +2222,269 @@ Final commit order:
 4. M32 LLM endpoint + Odoo proxy + extension button additions.
 5. M32 user verification + bug-fix commits as needed.
 6. Final docs flip + ADR-031 + ADR-032 (combined or separate per content).
+
+---
+
+## M33 — Webpage Shadowing (Extension Pronunciation Practice)
+
+**Goal:** Bring the M30 `/my/speaking` microphone-and-feedback flow into the browser extension. A user reading an English article on Wikipedia, a Polish news site, or a Greek blog can select a sentence, click "🎤 Practice Pronunciation", hear a perfect Edge TTS rendering, hold-to-record themselves saying the same sentence, and receive a Qwen-generated accuracy score plus per-word annotations (which words they missed, which they mispronounced).
+
+This is the first browser-extension feature that **records audio**. MV3 imposes hard constraints on `getUserMedia` from content scripts — the milestone's primary architectural risk is the mic permission flow, not the AI pipeline.
+
+**Architecture (synchronous, ADR-030/031 rule reapplied — the user is staring at the result so RabbitMQ adds nothing):**
+
+```
+User selects sentence on any webpage
+   → clicks "🎤 Practice Pronunciation" in Quick Look / YouTube overlay
+   → Shadowing block expands inside the overlay
+
+[Stage 1 — Play Original]
+   "Play Original" button click
+     → POST /lexora_api/shadow_tts (Odoo proxy, auth=session-bridge)
+         → POST audio_service /tts-sync (NEW, returns audio/mpeg bytes)
+         ← MP3 blob
+     ← Streams audio bytes back to the extension
+     → <audio> element plays the perfect TTS rendering
+
+[Stage 2 — Hold to Record]
+   Hold-to-record button:
+     mousedown → background.js spins up a chrome.offscreen document
+                  (created lazily on first record; reused thereafter)
+                  → offscreen requests getUserMedia ONCE per extension
+                  → MediaRecorder starts in the offscreen page
+     mouseup   → MediaRecorder.stop() → audio Blob → background → content
+                  → POST /lexora_api/shadow_evaluate (multipart)
+                       audio + reference_text + language
+                       → POST audio_service /transcribe-sync (M30 path)
+                            ← {transcript, duration, language}
+                       → POST llm_service /evaluate-pronunciation (NEW)
+                            ← {score, missed_words, mispronounced_words, feedback}
+                  ← Combined JSON
+     → Shadowing block renders the score badge + per-word annotation
+       overlaid on the reference text (red strike-through for missed
+       words, amber underline for mispronounced)
+```
+
+### Sub-decision 33a: MV3 microphone strategy — Offscreen Document API
+
+**Problem:** content scripts run in the page's origin (`https://example.com`), so `getUserMedia()` from a content script triggers a permission prompt **per origin**. A user who practises shadowing on Wikipedia, Reddit, and YouTube would see the prompt three times. The recording would also stop the moment the page navigates away.
+
+**Decision:** record audio in a `chrome.offscreen` document hosted at `chrome-extension://<id>/offscreen.html`. The offscreen page lives on the **extension's origin**, so the user grants mic permission **once per extension** (in the Options page workflow) and Chrome remembers it forever. The offscreen doc has no UI; the content script messages it via `chrome.runtime.sendMessage` through the background service worker.
+
+**Lifecycle:**
+
+```
+content.js: hold-to-record mousedown
+  → bg.js: ensure offscreen exists
+      if (!await chrome.offscreen.hasDocument()) {
+        await chrome.offscreen.createDocument({
+          url: 'offscreen.html',
+          reasons: ['USER_MEDIA'],
+          justification: 'Record speech for pronunciation practice',
+        });
+      }
+  → bg.js: chrome.runtime.sendMessage({action:'lx-mic-start'})
+  → offscreen.js: getUserMedia + MediaRecorder.start()
+
+content.js: hold-to-record mouseup
+  → bg.js: chrome.runtime.sendMessage({action:'lx-mic-stop'})
+  → offscreen.js: recorder.stop() → blob → base64 → message back
+  → bg.js: forward base64 audio to the requesting tab's content.js
+  → content.js: decodes base64 → File → FormData → POST shadow_evaluate
+```
+
+**Why not a hidden iframe (the older pattern):** iframe-based recording predates `chrome.offscreen` and works on Chrome/Edge but is brittle on Firefox MV3 and on enterprise-locked Chromebooks where iframe injection is blocked. `chrome.offscreen` is the official MV3 recommendation since Chrome 116 and it's the future-proof choice.
+
+**Why not the popup:** popups close when they lose focus. Hold-to-record requires the popup to stay open while the user is speaking; the user's mouse is on the webpage, not the popup, so the popup loses focus immediately.
+
+**Manifest changes:** add `"offscreen"` to `permissions`. No new `host_permissions` (the offscreen doc is on the extension's own origin).
+
+**Permission UX:** the first time the user clicks Hold-to-Record on any tab, the offscreen doc loads and prompts for mic permission via Chrome's standard chrome:// permission UI. Subsequent clicks on any tab reuse the same grant — no re-prompt.
+
+### Sub-decision 33b: Two Odoo proxy endpoints
+
+The orchestration is two distinct flows so neither one waits unnecessarily on the other:
+
+**`POST /lexora_api/shadow_tts`** — fetch reference TTS audio.
+- Body: `{text, language}`. `text` capped at 500 chars (typical sentence length); `language` validated against `_ALLOWED_LANGUAGES`.
+- Forwards to audio service `POST /tts-sync` (NEW, see 33d).
+- Returns `audio/mpeg` bytes directly (Content-Type passed through). **Not** wrapped in JSON — the extension creates a `Blob` from the response and feeds it to an `<audio>` element.
+- 30 s timeout (TTS is fast; 30 s is a safety bound).
+
+**`POST /lexora_api/shadow_evaluate`** — orchestrates the two-stage analysis.
+- Multipart body: `audio` blob + `reference_text` (str) + `language` (str).
+- **Stage 1**: forward `audio` to audio service `POST /transcribe-sync` (M30 endpoint, already exists). 120 s timeout.
+- **Stage 2**: send `{reference_text, transcript, language}` to llm service `POST /evaluate-pronunciation` (NEW, see 33c). 60 s timeout.
+- Returns combined JSON:
+  ```json
+  {
+    "status": "ok",
+    "transcript": "what the user actually said",
+    "duration": 4.2,
+    "score": 85,
+    "missed_words": ["ephemeral"],
+    "mispronounced_words": ["pronunciation"],
+    "feedback": "Great rhythm overall — focus on the stressed syllable in 'pronunciation'."
+  }
+  ```
+- Total user-perceived latency: ~20-50 s (Whisper ~10-20 s + Qwen ~10-30 s). Same envelope as M30's record-then-analyze pattern.
+
+### Sub-decision 33c: LLM `/evaluate-pronunciation` contract
+
+**Pydantic:**
+
+```python
+class EvaluatePronunciationRequest(BaseModel):
+    reference_text: str
+    transcript: str
+    language: str = "en"
+```
+
+**System prompt (under 100 words, M18-FIX-09 rule):** instructs the model to compare the two strings word-by-word, score 0-100 (100 = byte-identical, 0 = nothing matched), classify each reference word as `matched`/`missed`/`mispronounced`, and write a one-sentence learning-friendly feedback note in the user's language.
+
+**JSON contract:**
+
+```json
+{
+  "score":                85,
+  "missed_words":         ["ephemeral"],
+  "mispronounced_words":  ["pronunciation"],
+  "feedback":             "Great rhythm — focus on the stressed syllable in 'pronunciation'."
+}
+```
+
+- `score` (int, 0-100) — defensively clamped server-side.
+- `missed_words` / `mispronounced_words` — `List[str]`, defensively coerced to flat strings (each word stripped, max 30 chars), capped at 20 entries each.
+- `feedback` — free text in the requested `language`.
+
+**Few-shot anchor per language** (`_PRONUNCIATION_EXAMPLES` dict keyed by `language`) — closes the M30 lesson reapplied. Each anchor shows a reference + transcript pair with the JSON output filled in the right script.
+
+**Server-side safety net** (M31 lesson reapplied): if the model returns `score=100` AND `missed_words=[]` AND `mispronounced_words=[]` BUT `transcript ≠ reference_text` (whitespace-normalised, lowercase), run a deterministic Python word-diff:
+
+- Tokenise both on whitespace + Unicode word boundaries.
+- Reference words not in transcript (substring-tolerant) → `missed_words`.
+- Words in transcript that are similar but not identical to a reference word (Levenshtein ≤ 2 or shared prefix length ≥ 3) → `mispronounced_words`.
+- Recompute `score` as `100 * matched_count / reference_word_count`.
+
+This guarantees the UX contract — the user always sees an honest score even when the 1.5B model glosses over differences. Log INFO line per safety-net firing.
+
+### Sub-decision 33d: New audio service endpoint `POST /tts-sync`
+
+The audio service already has `_generate_tts(text, language, engine)` (M6) used by the RabbitMQ consumer. M33 adds a sync FastAPI route that reuses this internal helper:
+
+- Pydantic: `{text: str, language: str = "en"}`.
+- Calls `_generate_tts` with the configured engine (default `edge-tts` per M29's `pl-PL-ZofiaNeural` and friends).
+- Returns the MP3/OGG bytes with `Content-Type: audio/mpeg` (or whatever the engine produced).
+- 200 OK on success; 415 if generation fails; 503 if Edge TTS network call hangs past 25 s.
+- Caps `text` at 500 chars.
+
+No new dependencies, no new model. ~25 lines of Python.
+
+### Sub-decision 33e: Extension UI — Shadowing block
+
+A new amber-themed "🎤 Practice Pronunciation" button in the QL footer (alongside Explain Grammar and Explain Slang/Idiom) and the YouTube overlay footer. Click expands a `#lx-ql-shadow` / `#lx-yt-shadow` block inside the scroll body containing:
+
+1. **Reference text display** — read-only, shows the selected phrase prominently. Will be re-rendered with per-word annotation after evaluation.
+2. **▶ Play Original** button — fetches TTS via `/lexora_api/shadow_tts`, sets the response as the `src` of an internal `<audio>` element, plays. Disabled while the request is in flight.
+3. **🎙 Hold to Record** button — `mousedown` triggers offscreen-doc record start, `mouseup` triggers stop and POST. Visual feedback: button glows red while recording, shows "Recording…" label, then "Analysing…" while the proxy + LLM run.
+4. **Score + feedback** — once the proxy returns:
+   - Big score badge (`85/100`), colour-coded (green ≥80, amber 60-79, red <60)
+   - Per-word annotation: missed words struck through in red, mispronounced words underlined in amber, matched words plain
+   - Feedback line below in italic (in the user's `language`)
+
+Each click on Practice Pronunciation expands the block fresh — the user can iterate (hear original, record, read feedback, re-record).
+
+### Sub-decision 33f: No persistence in the browser path
+
+M33 deliberately doesn't write anything to `language.speaking.session` or any new model. Each shadowing attempt is ephemeral. Rationale:
+
+- The session model from M30 is portal-scoped; reusing it from the extension would require auth-bridging the M30 session creation flow through the extension's session-cookie mechanism. Out of scope.
+- Users practising on the web don't expect every word they say to be logged. Privacy-respecting default.
+- A future M-thirty-something could add an opt-in "Save to my pronunciation history" toggle that POSTs the result back to the portal. Documented as a revisit trigger, not a milestone scope item.
+
+### Step-by-step work plan
+
+**Step 1 — LLM endpoint** (`POST /evaluate-pronunciation`)
+- Add `EvaluatePronunciationRequest` + `_EVALUATE_PRONUNCIATION_SYSTEM_PROMPT` + `_PRONUNCIATION_EXAMPLES` per-language anchors + `_evaluate_pronunciation()` helper + `/evaluate-pronunciation` route.
+- Server-side safety net (Python word-diff fallback when LLM glosses over differences).
+- Defensive coerce: clamp score to 0-100, drop empty / overlong words, cap arrays at 20.
+- `make up-llm-no-cache`; smoke for byte-identical / one-word-missed / multi-word-mispronounced cases in en/uk/el/pl.
+
+**Step 2 — Audio service endpoint** (`POST /tts-sync`)
+- Add Pydantic + sync route reusing the existing `_generate_tts`.
+- 500-char cap, 25 s timeout (safety bound; Edge TTS is fast).
+- `make up-audio-no-cache`; curl smoke streams MP3 bytes and saves to `/tmp/sample.mp3` for ear-check.
+
+**Step 3 — Odoo proxy endpoints**
+- `POST /lexora_api/shadow_tts` — proxies to audio `/tts-sync`, streams `audio/mpeg` back. CORS reflection identical to existing `/lexora_api/*` routes.
+- `POST /lexora_api/shadow_evaluate` — multipart orchestrator. Calls audio `/transcribe-sync` (M30) then llm `/evaluate-pronunciation`. Combined JSON response. Pre-creates `language.speaking.session` row? **No** (per 33f).
+- `--update language_portal --stop-after-init`; curl smoke with a real WAV (espeak-ng output of the reference text → known-good audio).
+
+**Step 4 — Extension offscreen mic infrastructure**
+- New `extension/offscreen.html` + `offscreen.js`: minimal page running `getUserMedia` + `MediaRecorder`, message-driven.
+- `extension/manifest.json`: add `"offscreen"` to `permissions`.
+- `extension/background.js`: lifecycle helper `_ensureOffscreen()`, plus `lexora-mic-start` / `lexora-mic-stop` message routing between content scripts and the offscreen doc.
+- Sanity: test record start/stop without any UI by triggering messages from the DevTools service-worker console.
+
+**Step 5 — Extension UI (Quick Look + YouTube)**
+- Add "🎤 Practice Pronunciation" button in QL `_renderQlOverlay` (alongside Explain Grammar + Explain Slang).
+- Add `#lx-ql-shadow` block with reference text, ▶ Play Original, 🎙 Hold to Record, score + feedback panel.
+- `_QL_CSS` extended: `.lx-ql-shadow-btn`, `.lx-ql-shadow-block`, `.lx-ql-shadow-score`, `.lx-ql-shadow-word-missed` (red strikethrough), `.lx-ql-shadow-word-mispron` (amber underline), `.lx-ql-shadow-feedback` (italic).
+- Mirror in `extension/overlay.js` for YouTube subtitle overlay.
+- `extension/background.js`: `lexora-shadow-tts` and `lexora-shadow-evaluate` message handlers.
+
+**Step 6 — Verification**
+- Browser smoke: select a 5-10 word sentence on Wikipedia → click 🎤 → ▶ Play Original (perfect TTS plays) → 🎙 Hold to Record (red glow during recording) → release → ~30 s wait → score badge + per-word annotation render.
+- Mic permission flow: first time exercises Chrome's permission prompt; subsequent uses on any tab don't re-prompt.
+- Negative tests: deny mic permission → friendly error. Long sentence (>500 chars) → reference truncated client-side with hint.
+- Multi-language: same flow on a Polish article and a Greek blog.
+
+**Step 7 — ADR-032 + final docs flip**
+- ADR-032 in DECISIONS.md: offscreen-document mic strategy, two-endpoint orchestration vs. single-endpoint design tradeoff, server-side word-diff safety net, no-persistence-by-default rationale.
+- PLAN.md → v2.4, M33 row → ✅ Complete.
+- TASKS.md archive.
+- README.md: M33 row in implementation status; new "Webpage Shadowing" subsection in §3.
+- Branch push + PR.
+
+### Verification commands (M33-S6)
+
+```bash
+# After Steps 1-3
+make up-llm-no-cache && make up-audio-no-cache
+docker exec odoo odoo -d lexora --update language_portal --stop-after-init --no-http
+docker restart odoo
+
+# /evaluate-pronunciation smoke
+curl -X POST http://localhost:8002/evaluate-pronunciation \
+  -H 'Content-Type: application/json' \
+  -d '{"reference_text":"The quick brown fox jumps over the lazy dog.",
+       "transcript":"the quick brown fox jumps over lazy dog",
+       "language":"en"}'
+# → {"score":~88,"missed_words":["the"],"mispronounced_words":[],
+#    "feedback":"Almost there — you skipped the second 'the'."}
+
+# /tts-sync smoke (saves mp3 to /tmp for ear-check)
+curl -X POST http://localhost:8004/tts-sync \
+  -H 'Content-Type: application/json' \
+  -d '{"text":"The quick brown fox","language":"en"}' \
+  -o /tmp/ref.mp3
+file /tmp/ref.mp3   # → MPEG ADTS, layer III
+
+# Odoo proxy: stream TTS through the proxy (with session cookie)
+curl -X POST http://localhost:5433/lexora_api/shadow_tts \
+  -H 'Content-Type: application/json' \
+  -H "X-Lexora-Session-Id: <sid>" \
+  -d '{"text":"hello world","language":"en"}' \
+  -o /tmp/ref-via-proxy.mp3
+
+# Odoo proxy: full evaluate flow with a recorded sample
+curl -X POST http://localhost:5433/lexora_api/shadow_evaluate \
+  -H "X-Lexora-Session-Id: <sid>" \
+  -F "audio=@/tmp/sample.webm" \
+  -F "reference_text=The quick brown fox" \
+  -F "language=en"
+
+# Extension browser smoke (Step 6) covers the rest end-to-end.
+```
+
+**Acceptance:** a user reading any webpage can select a sentence, click 🎤, hear the TTS, hold-to-record themselves, and within ~40 s see a 0-100 score, per-word red/amber annotation, and a one-sentence feedback note in their language. Mic permission is requested once per extension, not per webpage. No data is persisted server-side without explicit opt-in.
