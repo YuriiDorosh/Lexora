@@ -544,3 +544,78 @@ async def transcribe_sync_endpoint(
     result = _transcribe_sync(raw, language)
     result["status"] = "ok"
     return result
+
+
+# =============================================================================
+# M33 — Sync TTS endpoint for Webpage Shadowing (Play Original)
+# =============================================================================
+#
+# POST /tts-sync — synchronous TTS for the extension's "Play Original"
+# button. Reuses the existing _generate_tts() helper (M6 RabbitMQ path),
+# returns audio bytes directly with audio/mpeg Content-Type so the
+# browser can feed it to an <audio> element with no extra parsing.
+#
+# 500-char cap + 25 s safety timeout (Edge TTS is normally <1 s; cap is
+# defence against a hung network call to Microsoft's endpoint).
+# =============================================================================
+
+from fastapi import Response  # noqa: E402
+from pydantic import BaseModel as _PydBaseModel  # noqa: E402
+
+TTS_SYNC_MAX_CHARS   = int(os.getenv("TTS_SYNC_MAX_CHARS", "500"))
+TTS_SYNC_TIMEOUT_SEC = float(os.getenv("TTS_SYNC_TIMEOUT_SEC", "25"))
+
+
+class TtsSyncRequest(_PydBaseModel):
+    text: str
+    language: str = "en"
+
+
+@app.post("/tts-sync")
+async def tts_sync_endpoint(req: TtsSyncRequest):
+    text = (req.text or "").strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="text is required")
+    if len(text) > TTS_SYNC_MAX_CHARS:
+        raise HTTPException(
+            status_code=413,
+            detail=f"text is {len(text)} chars — max is {TTS_SYNC_MAX_CHARS}",
+        )
+
+    language = (req.language or "en").lower().strip()
+
+    # Run the sync _generate_tts (which itself uses asyncio.run for the
+    # edge-tts path) inside a thread executor so we don't block the
+    # FastAPI event loop. Wrap with a hard timeout — Edge TTS is
+    # network-bound and could hang on a flaky upstream.
+    import asyncio as _asyncio
+    loop = _asyncio.get_event_loop()
+    try:
+        mp3_bytes, engine = await _asyncio.wait_for(
+            loop.run_in_executor(None, _generate_tts, text, language),
+            timeout=TTS_SYNC_TIMEOUT_SEC,
+        )
+    except _asyncio.TimeoutError:
+        _logger.error("tts-sync timed out after %.1fs", TTS_SYNC_TIMEOUT_SEC)
+        raise HTTPException(status_code=503,
+                            detail=f"TTS engine timed out after {TTS_SYNC_TIMEOUT_SEC:.0f}s")
+    except Exception as exc:
+        _logger.error("tts-sync generation failed: %s", exc)
+        raise HTTPException(status_code=415,
+                            detail=f"TTS generation failed: {exc}")
+
+    if not mp3_bytes:
+        raise HTTPException(status_code=415, detail="TTS engine returned empty audio")
+
+    _logger.info("tts-sync: lang=%s engine=%s text_len=%d bytes=%d",
+                 language, engine, len(text), len(mp3_bytes))
+
+    return Response(
+        content=mp3_bytes,
+        media_type="audio/mpeg",
+        headers={
+            "X-Lexora-TTS-Engine":   engine,
+            "X-Lexora-TTS-Language": language,
+            "Cache-Control":         "no-store",
+        },
+    )

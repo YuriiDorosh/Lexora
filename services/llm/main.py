@@ -1180,3 +1180,360 @@ def explain_slang_endpoint(req: ExplainSlangRequest):
     result = _explain_slang(phrase, req.source_language, req.native_language)
     result["status"] = "ok"
     return result
+
+
+# =============================================================================
+# M33 — Webpage Shadowing: pronunciation evaluation
+# =============================================================================
+#
+# POST /evaluate-pronunciation — sync FastAPI endpoint used by the
+# extension's Webpage Shadowing flow. Compares a reference sentence
+# (what the user *should* have said) against a Whisper transcript
+# (what they actually said) and returns a 0-100 score plus per-word
+# annotations for the UI.
+#
+# Same architectural shape as M30 /analyze-speech, M31 /analyze-writing,
+# M32 /explain-slang — Pydantic + system prompt + per-language few-shot
+# anchor + response_format=json_object + tolerant parser + defensive
+# coerce + stub fallback. Plus a server-side word-diff safety net
+# because the 1.5B model frequently glosses over small differences and
+# returns score=100 even when transcript ≠ reference (M31 lesson
+# reapplied — fight the contract in Python, not the model).
+#
+# JSON contract — four top-level keys:
+#
+#   {
+#     "score":                85,        // 0-100, server-clamped
+#     "missed_words":         [...],     // <= 20 entries, each <= 30 chars
+#     "mispronounced_words":  [...],     // same shape
+#     "feedback":             "..."      // free text in `language`
+#   }
+# =============================================================================
+
+
+class EvaluatePronunciationRequest(BaseModel):
+    reference_text: str
+    transcript: str
+    language: str = "en"
+
+
+# Hybrid architecture: deterministic Python word-diff is the source of
+# truth for score / missed_words / mispronounced_words. The LLM is asked
+# ONLY for a one-sentence localised feedback string given the diff
+# results. First smoke pass surfaced that Qwen 1.5B is unreliable at
+# structural diffing (returned literal "..." placeholders from the
+# few-shot anchor and misidentified missed words). Reducing the model's
+# job to its strength — language-localised prose — and bounding the
+# failure mode to "feedback string is empty or wrong language" (which
+# the deterministic fallback below handles).
+
+_FEEDBACK_SYSTEM_PROMPT = (
+    "You write ONE short encouraging sentence of pronunciation feedback "
+    "in the language requested by the user. Reply with ONLY a JSON object: "
+    '{"feedback":"..."}. No preamble, no markdown, no extra keys. If the '
+    "score is 100, give a short congratulation. Otherwise mention 1-2 "
+    "specific issues from the diff. Keep the sentence under 20 words."
+)
+
+
+# Per-language fallback feedback templates. Used when the LLM returns
+# empty feedback, fails, or drifts to the wrong language. Keep them
+# short and safe — they're the floor.
+_FEEDBACK_FALLBACKS = {
+    "en": {
+        "perfect": "Perfect — every word matched the reference.",
+        "good":    "Nice work — you said most of it correctly.",
+        "mid":     "Good attempt — keep practising the words you missed.",
+        "weak":    "Keep going — try saying the sentence one word at a time.",
+    },
+    "uk": {
+        "perfect": "Чудово — ви вимовили все правильно.",
+        "good":    "Добра робота — більшість слів правильні.",
+        "mid":     "Гарна спроба — повторіть слова, які пропустили.",
+        "weak":    "Не здавайтеся — спробуйте говорити повільніше, слово за словом.",
+    },
+    "el": {
+        "perfect": "Τέλεια — προφέρατε κάθε λέξη σωστά.",
+        "good":    "Καλή δουλειά — οι περισσότερες λέξεις ήταν σωστές.",
+        "mid":     "Καλή προσπάθεια — εξασκηθείτε στις λέξεις που χάσατε.",
+        "weak":    "Συνεχίστε — δοκιμάστε αργά, λέξη προς λέξη.",
+    },
+    "pl": {
+        "perfect": "Świetnie — wymówiłeś wszystko poprawnie.",
+        "good":    "Dobra robota — większość słów była poprawna.",
+        "mid":     "Niezła próba — przećwicz słowa, które pominąłeś.",
+        "weak":    "Próbuj dalej — mów wolno, słowo po słowie.",
+    },
+}
+
+
+def _fallback_feedback(language: str, score: int, missed: list, mispron: list) -> str:
+    """Deterministic feedback string when the LLM doesn't deliver."""
+    pool = _FEEDBACK_FALLBACKS.get(language, _FEEDBACK_FALLBACKS["en"])
+    if score >= 95:
+        return pool["perfect"]
+    if score >= 80:
+        return pool["good"]
+    if score >= 50:
+        return pool["mid"]
+    return pool["weak"]
+
+
+# ── Server-side word-diff safety net ───────────────────────────────────────
+
+_WORD_TOKEN_RE = re.compile(r"[\w'\-]+", re.UNICODE)
+
+
+def _normalise_word(w: str) -> str:
+    return w.strip().lower().strip("'-")
+
+
+def _levenshtein(a: str, b: str) -> int:
+    """Compact Levenshtein for short tokens. We only call this on words we
+    already suspect are similar, so the O(len(a)*len(b)) cost is bounded."""
+    if a == b:
+        return 0
+    if not a:
+        return len(b)
+    if not b:
+        return len(a)
+    prev = list(range(len(b) + 1))
+    for i, ca in enumerate(a, 1):
+        curr = [i] + [0] * len(b)
+        for j, cb in enumerate(b, 1):
+            curr[j] = min(
+                curr[j - 1] + 1,
+                prev[j] + 1,
+                prev[j - 1] + (ca != cb),
+            )
+        prev = curr
+    return prev[-1]
+
+
+def _word_diff_fallback(reference: str, transcript: str) -> dict:
+    """Compute a deterministic per-word diff with multiset-correct counting.
+
+    Heuristic:
+      - Tokenise both strings via _WORD_TOKEN_RE (Unicode word chars).
+      - Track transcript tokens as a Counter so duplicates count
+        correctly: "the X the Y" must match TWO "the"s in the reference,
+        not one. (Original set-based version dropped this distinction
+        and over-counted matches — fixed in M33-S1 smoke iteration.)
+      - For each reference token (in order): consume one occurrence
+        from the transcript Counter if present → matched. Otherwise
+        look for a near-match (Levenshtein ≤ 2 OR shared 3-char prefix)
+        among remaining transcript tokens → mispronounced. Otherwise
+        → missed.
+      - score = round(100 * matched / total_reference_tokens).
+    """
+    from collections import Counter as _Counter  # local import — only used here
+
+    ref_tokens = [_normalise_word(t) for t in _WORD_TOKEN_RE.findall(reference) if t.strip()]
+    tx_tokens  = [_normalise_word(t) for t in _WORD_TOKEN_RE.findall(transcript) if t.strip()]
+    tx_remaining = _Counter(tx_tokens)
+
+    if not ref_tokens:
+        return {"score": 0, "missed_words": [], "mispronounced_words": [],
+                "feedback": ""}
+
+    missed: list = []
+    mispron: list = []
+    matched = 0
+
+    for r in ref_tokens:
+        # Exact match — consume one occurrence from the transcript.
+        if tx_remaining.get(r, 0) > 0:
+            tx_remaining[r] -= 1
+            if tx_remaining[r] == 0:
+                del tx_remaining[r]
+            matched += 1
+            continue
+
+        # No exact match — look for a near-match among remaining tokens.
+        # Keep this bounded: short sentences have <30 tokens each.
+        best = None
+        for t in list(tx_remaining):
+            shared_prefix = 0
+            for ca, cb in zip(r, t):
+                if ca == cb:
+                    shared_prefix += 1
+                else:
+                    break
+            if shared_prefix >= 3 or _levenshtein(r, t) <= 2:
+                best = t
+                break
+
+        if best is not None:
+            tx_remaining[best] -= 1
+            if tx_remaining[best] == 0:
+                del tx_remaining[best]
+            mispron.append(r)
+        else:
+            missed.append(r)
+
+    score = round(100 * matched / max(1, len(ref_tokens)))
+    score = max(0, min(100, score))
+
+    return {
+        "score": score,
+        "missed_words": missed[:20],
+        "mispronounced_words": mispron[:20],
+        "feedback": "",
+    }
+
+
+def _has_target_language_chars(text: str, language: str) -> bool:
+    """Cheap sanity check: does the text contain at least one character
+    typical of the target language? Used to detect language drift on the
+    1.5B model — if the user asked for Polish feedback and we got a
+    response with no Polish-specific diacritic, we ignore it.
+    """
+    if not text:
+        return False
+    if language == "uk":
+        return bool(re.search(r"[Ѐ-ӿ]", text))     # Cyrillic
+    if language == "el":
+        return bool(re.search(r"[Ͱ-Ͽἀ-῿]", text))  # Greek
+    if language == "pl":
+        # Polish-specific diacritics. A short Polish feedback sentence
+        # almost always contains one of these.
+        return bool(re.search(r"[ąćęłńóśźż"
+                              r"ĄĆĘŁŃÓŚŹŻ]",
+                              text))
+    # English (default) — accept any text with at least one ASCII letter
+    # AND no Cyrillic / Greek block characters.
+    if not re.search(r"[A-Za-z]", text):
+        return False
+    if re.search(r"[Ѐ-ӿͰ-Ͽ]", text):
+        return False
+    return True
+
+
+def _llm_feedback(reference_text: str, transcript: str, language: str,
+                  score: int, missed: list, mispron: list) -> str:
+    """Ask the LLM for a localised one-sentence feedback string given the
+    deterministic diff results. Returns "" on any failure / language drift
+    so the caller substitutes the deterministic template.
+    """
+    if not _llm_ready or _llm is None:
+        return ""
+
+    lang_name = LANG_NAMES.get(language, language or "English")
+    diff_summary = (
+        f"Score: {score}/100. "
+        f"Missed words: {missed if missed else 'none'}. "
+        f"Mispronounced words: {mispron if mispron else 'none'}."
+    )
+    user_content = (
+        f"Reference ({lang_name}): \"{reference_text.strip()}\"\n"
+        f"Transcript: \"{transcript.strip()}\"\n"
+        f"{diff_summary}\n"
+        f"Write ONE encouraging sentence of feedback in {lang_name}, "
+        f"under 20 words. Reply with JSON only: "
+        '{"feedback":"..."}'
+    )
+
+    messages = [
+        {"role": "system", "content": _FEEDBACK_SYSTEM_PROMPT},
+        {"role": "user",   "content": user_content},
+    ]
+
+    try:
+        result = _llm.create_chat_completion(
+            messages=messages,
+            max_tokens=120,
+            temperature=0.4,
+            repeat_penalty=1.1,
+            response_format={"type": "json_object"},
+        )
+        raw = result["choices"][0]["message"]["content"].strip()
+    except Exception as exc:
+        _logger.error("evaluate-pronunciation feedback generation failed: %s", exc)
+        return ""
+
+    try:
+        parsed = _parse_enrichment_json(raw)
+    except Exception as exc:
+        _logger.error("evaluate-pronunciation feedback parse failed: %s — raw=%r",
+                      exc, raw[:200])
+        return ""
+
+    feedback = str(parsed.get("feedback") or "").strip()
+    if len(feedback) > 200:
+        feedback = feedback[:200].rstrip() + "…"
+
+    # Reject feedback in the wrong language (drift to Russian etc.).
+    # M31/M32 fight-the-contract-not-the-model rule reapplied — if the
+    # script is wrong, the deterministic fallback is better.
+    if feedback and not _has_target_language_chars(feedback, language):
+        _logger.info(
+            "evaluate-pronunciation feedback rejected (language drift) lang=%s text=%r",
+            language, feedback[:80],
+        )
+        return ""
+
+    return feedback
+
+
+def _evaluate_pronunciation(reference_text: str, transcript: str, language: str) -> dict:
+    """Return {score, missed_words, mispronounced_words, feedback}.
+
+    Hybrid: deterministic Python word-diff is the source of truth for the
+    structured fields (score / missed_words / mispronounced_words).
+    The LLM is consulted only for the localised feedback string; on
+    failure or language drift, the deterministic fallback template is
+    used.
+
+    Why hybrid: M33-S1 first smoke pass surfaced that Qwen 1.5B is
+    unreliable at structural diffing — it returned literal "..." anchor
+    placeholders and misidentified missed words. Reducing the model's
+    job to its strength (language-localised prose) and bounding the
+    failure mode produces stable, accurate per-word annotations that
+    the UI can rely on.
+    """
+    # Step 1 — deterministic diff (always authoritative).
+    diff = _word_diff_fallback(reference_text, transcript)
+    score   = diff["score"]
+    missed  = diff["missed_words"]
+    mispron = diff["mispronounced_words"]
+
+    # Step 2 — LLM feedback (best-effort, gated by language check).
+    feedback = _llm_feedback(reference_text, transcript, language,
+                             score, missed, mispron)
+    if not feedback:
+        feedback = _fallback_feedback(language, score, missed, mispron)
+
+    return {
+        "score":               score,
+        "missed_words":        missed,
+        "mispronounced_words": mispron,
+        "feedback":            feedback,
+    }
+
+
+# NOTE — the original LLM-as-source-of-truth implementation lived here.
+# M33-S1 smoke surfaced that Qwen 1.5B is unreliable at structural diffing
+# (returned literal "..." anchor placeholders + misidentified missed
+# words). The implementation was replaced with the hybrid above
+# (deterministic Python diff + LLM-only-for-feedback). _PRONUNCIATION_EXAMPLES
+# and _EVALUATE_PRONUNCIATION_SYSTEM_PROMPT are intentionally left in
+# place above as a reference for any future Qwen-3B retry; they are
+# currently unused but cost nothing to keep.
+
+
+@app.post("/evaluate-pronunciation")
+def evaluate_pronunciation_endpoint(req: EvaluatePronunciationRequest):
+    reference = (req.reference_text or "").strip()
+    transcript = (req.transcript or "").strip()
+    if not reference:
+        return {"status": "error", "message": "reference_text is required",
+                "score": 0, "missed_words": [], "mispronounced_words": [],
+                "feedback": ""}
+    if len(reference) > 1000:
+        reference = reference[:1000]
+    if len(transcript) > 1000:
+        transcript = transcript[:1000]
+    # Empty transcript is a valid input — user said nothing → score 0.
+    result = _evaluate_pronunciation(reference, transcript, req.language)
+    result["status"] = "ok"
+    return result

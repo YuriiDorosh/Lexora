@@ -12,6 +12,8 @@ _logger = logging.getLogger(__name__)
 _ALLOWED_LANGUAGES = ('en', 'uk', 'el', 'pl')
 _MAX_WORD_LEN = 1000
 _MAX_WRITER_TEXT = 4000   # M31: cap for /writer_check text body, matches LLM /analyze-writing
+_MAX_SHADOW_TEXT = 500    # M33: cap for shadow_tts/shadow_evaluate reference text
+_AUDIO_SVC = os.environ.get('AUDIO_SERVICE_URL', 'http://audio-service:8000').rstrip('/')
 _MAX_CONTEXT_LEN = 2000
 _MAX_URL_LEN = 2048
 _TRANSLATION_SVC = os.environ.get('TRANSLATION_SERVICE_URL', 'http://translation-service:8000').rstrip('/')
@@ -804,6 +806,234 @@ class LexoraApiController(http.Controller):
         if 'status' not in result:
             result['status'] = 'ok'
         return _json_response(result)
+
+    # ------------------------------------------------------------------
+    # POST /lexora_api/shadow_tts  (M33 — Webpage Shadowing: Play Original)
+    # ------------------------------------------------------------------
+    @http.route('/lexora_api/shadow_tts', type='http', auth='none',
+                methods=['POST'], csrf=False)
+    def shadow_tts(self, **kw):
+        """Proxy a synchronous TTS request to the audio service.
+
+        The browser extension's "▶ Play Original" button POSTs the
+        reference phrase here; we forward to audio /tts-sync and stream
+        the audio/mpeg bytes back to the extension, which feeds them
+        into an <audio> element.
+
+        Request body (JSON):
+            text      (str, required)  — reference phrase, capped at
+                                         _MAX_SHADOW_TEXT (500) chars.
+            language  (str, optional)  — en / uk / el / pl (default 'en').
+
+        Response:
+            200 audio/mpeg bytes on success.
+            400 / 413 / 502 / 503 JSON error envelope on failure.
+        """
+        err = _require_session()
+        if err:
+            return err
+
+        try:
+            raw = request.httprequest.get_data(as_text=True)
+            data = json.loads(raw) if raw else {}
+        except (ValueError, UnicodeDecodeError):
+            data = {}
+        data = {**request.params, **data}
+
+        text = (data.get('text') or '').strip()
+        if not text:
+            return _json_response(
+                {'status': 'error', 'message': 'text is required'}, 400)
+        if len(text) > _MAX_SHADOW_TEXT:
+            return _json_response(
+                {'status': 'error',
+                 'message': f'text exceeds {_MAX_SHADOW_TEXT} chars'}, 413)
+
+        language = (data.get('language') or 'en').strip().lower()
+        if language not in _ALLOWED_LANGUAGES:
+            language = 'en'
+
+        try:
+            import requests as _req
+            resp = _req.post(
+                f'{_AUDIO_SVC}/tts-sync',
+                json={'text': text, 'language': language},
+                timeout=30,
+                stream=False,  # short audio, fits comfortably in memory
+            )
+        except Exception as exc:
+            _logger.warning('shadow_tts proxy network error: %s', exc)
+            return _json_response({
+                'status': 'unavailable',
+                'message': 'TTS service unavailable.',
+            }, 502)
+
+        if resp.status_code != 200:
+            # Pass through the audio service's structured error verbatim
+            # so the extension can render it (413 long text, 503 engine
+            # timeout, etc.).
+            try:
+                detail = resp.json()
+            except Exception:
+                detail = {'detail': (resp.text or '')[:200]}
+            return _json_response({
+                'status': 'error',
+                'http_status': resp.status_code,
+                **detail,
+            }, resp.status_code)
+
+        # Stream the audio bytes back with the same Content-Type the audio
+        # service used (typically audio/mpeg). _cors_headers() adds the
+        # extension-friendly CORS reflection.
+        headers = list(_cors_headers().items()) + [
+            ('Content-Type', resp.headers.get('Content-Type', 'audio/mpeg')),
+            ('Cache-Control', 'no-store'),
+        ]
+        # Forward the X-Lexora-TTS-* diagnostic headers so the extension
+        # can show which engine / voice was used.
+        for h in ('X-Lexora-TTS-Engine', 'X-Lexora-TTS-Language'):
+            if h in resp.headers:
+                headers.append((h, resp.headers[h]))
+        return request.make_response(resp.content, headers=headers, status=200)
+
+    # ------------------------------------------------------------------
+    # POST /lexora_api/shadow_evaluate  (M33 — Webpage Shadowing)
+    # ------------------------------------------------------------------
+    @http.route('/lexora_api/shadow_evaluate', type='http', auth='none',
+                methods=['POST'], csrf=False)
+    def shadow_evaluate(self, **kw):
+        """Two-stage orchestrator: transcribe user audio, then evaluate.
+
+        Multipart request:
+            audio           (file, required)  — user's recording (any
+                                                MediaRecorder format).
+            reference_text  (str, required)   — sentence the user
+                                                practised. Capped at
+                                                _MAX_SHADOW_TEXT.
+            language        (str, optional)   — en / uk / el / pl
+                                                (default 'en').
+
+        Pipeline:
+          1. Forward audio to audio_service /transcribe-sync (M30 path).
+          2. Forward {reference_text, transcript, language} to
+             llm_service /evaluate-pronunciation.
+          3. Combine both responses + inject status='ok'.
+
+        Response (combined):
+            {"status":"ok",
+             "transcript":"...","duration":4.2,"detected_language":"en",
+             "score":85,"missed_words":[...],"mispronounced_words":[...],
+             "feedback":"..."}
+        """
+        err = _require_session()
+        if err:
+            return err
+
+        # Multipart fields land in request.params (audio is a FileStorage,
+        # text fields are plain strings).
+        audio_file = request.params.get('audio') or request.httprequest.files.get('audio')
+        reference  = (request.params.get('reference_text') or '').strip()
+        language   = (request.params.get('language') or 'en').strip().lower()
+
+        if not reference:
+            return _json_response(
+                {'status': 'error', 'message': 'reference_text is required'}, 400)
+        if len(reference) > _MAX_SHADOW_TEXT:
+            reference = reference[:_MAX_SHADOW_TEXT]
+        if language not in _ALLOWED_LANGUAGES:
+            language = 'en'
+        if not audio_file:
+            return _json_response(
+                {'status': 'error', 'message': 'audio file is required'}, 400)
+
+        try:
+            audio_bytes = audio_file.read()
+        except Exception as exc:
+            return _json_response(
+                {'status': 'error', 'message': f'could not read audio upload: {exc}'},
+                400)
+        if not audio_bytes:
+            return _json_response(
+                {'status': 'error', 'message': 'audio upload is empty'}, 400)
+
+        # ── Stage 1 — transcribe ───────────────────────────────────────
+        import requests as _req
+        try:
+            mime = getattr(audio_file, 'content_type', None) or 'audio/webm'
+            filename = getattr(audio_file, 'filename', None) or 'recording.webm'
+            tx_resp = _req.post(
+                f'{_AUDIO_SVC}/transcribe-sync',
+                files={'audio': (filename, audio_bytes, mime)},
+                data={'language': language},
+                timeout=120,
+            )
+        except Exception as exc:
+            _logger.warning('shadow_evaluate transcribe network error: %s', exc)
+            return _json_response({
+                'status': 'unavailable',
+                'message': 'Audio service unavailable during transcription.',
+                'transcript': '', 'duration': 0,
+                'score': 0, 'missed_words': [], 'mispronounced_words': [],
+                'feedback': '',
+            }, 502)
+
+        if tx_resp.status_code != 200:
+            try:
+                tx_detail = tx_resp.json()
+            except Exception:
+                tx_detail = {'detail': (tx_resp.text or '')[:200]}
+            return _json_response({
+                'status': 'error',
+                'stage': 'transcribe',
+                'http_status': tx_resp.status_code,
+                **tx_detail,
+            }, tx_resp.status_code)
+
+        try:
+            tx_payload = tx_resp.json()
+        except Exception:
+            return _json_response(
+                {'status': 'error', 'stage': 'transcribe',
+                 'message': 'audio service returned non-JSON'}, 502)
+
+        transcript = (tx_payload.get('transcript') or '').strip()
+        duration   = float(tx_payload.get('duration') or 0.0)
+        detected   = tx_payload.get('language') or language
+
+        # ── Stage 2 — evaluate ─────────────────────────────────────────
+        try:
+            ev_resp = _req.post(
+                f'{_LLM_SVC}/evaluate-pronunciation',
+                json={'reference_text': reference, 'transcript': transcript,
+                      'language': language},
+                timeout=60,
+            )
+            ev_resp.raise_for_status()
+            ev_payload = json.loads(ev_resp.content.decode('utf-8', errors='replace'))
+        except Exception as exc:
+            _logger.warning('shadow_evaluate LLM error: %s', exc)
+            return _json_response({
+                'status': 'unavailable',
+                'message': 'LLM unavailable during evaluation.',
+                'transcript': transcript,
+                'duration': duration,
+                'detected_language': detected,
+                'score': 0, 'missed_words': [], 'mispronounced_words': [],
+                'feedback': '',
+            }, 502)
+
+        # ── Merge + return ─────────────────────────────────────────────
+        combined = {
+            'status':            'ok',
+            'transcript':        transcript,
+            'duration':          duration,
+            'detected_language': detected,
+            'score':              int(ev_payload.get('score') or 0),
+            'missed_words':       ev_payload.get('missed_words') or [],
+            'mispronounced_words': ev_payload.get('mispronounced_words') or [],
+            'feedback':           ev_payload.get('feedback') or '',
+        }
+        return _json_response(combined)
 
 
 # -------------------------------------------------------------------------

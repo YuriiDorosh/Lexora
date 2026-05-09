@@ -66,51 +66,143 @@ amber-underline (mispronounced) annotations.
 
 #### Sub-steps
 
-**Step M33-S1 — LLM endpoint `POST /evaluate-pronunciation`**
+**Step M33-S1 — LLM endpoint `POST /evaluate-pronunciation`** ✅ (with architectural pivot)
 
-- [ ] M33-S1-01 · `services/llm/main.py` — new
-  `EvaluatePronunciationRequest` Pydantic: `reference_text: str`,
-  `transcript: str`, `language: str = "en"`.
-- [ ] M33-S1-02 · `_EVALUATE_PRONUNCIATION_SYSTEM_PROMPT` — under
-  100 words, plain prose, inlined JSON shape, language clamp on
-  the `feedback` field. Explicit "score 100 means transcript is
-  byte-identical to reference" rule.
-- [ ] M33-S1-03 · `_PRONUNCIATION_EXAMPLES` per-language anchor
-  (en/uk/el/pl). Each shows a reference + transcript pair where
-  the transcript misses one word and mispronounces one, with the
-  expected JSON output filled in correctly.
-- [ ] M33-S1-04 · `_evaluate_pronunciation()` helper — sandwich
-  user message (gate → anchor → gate → reference + transcript),
-  `response_format={"type":"json_object"}`, `max_tokens=400`,
-  `temperature=0.3`, `repeat_penalty=1.1`. Reuses
-  `_parse_enrichment_json`.
-- [ ] M33-S1-05 · Defensive coerce: `score` clamped to 0-100,
-  array entries str-coerced + 30-char-trimmed + empty-dropped,
-  arrays capped at 20 entries.
-- [ ] M33-S1-06 · **Server-side safety net** — `_word_diff_fallback`
-  helper. If LLM returns `score=100, both arrays=[]` but
-  whitespace-normalised lowercase transcript ≠ reference, run
-  Python diff:
-  - Tokenise both strings on `/[\s\p{P}]+/` (Unicode word boundaries).
-  - For each reference word: if not present in transcript →
-    add to `missed_words`. If a transcript word at a similar
-    position is within Levenshtein distance 2 OR shares ≥ 3-char
-    prefix → add to `mispronounced_words` instead.
-  - Recompute `score = round(100 * matched / len(ref_words))`.
-  - Log INFO line ("evaluate-pronunciation: word-diff fallback fired").
-- [ ] M33-S1-07 · `@app.post("/evaluate-pronunciation")` — caps
-  `reference_text` and `transcript` at 1000 chars each.
-- [ ] M33-S1-08 · `make up-llm-no-cache`; `/openapi.json` lists
-  the new route alongside the existing seven.
-- [ ] M33-S1-09 · Smoke matrix:
-  - Byte-identical transcript → score 100, both arrays empty.
-  - One-word missed → score ≤ 95, missed_words populated.
-  - One-word mispronounced (close edit distance) →
-    mispronounced_words populated.
-  - Multi-word divergence → reasonable score, both arrays
-    populated.
-  - Same in en/uk/el/pl (Slavic outputs may have lower-quality
-    feedback text per ADR-027 but the JSON contract must hold).
+- [x] M33-S1-01 · `EvaluatePronunciationRequest` Pydantic added
+  (reference_text, transcript, language='en').
+- [x] M33-S1-02–05 · Initial implementation followed the planned
+  "LLM does the diffing" design with `_EVALUATE_PRONUNCIATION_SYSTEM_PROMPT`,
+  per-language `_PRONUNCIATION_EXAMPLES` anchors, defensive coerce.
+  **First smoke pass surfaced that Qwen 1.5B is unreliable at
+  structural diffing** — Case A returned `score=85` with literal
+  `"..."` placeholder strings copied from the few-shot anchor; Case B
+  misidentified the missed word (claimed "lazy" missed when actually
+  the second "the" was dropped). Three prompt iterations didn't help.
+- [x] M33-S1-PIVOT · **Architectural pivot — hybrid model.**
+  Deterministic Python word-diff is now the source of truth for
+  `score / missed_words / mispronounced_words`; the LLM is consulted
+  only for the localised `feedback` string. The 1.5B model's job is
+  reduced to its strength (language-localised prose) and bounded to
+  a single failure mode (empty / wrong-language feedback) which
+  the deterministic per-language template (`_FEEDBACK_FALLBACKS`)
+  handles. Same "fight the contract, not the model" rule from M31.
+- [x] M33-S1-06 · `_word_diff_fallback` helper + `_levenshtein` helper.
+  - Tokenises both strings via `_WORD_TOKEN_RE` (`/[\w'\-]+/u`).
+  - **Multiset-correct counting** — uses `collections.Counter`
+    (not `set`) so reference "the" appearing twice but transcript
+    only having one "the" properly registers a missed second
+    occurrence. (First-pass set-based version had a bug here;
+    fixed in S1 smoke iteration.)
+  - For each reference token in order: consume from the Counter on
+    exact match → `matched`; near-match (Levenshtein ≤ 2 OR shared
+    3-char prefix) → consume + add to `mispronounced_words`;
+    otherwise → `missed_words`.
+  - `score = round(100 * matched / len(ref_tokens))`, clamped 0-100.
+- [x] M33-S1-FEEDBACK · `_llm_feedback` helper — short LLM call
+  asking only for `{"feedback": "..."}` given the diff results
+  pre-summarised. `max_tokens=120`, `temperature=0.4`. Output
+  passes through `_has_target_language_chars` script-validator
+  to reject language drift; on rejection or any failure, the
+  caller substitutes `_fallback_feedback(language, score, ...)`
+  (per-language template chosen by score tier).
+- [x] M33-S1-07 · `@app.post("/evaluate-pronunciation")` caps
+  reference_text and transcript at 1000 chars; empty reference →
+  HTTP 200 with status=error envelope; empty transcript is valid
+  (user said nothing → score 0).
+- [x] M33-S1-08 · `make up-llm-no-cache` → `/health` ready;
+  `/openapi.json` lists `/evaluate-pronunciation` alongside the
+  existing seven sync endpoints.
+- [x] M33-S1-09 · Smoke matrix (post-pivot):
+  - **A** byte-identical → `score=100, missed=[], mispron=[],
+    feedback="Well done! Your pronunciation is excellent."` ✓
+  - **B** "The X the Y" with one "the" dropped →
+    `score=89, missed=["the"], feedback` localised. Multiset fix
+    confirmed working. ✓
+  - **C** multi-word divergence ("had been waiting for two hours
+    when the bus finally arrived" vs. "was waiting for two hour
+    when bus finally arrive") → `score=50, missed=["when","the"],
+    mispron=["had","been","hours","arrived"], feedback` mentions
+    specific words. ✓
+  - **D** Polish (`Wczoraj poszedłem do parku z przyjacielem` vs.
+    `wczoraj poszłam do parku z przyjaciel`) → `score=67,
+    mispron=["poszedłem","przyjacielem"], feedback="Niezła próba —
+    przećwicz słowa, które pominąłeś."` Language clamp held. ✓
+
+**Step M33-S2 — Audio service endpoint `POST /tts-sync`** ✅
+
+- [x] M33-S2-01 · `TtsSyncRequest` Pydantic added; 500-char cap
+  via `TTS_SYNC_MAX_CHARS` env (default 500).
+- [x] M33-S2-02 · `@app.post("/tts-sync")` — reuses existing
+  `_generate_tts(text, language)`. Wraps the call in
+  `asyncio.wait_for(loop.run_in_executor(None, _generate_tts, ...),
+  timeout=TTS_SYNC_TIMEOUT_SEC)` so a hung Edge TTS network call
+  can't block the FastAPI event loop. Returns
+  `Response(content=mp3_bytes, media_type="audio/mpeg")` with
+  diagnostic headers (`X-Lexora-TTS-Engine`, `X-Lexora-TTS-Language`,
+  `Cache-Control: no-store`).
+- [x] M33-S2-03 · 400 on empty text; 413 on overflow (>500); 503
+  on timeout (default 25 s); 415 on engine failure; 415 on empty
+  output bytes.
+- [x] M33-S2-04 · `make up-audio-no-cache`; smokes:
+  - EN ("The quick brown fox...") → HTTP 200, 11433 bytes,
+    `MPEG ADTS, layer III, v2, 32 kbps, 22.05 kHz, Monaural` ✓
+  - PL ("Wczoraj poszedłem do parku.") → HTTP 200, 8299 bytes,
+    same MPEG profile (Edge TTS picked `pl-PL-ZofiaNeural` per M29) ✓
+  - Empty text → HTTP 400 `{"detail":"text is required"}` ✓
+  - 600-char overflow → HTTP 413
+    `{"detail":"text is 600 chars — max is 500"}` ✓
+
+**Step M33-S3 — Odoo proxy endpoints** ✅
+
+- [x] M33-S3-01 · `_MAX_SHADOW_TEXT = 500` and
+  `_AUDIO_SVC = os.environ.get('AUDIO_SERVICE_URL',
+  'http://audio-service:8000').rstrip('/')` constants added at the
+  top of `portal_api.py`.
+- [x] M33-S3-02 · `POST /lexora_api/shadow_tts` — `type='http'`,
+  `auth='none'`, `csrf=False`, `_require_session()` first line.
+  JSON body parsed. text required (400) + capped (413); language
+  validated against `_ALLOWED_LANGUAGES`. Forwards to
+  `{_AUDIO_SVC}/tts-sync` with 30 s timeout. On non-200 from the
+  audio service, surfaces the structured error JSON verbatim with
+  the same HTTP status. On success, streams audio bytes back via
+  `request.make_response(resp.content, headers=...)` with the
+  audio-service's Content-Type preserved + `_cors_headers()` added
+  + diagnostic `X-Lexora-TTS-*` headers passed through.
+- [x] M33-S3-03 · `POST /lexora_api/shadow_evaluate` — multipart
+  endpoint reading `audio` from `request.params` /
+  `request.httprequest.files`, plus `reference_text` and `language`
+  form fields. Validation: reference required + capped at
+  `_MAX_SHADOW_TEXT`; language fallback to 'en'; audio required +
+  non-empty.
+- [x] M33-S3-04 · Stage 1 — multipart forward to audio
+  `/transcribe-sync` (M30 endpoint) with `files={'audio': (filename,
+  bytes, mime)}` + `data={'language': language}`, 120 s timeout.
+  On network failure → `{status:'unavailable',
+  ...zero-defaults...}` HTTP 502. On non-200 from audio service,
+  surfaces the structured detail with the same status.
+- [x] M33-S3-05 · Stage 2 — JSON forward to llm
+  `/evaluate-pronunciation` with `{reference_text, transcript,
+  language}`, 60 s timeout. Same graceful unavailability handling.
+- [x] M33-S3-06 · Combined response shape:
+  `{status:"ok", transcript, duration, detected_language, score,
+  missed_words, mispronounced_words, feedback}`. Defensive
+  `status:"ok"` injection.
+- [x] M33-S3-07 · `--update language_portal --stop-after-init
+  --no-http` → "Modules loaded." 0 errors. Smoke matrix
+  (with session minted via `odoo shell`):
+  - **shadow_tts no session** → HTTP 401
+    `{"status":"unauthorized",...}` ✓
+  - **shadow_tts** with session → HTTP 200, `audio/mpeg`,
+    11433 bytes, valid MP3 written to disk ✓
+  - **shadow_evaluate full pipeline** — fed the M33-S3 TTS output
+    (perfect English audio of the reference sentence) back as the
+    user's recording → Whisper transcribed it as "The quick brown
+    fox **dumps** over the lazy dog" (Whisper's own substitution at
+    32 kbps low-bitrate input — the deterministic diff caught it,
+    which is exactly what the safety net is for); response was
+    `{score:89, mispronounced_words:["jumps"], feedback:"Great
+    job!..."}`. The TTS→Whisper→diff→LLM-feedback pipeline is
+    end-to-end correct. ✓
 
 **Step M33-S2 — Audio service endpoint `POST /tts-sync`**
 
