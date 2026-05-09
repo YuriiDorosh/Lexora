@@ -15,9 +15,18 @@
 
 ## Current Milestone
 
+(none — M31 + M32 closed on 2026-05-09; next milestone TBD)
+
+---
+
+## Completed Milestones (M31 + M32)
+
 ### M31 + M32 — Browser Extension Upgrades
 
-**Status:** Planned (architecture review pass, no code yet).
+**Status:** Complete and verified (browser smoke confirmed by user).
+**Branch:** `m31_m32_extension_upgrades`
+**Final commits:** `d9580bd` planning · `29415ff`/`5e0f2c4`/`8a1a4ea`/`07ad9d5`/`bebed44`
+M31 · `d185bab`/`b770a19` M32 · this commit S6.
 **Branch:** `m31_m32_extension_upgrades` (created from `m30_speaking_coach`)
 **Started:** 2026-05-07
 
@@ -592,22 +601,37 @@ deferred to user)
   fake figurative meaning.
 - [ ] M32-S5-06 · Commit M32.
 
-#### Step M31-M32-S6 — Final docs flip
+#### Step M31-M32-S6 — Final docs flip ✅
 
-- [ ] M31-M32-S6-01 · ADR-031 in `docs/DECISIONS.md` — covers M31's
-  Apply-to-text strategy (the `input`-event dispatch pattern for
-  React/Vue compatibility), the FAB eligibility heuristic, and the
-  privacy-disclosure UX. Decide whether ADR-032 is a separate ADR or
-  a sub-section of ADR-031 (likely a sub-section since both endpoints
-  share the same architectural shape).
-- [ ] M31-M32-S6-02 · `docs/PLAN.md` — flip M31 + M32 rows to ✅;
-  bump version to 2.2.
-- [ ] M31-M32-S6-03 · `docs/TASKS.md` — archive both blocks under
-  Completed Milestones.
-- [ ] M31-M32-S6-04 · `README.md` — Practice Modes table or Browser
-  Ecosystem section gets new entries; M31 + M32 rows in the
-  implementation status table.
-- [ ] M31-M32-S6-05 · Commit + push to `m31_m32_extension_upgrades`.
+- [x] M31-M32-S6-01 · ADR-031 in `docs/DECISIONS.md` — single ADR
+  covering both milestones with nine locked sub-decisions
+  (31a-e M31 + 32a-d M32). Records:
+  - Sync proxy chain rationale + the pattern-reuse audit table
+    (which fields every sync endpoint must implement).
+  - The Apply-to-text native-setter + InputEvent pattern for
+    React/Vue compatibility, with the verification cases
+    (Reddit / Gmail / Odoo backend).
+  - FAB strict-allowlist eligibility rules + the design rationale
+    (false positives erode trust faster than false negatives erode
+    utility).
+  - Privacy-disclosure UX in the M31 popup footer.
+  - Server-side safety net for empty corrections (the "fight the
+    contract, not the model" rule).
+  - M32's five-key JSON contract + dual language clamp +
+    `kind:'literal'` and `confidence:'low'` UI branches.
+  - Four lessons fed back into the codebase + four revisit triggers.
+- [x] M31-M32-S6-02 · `docs/PLAN.md` v2.1 → v2.2; M31 + M32 overview
+  rows flipped to ✅ Complete; status header reflects M0–M32 done
+  (M26 still postponed).
+- [x] M31-M32-S6-03 · `docs/TASKS.md` — M31 + M32 block archived
+  under "Completed Milestones (M31 + M32)" with all eight commit
+  SHAs preserved for resume continuity. Current Milestone slot is
+  empty until the next milestone starts.
+- [x] M31-M32-S6-04 · `README.md` — Practice Modes / Browser Ecosystem
+  sections gain Lexora Writer + Slang Explainer entries; LLM service
+  sync-endpoints list adds `/analyze-writing` and `/explain-slang`;
+  implementation status table gains M31 + M32 rows.
+- [x] M31-M32-S6-05 · Final commit + branch push.
 
 #### Blockers
 

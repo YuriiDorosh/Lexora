@@ -619,3 +619,187 @@ This is consistent with the M18-FIX-09 prompt-engineering rule: 1.5B models patt
 - If users want a longer cap (e.g. 3-minute monologues), bump `AUDIO_SYNC_MAX_SECONDS` and consider switching the LLM analysis to async-with-polling — a 3-minute Whisper pass plus 3-minute Qwen analysis exceeds reasonable HTTP timeouts.
 - If `parse_error: true` rates climb (telemetry suggestion: log the rate over time), the upgrade to Qwen2.5-3B Q4_K_M (already configured behind env vars `LLM_MODEL_REPO` / `LLM_MODEL_FILENAME`) is the recommended fix. Server RAM permitting.
 - If we ship a mobile / network-flaky variant, switch to a polling pattern: the sync endpoints stay, but the browser fires-and-checks via a session-status route instead of holding an open connection.
+
+---
+
+## ADR-031: Browser Extension AI Surfaces — Lexora Writer (M31) and Slang/Idiom Explainer (M32)
+
+**Status:** Accepted (M31+M32, 2026-05-09)
+
+**Context:** Two browser-extension features that share an architectural shape but address different user moments.
+
+- **M31 Lexora Writer** — proactive grammar/style assistant: floating "L" FAB on every focused `<textarea>` / `[contenteditable]`; one-click sends the field text through `/lexora_api/writer_check` → `/analyze-writing` and renders corrections + improved version in a Shadow-DOM popup with an "Apply to text" button.
+- **M32 Slang & Idiom Explainer** — reactive "what does this mean" affordance: new "💡 Explain Slang/Idiom" button alongside the existing M28 "Explain Grammar" button in both Quick Look and YouTube subtitle overlays; sends the selected phrase through `/lexora_api/explain_slang` → `/explain-slang` and renders kind / figurative / literal / example / confidence in an amber-themed block.
+
+Both reuse the existing service stack — no new container, no new RabbitMQ queue, no new Pydantic patterns. This ADR records the four locked sub-decisions that define how M31 and M32 behave.
+
+### Sub-decision 31a: Synchronous proxy chain (ADR-030 reapplied)
+
+**Decision:** Both flows are synchronous browser → Odoo proxy → LLM. Browser blocks on each step; the user sees a "Looking up…" / "Analysing…" pill and the result lands ~15-30 s later.
+
+```
+Browser content.js / overlay.js
+  → background.js fetch
+  → POST /lexora_api/writer_check or /lexora_api/explain_slang
+      (Odoo proxy: type='http', auth='none' + _require_session(),
+       60 s requests.post timeout)
+  → POST llm_service /analyze-writing or /explain-slang
+      (FastAPI sync, Qwen2.5-1.5B chat completion, ~15-30 s)
+  ← JSON contract
+  ← Renders inside the same overlay surface; no page navigation
+```
+
+**Why the same rule as M30:** the user is staring at the result. There's no point queuing through RabbitMQ when the blocking call is the only thing the user is waiting on. A polling pattern would add complexity for zero perceived-latency benefit.
+
+**Pattern reuse audit (locked at ADR-031):**
+
+| Endpoint | Status field | Stub fallback | Defensive coerce | Few-shot anchor |
+|---|---|---|---|---|
+| `/roleplay` (M17) | inline | yes | n/a (free text) | n/a |
+| `/explain-grammar` (M28) | inline | yes | n/a | n/a |
+| `/generate-topic` (M30) | wrapper | yes | n/a (free text) | yes (`_TOPIC_EXAMPLES`) |
+| `/analyze-speech` (M30) | wrapper | yes | yes | n/a |
+| `/analyze-writing` (M31) | wrapper | yes | yes | yes (`_WRITING_EXAMPLES`) |
+| **`/explain-slang` (M32)** | wrapper | yes | enum-clamped | yes (`_SLANG_EXAMPLES`) |
+
+Every new sync endpoint MUST: (a) inject `status: "ok"` server-side; (b) provide a stub fallback that returns the same JSON shape with sentinel content when `_llm_ready=False`; (c) defensively coerce arrays / enums; (d) add a per-`{output_language}` few-shot anchor when the contract demands a specific language.
+
+### Sub-decision 31b: Apply-to-text — the React/Vue write-back pattern
+
+**Problem:** M31 needs to write the LLM's `improved` text back into the user's textarea or contenteditable. On React-controlled inputs (Reddit, Gmail compose, X/Twitter, GitHub PR descriptions, Notion), assigning `input.value = improved` directly fires React's overridden setter, which silently reverts the change because React's internal state hasn't been updated.
+
+**Fix — the canonical "native input setter" pattern:**
+
+```js
+function _applyWriterImproved(input, improved) {
+  if (input.tagName === 'TEXTAREA') {
+    // Walk past React's wrapped setter to the prototype's native setter.
+    const nativeSetter = Object.getOwnPropertyDescriptor(
+      window.HTMLTextAreaElement.prototype, 'value'
+    )?.set;
+    if (nativeSetter) {
+      nativeSetter.call(input, improved);
+    } else {
+      input.value = improved;          // graceful fallback
+    }
+  } else if (input.isContentEditable) {
+    input.innerText = improved;        // preserves line breaks
+  }
+
+  // Both events with bubbles:true so React/Vue/Svelte/Solid all notice.
+  input.dispatchEvent(new InputEvent('input', {
+    bubbles: true,
+    inputType: 'insertReplacementText',
+    data: improved,
+  }));
+  input.dispatchEvent(new Event('change', { bubbles: true }));
+}
+```
+
+**Why both events:** React 17+ listens to `input`; older single-page apps and form libraries listen to `change`. Dispatching both covers the long tail.
+
+**Why `inputType: 'insertReplacementText'`:** browser InputEvents distinguish between user typing, paste, autocomplete, etc. Setting the `inputType` to `insertReplacementText` is the closest match and lets accessibility tooling render appropriate announcements.
+
+**Test cases (verified during M31-S5):** Reddit comment box (React), Gmail compose (`[contenteditable]` + heavy framework), Odoo backend long-text fields (jQuery + custom widgets). All three pick up the change correctly. The Reddit character counter visibly updates after Apply — that's the unambiguous proof React's state actually rebound.
+
+### Sub-decision 31c: FAB eligibility — strict allowlist over best-effort heuristic
+
+**Problem:** the FAB cannot afford to be a nuisance. Showing it on a password field is a privacy bug; showing it on a code editor is annoying; showing it on a search bar is misleading.
+
+**Decision:** strict allowlist with explicit deny patterns. `_isEligibleInput(el)` accepts only `tagName === 'TEXTAREA'` or `el.isContentEditable === true`, AND rejects when ANY of:
+
+- `readonly` / `disabled` / `type=password` / `type=hidden`
+- ancestor `[role="search"]`, role attrs `search` / `searchbox` / `spinbutton`
+- code-editor heuristic — `aria-label` / `aria-describedby` / `className` matching `/code|monaco|cm[\-_]editor|codemirror|password|search/i`, plus closest-ancestor check against `.monaco-editor, .CodeMirror, .cm-editor, .ace_editor, [class*="code-editor"]`
+- login/signup/password forms — parent `<form>` `name` / `id` / `action` matching `/login|sign[ \-]?in|signup|register|password/i`
+- our own overlays — `closest('#lx-ql-shadow-host'), '#lx-writer-shadow-host', '.lx-yt-card', '.lx-known-word')`
+- cross-document inputs (`el.ownerDocument !== document`)
+
+**Why strict:** false positives on a password field or code editor cost the user trust permanently. False negatives (failing to show the FAB on a real writing surface) cost one click — the user can always paste into a known-good field. Tradeoff favours the user's privacy and editor experience.
+
+**Failure mode if the deny list misses a new editor:** the FAB appears but the user can ignore it. Adding a new entry to `_WRITER_DENY_LABEL_RE` or the closest-ancestor selector list is a one-line patch. The Options-page toggle gives the user a global escape hatch.
+
+### Sub-decision 31d: Privacy disclosure on the M31 popup
+
+**Decision:** the M31 popup footer always shows the line *"Text is sent to your Lexora server for analysis."* in muted small text.
+
+**Rationale:** unlike `/explain-grammar` (M28) where the user explicitly selects text and clicks a button, M31's FAB is **proactive** — it appears on every eligible field and the click sends the entire field value. Users typing personal messages on Reddit, drafting emails in Gmail, or composing in Odoo backends could otherwise be surprised that their text leaves the page. The disclosure removes that surprise.
+
+**Why "your Lexora server" not "the cloud":** the extension talks to the user's own Lexora instance (configurable in Options). The phrasing is precise — the text doesn't leave the user's infrastructure unless they have explicitly pointed the extension at a third-party server.
+
+**M32 doesn't add an equivalent disclosure** because the action is reactive (the user explicitly clicks the slang button on a phrase they just selected). Same model as `/explain-grammar`, no regression on the existing privacy posture.
+
+### Sub-decision 31e: Server-side safety net for "improved differs but corrections is empty"
+
+**Problem (browser smoke #2):** Qwen 1.5B reliably emits a polished `improved` but often returns an empty `corrections` array when its only edits were stylistic — even after three prompt-engineering iterations and the strengthened few-shot anchor pattern. The user sees their text change with no explanation.
+
+**Decision:** post-process the LLM response in `_analyze_writing`. If whitespace-normalised `improved` differs from whitespace-normalised input AND `corrections` is empty, synthesise a single catch-all entry:
+
+```python
+{
+  "wrong":   text,
+  "correct": improved,
+  "note":    "Polished for natural flow and clarity.",
+}
+```
+
+Log an INFO line per synthesis so future telemetry / a 3B model upgrade can quantify how often the safety net fires (drops to near-zero is the signal that the upgrade is working).
+
+**Rule for the broader stack:** when a 1.5B model fails to follow a structural rule that breaks UX, **don't fight the model — guarantee the contract server-side**. Prompt engineering is a 90 %-solution; server-side post-processing is the floor.
+
+### Sub-decision 32a: Five-key JSON contract for `/explain-slang`
+
+**Decision:** `/explain-slang` returns:
+
+```json
+{
+  "kind":               "idiom" | "slang" | "phrasal_verb" |
+                        "literal" | "unknown",
+  "figurative_meaning": "...",
+  "literal_meaning":    "...",
+  "example":            "...",
+  "confidence":         "high" | "medium" | "low"
+}
+```
+
+Five top-level keys, two enum-clamped values, three free-text fields. The contract is enforced server-side via:
+
+- `response_format={"type":"json_object"}` on the LLM call
+- `_VALID_KINDS` and `_VALID_CONFIDENCES` module-level sets — defensive coerce in `_explain_slang` clamps unknown values to `"unknown"` / `"low"`
+- The shared `_parse_enrichment_json` tolerant parser handles the Slavic single-quotes-in-JSON quirk (ADR-027 documented limitation)
+
+### Sub-decision 32b: Dual language clamp — figurative/literal in `native_language`, example in `source_language`
+
+**Decision:** the system prompt explicitly distinguishes:
+
+- **Figurative meaning** and **literal meaning** are written in the user's **native_language** (the language they want the explanation IN)
+- The **example sentence** stays in the phrase's **source_language** (so the user sees the phrase used naturally, not translated)
+- The few-shot anchor (`_SLANG_EXAMPLES`) demonstrates this dual-clamp by always using "kick the bucket" with the figurative + literal in the target native language but the English example sentence kept verbatim across all four anchors
+
+**Why the dual clamp matters:** a Polish user studying English idioms wants the explanation in Polish (so they understand it) but the example in English (so they see the idiom in its natural habitat). A single-language clamp would force a tradeoff.
+
+### Sub-decision 32c: `kind:'literal'` UI branch — never invent a figurative reading
+
+**Decision:** when `kind === 'literal'`, the renderer shows `"This phrase translates literally — no figurative meaning."` plus the literal translation. It does NOT render whatever the model put in `figurative_meaning` (which on the 1.5B model is sometimes a hallucinated "what this REALLY means" for a sentence that's just a sentence).
+
+**Rationale:** showing a fake idiomatic reading for a literal phrase teaches the user something incorrect. Better to acknowledge "this is just a sentence" than to invent an idiom.
+
+### Sub-decision 32d: `confidence:'low'` UI branch — surface the uncertainty
+
+**Decision:** when `confidence === 'low'`, the renderer appends a small italic warning: *"⚠ AI is uncertain — consider checking a dictionary."*
+
+**Rationale:** Qwen 1.5B is wobbly on regional slang and obscure idioms (the M32 smoke caught "give up" misclassified as `idiom` instead of `phrasal_verb`; "mog" Gen-Z slang produces low-confidence guesses). The honest UI affordance is to surface the uncertainty rather than render the answer with the same visual weight as a high-confidence answer.
+
+### Lessons fed back into the codebase
+
+- **Pattern reuse rule for sync endpoints (locked):** every new sync endpoint follows the table in 31a — Pydantic + system prompt + few-shot anchor (when output language is constrained) + `response_format={"type":"json_object"}` + `_parse_enrichment_json` + defensive coerce + stub fallback + server-side `status` injection.
+- **Server-side floor over prompt-engineering ceiling:** when the 1.5B model can't be reliably out-prompted on a UX-critical rule, guarantee the contract in Python (M31's empty-corrections safety net is the canonical example).
+- **Strict allowlist over best-effort denylist** for any DOM-injection feature: false positives erode trust faster than false negatives erode utility.
+- **InputEvent + change pattern** is now the project's canonical write-back to controlled inputs; M32 doesn't need it (the slang button doesn't write into fields) but any future extension feature that does should reuse `_applyWriterImproved`'s shape.
+
+### Revisit triggers
+
+- **Increase Qwen to 3B** if `parse_error: true` rates climb on `/explain-slang` (Slavic JSON-quoting quirk) or if low-confidence rates dominate idiom queries. Server-side INFO log lines from the M31 safety net provide the metric.
+- **Add a polling pattern** if M31 latency on the target server pushes past ~45 s p95 — the sync HTTP connection becomes fragile on flaky mobile networks beyond that.
+- **Curated-idiom lookup ahead of the LLM** for M32: the M19 `language.idiom` table already has 100+ curated entries with high-quality figurative meanings. A future M-thirty-something could short-circuit `/explain-slang` for any phrase that matches a curated row, falling back to the LLM only for the long tail. M32 deliberately doesn't do this — keeping the milestone scope tight — but the architecture supports it.
+- **Per-`(source_lang, native_lang)` few-shot anchors** if the cross-lingual quality gap widens: today `_SLANG_EXAMPLES` is keyed only by `native_language` (with the same English example sentence across all anchors). The 1.5B handles this fine; a 3B might benefit from anchors that vary the source language too.

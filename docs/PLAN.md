@@ -1,8 +1,8 @@
 # Lexora — Implementation Plan (MVP)
 
-> Version: 2.1 (M31–M32 — Browser Extension Upgrades — Planned)
-> Last updated: 2026-05-07
-> Status: M0–M25 complete; M26 postponed (resource constraints); M27–M30 complete; M31–M32 planned
+> Version: 2.2 (M31–M32 — Browser Extension Upgrades — Complete)
+> Last updated: 2026-05-09
+> Status: M0–M25 complete; M26 postponed (resource constraints); M27–M32 complete
 
 ---
 
@@ -58,8 +58,8 @@
 | M28 | Browser Extension — Grammar Explainer | ✅ Complete | "Explain Grammar" button in Quick Look + YouTube overlays; Qwen 1.5B via Odoo proxy; draggable scrollable overlays with `!important` flex enforcement |
 | M29 | Polish Language Support (System-Wide) | ✅ Complete | Polish (`pl` / 🇵🇱) is a first-class language across DB selectors, controllers, FastAPI services (`pl-PL` MyMemory locale, `pl-PL-ZofiaNeural` Edge TTS, `espeak-ng pl`, LLM `LANG_NAMES`), browser extension (Polish-diacritic detection regex, Quick Look + tooltip 🇵🇱 row, New Tab card), portal templates, and Anki/profile/translator forms. Auto-translates all new entries to en/uk/el/pl. 1055 existing entries backfilled. Canonical `LANGUAGE_SELECTION` import enforced across translation/enrichment/audio (ADR-029) |
 | M30 | AI Speaking Coach & Oral Practice | ✅ Complete | `/my/speaking` portal with topic generation, browser mic recording, Faster-Whisper sync transcription, and Qwen2.5-1.5B feedback (corrections / synonyms / improved version). `language.speaking.session` persists transcripts + feedback per user. 4-language support; 90 s soft cap; sync HTTP pipeline (no RabbitMQ) per ADR-030 |
-| M31 | Browser Extension — Lexora Writer | 📝 Planned | Active-writing assistant. Content script detects focused `<textarea>` / `[contenteditable]` and injects a floating "L" FAB. Click sends the input text via `POST /lexora_api/writer_check` → LLM `POST /analyze-writing`; returns grammar corrections + improved version. Glassmorphism popup near input with "Apply to text" button that replaces the field value (dispatching `input` event so React/Vue listeners fire) |
-| M32 | Browser Extension — Slang & Idiom Explainer | 📝 Planned | "Explain Slang/Idiom" button added to the existing Quick Look + YouTube overlays alongside "Explain Grammar". Sends the selected phrase via `POST /lexora_api/explain_slang` → LLM `POST /explain-slang`; classifies the phrase (`idiom` / `slang` / `phrasal_verb` / `literal`) and returns figurative meaning, literal translation, and a usage example in the user's native language. Renders in a new scrollable block within the overlay |
+| M31 | Browser Extension — Lexora Writer | ✅ Complete | Active-writing assistant. Floating "L" FAB on every focused `<textarea>` / `[contenteditable]`; strict eligibility (skips passwords / search / code editors / login forms). Click → `POST /lexora_api/writer_check` → LLM `POST /analyze-writing` → corrections + improved JSON. Apply-to-text uses the React-compatible native-setter + InputEvent pattern. Server-side safety net guarantees every text change is documented (ADR-031) |
+| M32 | Browser Extension — Slang & Idiom Explainer | ✅ Complete | New "💡 Explain Slang/Idiom" button alongside the M28 "Explain Grammar" button in both Quick Look and YouTube overlays. `POST /lexora_api/explain_slang` → LLM `POST /explain-slang`; returns kind enum (idiom / slang / phrasal_verb / literal / unknown), figurative + literal meaning in the user's native language, example in source language, confidence enum. UI handles the literal and low-confidence branches honestly (ADR-031) |
 
 ---
 
