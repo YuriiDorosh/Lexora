@@ -355,66 +355,140 @@ amber-underline (mispronounced) annotations.
   `mic-start` → `mic-stop` cycles on any tab reuse the grant
   without re-prompting.
 
-**Step M33-S5 — Extension UI (Quick Look + YouTube overlays)**
+**Step M33-S5 — Extension UI (Quick Look + YouTube overlays)** ✅
 
-- [ ] M33-S5-01 · `extension/content.js` Quick Look:
-  - Add "🎤 Practice Pronunciation" button in the QL footer
-    alongside Explain Grammar / Explain Slang.
-  - Add `<div id="lx-ql-shadow" class="lx-ql-shadow-block"></div>`
-    in the scroll body below the existing slang block.
-  - On button click: render the Shadowing block with reference
-    text (the selected phrase, read-only), ▶ Play Original button,
-    🎙 Hold to Record button, empty score area.
-- [ ] M33-S5-02 · ▶ Play Original click handler:
-  - Disables the button, sets label "Loading…".
-  - Sends `{action:'lexora-shadow-tts', text, language}` to bg.
-  - bg.js POSTs to `/lexora_api/shadow_tts`, reads response as
-    `Blob`, returns base64 audio + mime to content.
-  - Content creates a `Blob` from base64, makes an Object URL,
-    sets it as `src` of an internal `<audio>`, plays. Re-enables
-    button after `audio.onended`.
-- [ ] M33-S5-03 · 🎙 Hold to Record handler:
-  - `mousedown` (and `touchstart`): button gains `.lx-recording`
-    (red glow), label "Recording — release when done", sends
-    `{action:'lexora-mic-start'}` to bg.
-  - `mouseup` / `touchend` / `mouseleave`: send
-    `{action:'lexora-mic-stop'}`. If hold was <300 ms, cancel
-    instead with a hint "Hold the button while you speak".
-  - On stop response with `audio_b64`: label "Analysing…",
-    construct `FormData{audio: Blob from base64, reference_text,
-    language}`, POST to `/lexora_api/shadow_evaluate` via bg.
-  - On evaluate response: render score badge + per-word
-    annotation + feedback line.
-- [ ] M33-S5-04 · `_renderShadowResult(container, response,
-  referenceText)` helper:
-  - Score badge: `<div class="lx-ql-shadow-score lx-ql-shadow-score-${tier}">
-    ${score}/100</div>` where tier = `green` (≥80), `amber`
-    (60-79), `red` (<60).
-  - Reference text re-rendered with annotations: each word
-    wrapped in `<span class="lx-ql-shadow-word">word</span>`,
-    matched by lowercase comparison against `missed_words` /
-    `mispronounced_words` (defensive: also strip punctuation
-    when matching).
-  - Feedback line in `<div class="lx-ql-shadow-feedback">…</div>`.
-- [ ] M33-S5-05 · `_QL_CSS` extended with the M33 amber/red
-  palette (visually distinct from grammar indigo and slang
-  amber by using a tealrose accent for the shadow block):
-  `.lx-ql-shadow-btn`, `.lx-ql-shadow-block`,
-  `.lx-ql-shadow-score`, `.lx-ql-shadow-score-green/amber/red`,
-  `.lx-ql-shadow-word`, `.lx-ql-shadow-word-missed`
-  (`text-decoration: line-through; color: #fca5a5`),
-  `.lx-ql-shadow-word-mispron` (`text-decoration: underline wavy;
-  text-decoration-color: #fbbf24`), `.lx-ql-shadow-feedback`
-  (italic). `.lx-recording` glow keyframe for the record button.
-- [ ] M33-S5-06 · `extension/overlay.js` — same shape for the
-  YouTube overlay: `#lx-yt-shadow-btn`, `#lx-yt-shadow` block,
-  matching `_renderYtShadowResult` helper, matching CSS additions
-  in `_OVERLAY_CSS`. Preserve the M28-12d flex sandwich.
-- [ ] M33-S5-07 · `extension/background.js` — new
-  `lexora-shadow-tts` and `lexora-shadow-evaluate` message
-  handlers. tts handler reads response as ArrayBuffer, base64-
-  encodes for messaging. Evaluate handler is a normal JSON
-  pass-through.
+- [x] M33-S5-01 · `extension/content.js` Quick Look:
+  - "🎤 Practice Pronunciation" button (`#lx-ql-practice-shadow`)
+    added in the QL footer alongside Explain Grammar + Explain
+    Slang. Teal accent palette (`rgba(20,184,166,...)`) keeps it
+    visually distinct from the indigo grammar block and amber
+    slang block.
+  - `<div class="lx-ql-shadow-block" id="lx-ql-shadow">` added
+    in the scroll body, hidden until the practice button is clicked.
+  - On click: `_renderShadowControls(shadow, shadowBlock, word,
+    lang, 'lx-ql')` renders the reference text + ▶ Play Original
+    + 🎙 Hold to Record + status line + result slot, then auto-
+    scrolls the scroll-body to the bottom so the block is in view.
+    Idempotent — clicking again with the block already visible
+    just re-scrolls.
+- [x] M33-S5-02 · ▶ Play Original click handler:
+  - Disables button, label "Loading…", status "Fetching
+    pronunciation…".
+  - Sends `{action:'lexora-shadow-tts', text, language}`.
+  - On `{status:'ok', audio_b64, mime_type}` response:
+    `_shadowB64ToBytes(audio_b64)` → `Uint8Array` → `Blob` with
+    the returned mime type → `URL.createObjectURL` → `new Audio(...)`.
+    Tracks `_audioEl` so a second play cleanly cancels the first.
+    `onended` resets the button and prompts the user to record.
+- [x] M33-S5-03 · 🎙 Hold to Record handler — full state machine:
+  - `mousedown` / `touchstart`: button gains `.lx-recording`
+    (red glow + 1.4 s pulse animation), label "Recording — release
+    when done", status cleared. Sends `{action:'lexora-mic-start'}`
+    via the M33-S4 message router. On error response (mic denied
+    etc.) restores button + shows the error message in status,
+    pointing the user at the Options page.
+  - 30 s safety auto-stop (`_SHADOW_REC_MAX_MS`) so an unresponsive
+    mouseup doesn't record forever (e.g. user drags off-screen).
+  - `mouseup` / `touchend`: if held <300 ms (`_SHADOW_MIN_HOLD_MS`),
+    sends `lexora-mic-cancel` and shows the "Hold the button while
+    speaking" hint. Otherwise sends `lexora-mic-stop`.
+  - `mouseleave` while recording: same path as mouseup with
+    `autoStop=true` (skips the <300 ms hint check).
+  - On `mic-stop` response: label "Analysing…", status
+    "Transcribing your audio…", forwards
+    `{action:'lexora-shadow-evaluate', audio_b64, mime_type,
+    reference_text, language}` to the background. The bg handler
+    decodes the base64, builds FormData with the audio Blob, and
+    POSTs to `/lexora_api/shadow_evaluate`.
+  - On evaluate response: status shows the Whisper transcript
+    ("Heard: ...") and `_renderShadowResult` paints the score
+    badge + annotations + feedback.
+- [x] M33-S5-04 · `_renderShadowResult(resultEl, refEl,
+  referenceText, resp, prefix)` shared helper:
+  - Defensive: clamps `score` to 0-100 + `Math.round`; coerces
+    array fields to `[]` if non-array.
+  - Score badge with tier class (green ≥80 / amber 60-79 / red <60)
+    plus a small "N missed · M mispronounced" caption.
+  - Re-renders the reference paragraph with per-word annotations
+    via `_renderShadowAnnotatedReference`: tokenises with
+    `_SHADOW_WORD_TOKEN_RE` (`/[\wÀ-ɏͰ-ϿЀ-ӿ'-]+/u`,
+    Unicode-aware so Greek / Cyrillic / Polish tokens match);
+    each word wrapped in `<span class="${prefix}-shadow-word">`,
+    with `…-word-missed` (red strikethrough, 2 px thickness) or
+    `…-word-mispron` (wavy amber underline) classes added based on
+    lowercase set membership. Original casing preserved in the
+    rendered output.
+  - Feedback in `<div class="${prefix}-shadow-feedback">` with the
+    teal italic style.
+- [x] M33-S5-05 · `_QL_CSS` extended (~95 new lines) with the
+  full M33 teal/rose palette:
+  - `.lx-ql-shadow-btn` (teal outline)
+  - `.lx-ql-shadow-block` (teal left-border accent + subtle bg)
+  - `.lx-ql-shadow-reference` (rounded box for the reference text)
+  - `.lx-ql-shadow-word`, `…-word-missed` (red strikethrough),
+    `…-word-mispron` (amber wavy underline)
+  - `.lx-ql-shadow-controls` (flex row for the Play + Record
+    buttons)
+  - `.lx-ql-shadow-play-btn` (neutral) and `.lx-ql-shadow-record-btn`
+    (rose); record gains `.lx-recording` with `lx-ql-rec-pulse`
+    keyframe (1.4 s box-shadow pulse) while active
+  - `.lx-ql-shadow-status` (small grey status line)
+  - `.lx-ql-shadow-score` + tier modifiers
+    `…-score-green / …-score-amber / …-score-red` (rounded pill
+    badges)
+  - `.lx-ql-shadow-feedback` (italic teal-on-teal box)
+- [x] M33-S5-06 · `extension/overlay.js` — same architecture
+  mirrored under the `lx-yt-` prefix:
+  - `#lx-yt-practice-shadow` button + `#lx-yt-shadow` block in the
+    overlay HTML. Block lives inside `.lx-yt-scroll` so long
+    feedback / annotations scroll naturally — M28-12d flex sandwich
+    preserved.
+  - `_renderYtShadowControls(rootEl, container, referenceText,
+    language)` and `_renderYtShadowResult(...)` are local twins
+    of the content.js helpers (overlay.js can't import from
+    content.js, but the shape is identical). `_escHtml` already
+    exists in overlay.js; uses `_sendMessage` instead of
+    `_qlSendMessage`.
+  - `_OVERLAY_CSS` gains all the amber/teal/rose rules with
+    `!important` `cursor` and `pointer-events` on buttons (M28-12d
+    rule — YouTube's stylesheet has been seen to override these).
+- [x] M33-S5-07 · `extension/background.js` — `lexora-shadow-tts`
+  and `lexora-shadow-evaluate` cases added to the onMessage router.
+  - `handleShadowTts({text, language})`: POST JSON to
+    `/lexora_api/shadow_tts`; reads response as `ArrayBuffer`;
+    `_bytesToB64` (chunked btoa to avoid stack overflow on large
+    buffers) → returns `{status, audio_b64, mime_type, size_bytes}`.
+  - `handleShadowEvaluate({audio_b64, mime_type, reference_text,
+    language})`: `_b64ToBytes` → `Blob` → `FormData` (NOT setting
+    Content-Type so the browser picks the multipart boundary
+    automatically) → POST to `/lexora_api/shadow_evaluate`. 401
+    surfaced as `{status:'unauthorized'}` so the UI shows the
+    sign-in prompt; non-2xx surfaces the structured error verbatim.
+- [x] M33-S5-08 · All five touched JS files (`content.js`,
+  `overlay.js`, `background.js`, `options.js`, `offscreen.js`)
+  pass `node --check`. Browser smoke (M33-S6) is up to the user.
+
+**Step M33-S6 — Verification** (server-side ✓; user-side smoke pending)
+
+- [x] M33-S6-01 · LLM endpoint smoke matrix — all four cases pass
+  (recorded under S1-09 above).
+- [x] M33-S6-02 · Audio /tts-sync smokes — EN + PL valid MPEG
+  bytes (recorded under S2-04 above).
+- [x] M33-S6-03 · Odoo proxy curl smokes — `/shadow_tts` returns
+  audio bytes, `/shadow_evaluate` end-to-end pipeline confirmed
+  with the TTS-roundtrip test that exposed Whisper's own `jumps→
+  dumps` substitution at low bitrate (recorded under S3-07 above).
+  The deterministic diff caught the substitution exactly as the
+  safety net is designed to.
+- [ ] M33-S6-04 · Browser smoke — user reloads the extension, opens
+  a webpage, selects a 5-10 word sentence, clicks 🎤, ▶ Play
+  Original, 🎙 Hold to Record, releases, sees ~30 s later the
+  score badge + per-word annotation + feedback. First click on a
+  fresh extension install triggers Chrome's mic permission prompt;
+  subsequent records reuse it.
+- [ ] M33-S6-05 · Negative tests — deny mic, hold <300 ms, very
+  long reference, multi-language (Polish article + Greek blog)
+  — recorded by user during smoke.
 
 **Step M33-S6 — Verification**
 

@@ -90,6 +90,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     // {status, recording, mime_type} without invoking the recorder.
     handleMicPing().then(sendResponse).catch((err) =>
       sendResponse({ status: 'error', message: String(err && err.message || err) }));
+  } else if (msg.action === 'lexora-shadow-tts') {
+    handleShadowTts(msg).then(sendResponse).catch((err) =>
+      sendResponse({ status: 'error', message: String(err && err.message || err) }));
+  } else if (msg.action === 'lexora-shadow-evaluate') {
+    handleShadowEvaluate(msg).then(sendResponse).catch((err) =>
+      sendResponse({ status: 'error', message: String(err && err.message || err) }));
   }
   return true; // MUST be at the very end — keeps channel open for all async handlers
 });
@@ -387,6 +393,98 @@ async function _hasOffscreenSafely() {
     return await chrome.offscreen.hasDocument();
   } catch {
     return false;
+  }
+}
+
+// ── M33 — Webpage Shadowing proxy handlers ────────────────────────────────
+//
+// content.js / overlay.js can't talk to the Odoo proxy directly because
+// SameSite cookie rules block third-party requests; the same X-Lexora-
+// Session-Id bridge used by every other M22+ handler applies. These two
+// handlers run in the service worker and forward to the Odoo proxies
+// added in M33-S3.
+
+// _b64ToBytes — base64 string → Uint8Array. Used to reconstruct the
+// recorded audio Blob in the service worker before forwarding as
+// multipart to the Odoo proxy.
+function _b64ToBytes(b64) {
+  const bin = atob(b64);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
+// _bytesToB64 — Uint8Array → base64 string. Used to ferry binary audio
+// bytes back to the content script (chrome.runtime.sendMessage can only
+// carry JSON-serialisable values, so we base64 the audio for transport).
+function _bytesToB64(bytes) {
+  // chunked btoa to avoid stack overflow on large buffers
+  let bin = '';
+  const CHUNK = 0x8000;
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    bin += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK));
+  }
+  return btoa(bin);
+}
+
+async function handleShadowTts({ text, language }) {
+  if (!text || !text.trim()) {
+    return { status: 'error', message: 'text required' };
+  }
+  const baseUrl = await getBaseUrl();
+  const sessionHeaders = await getSessionHeader(baseUrl);
+  try {
+    const resp = await fetch(`${baseUrl}/lexora_api/shadow_tts`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json', ...sessionHeaders },
+      body: JSON.stringify({ text, language: language || 'en' }),
+    });
+    if (resp.status === 401) return { status: 'unauthorized' };
+    if (!resp.ok) {
+      let detail = '';
+      try { detail = JSON.stringify(await resp.json()); } catch { detail = resp.statusText; }
+      return { status: 'error', message: `HTTP ${resp.status}: ${detail}` };
+    }
+    const buf = await resp.arrayBuffer();
+    const audio_b64 = _bytesToB64(new Uint8Array(buf));
+    const mime_type = resp.headers.get('Content-Type') || 'audio/mpeg';
+    return { status: 'ok', audio_b64, mime_type, size_bytes: buf.byteLength };
+  } catch (err) {
+    return { status: 'error', message: err.message };
+  }
+}
+
+async function handleShadowEvaluate({ audio_b64, mime_type, reference_text, language }) {
+  if (!audio_b64) return { status: 'error', message: 'audio_b64 required' };
+  if (!reference_text) return { status: 'error', message: 'reference_text required' };
+  const baseUrl = await getBaseUrl();
+  const sessionHeaders = await getSessionHeader(baseUrl);
+
+  try {
+    const bytes = _b64ToBytes(audio_b64);
+    const blob  = new Blob([bytes], { type: mime_type || 'audio/webm' });
+    const fd = new FormData();
+    fd.append('audio', blob, 'recording' + (mime_type === 'audio/webm;codecs=opus' ? '.webm' : '.bin'));
+    fd.append('reference_text', reference_text);
+    fd.append('language', language || 'en');
+
+    const resp = await fetch(`${baseUrl}/lexora_api/shadow_evaluate`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { ...sessionHeaders }, // do NOT set Content-Type — let the
+                                       // browser set the multipart boundary
+      body: fd,
+    });
+    if (resp.status === 401) return { status: 'unauthorized' };
+    if (!resp.ok) {
+      let detail;
+      try { detail = await resp.json(); } catch { detail = { detail: resp.statusText }; }
+      return { status: 'error', http_status: resp.status, ...detail };
+    }
+    return await resp.json();
+  } catch (err) {
+    return { status: 'error', message: err.message };
   }
 }
 
