@@ -1,6 +1,6 @@
 fastapi==0.115.5
 uvicorn[standard]==0.32.1
-pika==1.3.2
+pika==1.4.0
 # M4c (ADR-028): real translation happens through deep_translator, which hits
 # a free online provider (default: Google Translate; fallback: MyMemory).  No
 # API key required.  Offline Argos is no longer part of the roadmap; see
