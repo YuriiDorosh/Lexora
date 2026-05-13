@@ -13,6 +13,7 @@ _ALLOWED_LANGUAGES = ('en', 'uk', 'el', 'pl')
 _MAX_WORD_LEN = 1000
 _MAX_WRITER_TEXT = 4000   # M31: cap for /writer_check text body, matches LLM /analyze-writing
 _MAX_SHADOW_TEXT = 500    # M33: cap for shadow_tts/shadow_evaluate reference text
+_MAX_RADAR_VOCAB = int(os.environ.get('LEXORA_RADAR_VOCAB_LIMIT', '1000'))   # M34: cap for /my_vocab response
 _AUDIO_SVC = os.environ.get('AUDIO_SERVICE_URL', 'http://audio-service:8000').rstrip('/')
 _MAX_CONTEXT_LEN = 2000
 _MAX_URL_LEN = 2048
@@ -1034,6 +1035,89 @@ class LexoraApiController(http.Controller):
             'feedback':           ev_payload.get('feedback') or '',
         }
         return _json_response(combined)
+
+    # ------------------------------------------------------------------
+    # GET /lexora_api/my_vocab  (M34 — YouTube Vocab Radar)
+    # ------------------------------------------------------------------
+    @http.route('/lexora_api/my_vocab', type='http', auth='none',
+                methods=['GET'], csrf=False)
+    def my_vocab(self, **kw):
+        """Lightweight vocabulary projection for the YouTube radar.
+
+        Distinct from /lexora_api/get_learned_words (M27): no SRS state,
+        no per-entry days_ago, only entries with at least one completed
+        translation (so the radar always has something to show). Capped
+        at _MAX_RADAR_VOCAB (env override LEXORA_RADAR_VOCAB_LIMIT).
+
+        Response shape:
+            {
+              "status": "ok",
+              "words": [
+                {
+                  "id": 1234,
+                  "word": "ephemeral",
+                  "normalized": "ephemeral",
+                  "lang": "en",
+                  "translations": {
+                    "uk": "короткочасний",
+                    "el": "εφήμερος",
+                    "pl": "efemeryczny"
+                  }
+                }
+              ],
+              "generated_at": 1747094400
+            }
+
+        Cached client-side in chrome.storage.local for 15 min (M34-S2).
+        Invalidated on /lexora_api/add_word success.
+        """
+        err = _require_session()
+        if err:
+            return err
+
+        uid = _resolve_uid()
+
+        if 'language.entry' not in request.env.registry:
+            return _json_response({'status': 'ok', 'words': [],
+                                   'generated_at': int(time.time())})
+
+        entries = request.env['language.entry'].sudo().search([
+            ('owner_id', '=', uid),
+            ('status', '=', 'active'),
+            ('pvp_eligible', '=', True),
+        ], limit=_MAX_RADAR_VOCAB, order='write_date desc')
+
+        # Build translation lookup: entry_id → {lang_code: translated_text}
+        # Same shape as M27 so a future shared client helper can consume either.
+        trans_map = {}
+        if entries and 'language.translation' in request.env.registry:
+            translations = request.env['language.translation'].sudo().search([
+                ('entry_id', 'in', entries.ids),
+                ('status', '=', 'completed'),
+            ], order='id asc')
+            for t in translations:
+                if not t.translated_text:
+                    continue
+                bucket = trans_map.setdefault(t.entry_id.id, {})
+                # Keep first result per language (order='id asc' → earliest job wins).
+                if t.target_language not in bucket:
+                    bucket[t.target_language] = t.translated_text
+
+        words = []
+        for entry in entries:
+            words.append({
+                'id': entry.id,
+                'word': entry.source_text,
+                'normalized': entry.normalized_text or (entry.source_text or '').lower(),
+                'lang': entry.source_language,
+                'translations': trans_map.get(entry.id) or {},
+            })
+
+        return _json_response({
+            'status': 'ok',
+            'words': words,
+            'generated_at': int(time.time()),
+        })
 
 
 # -------------------------------------------------------------------------

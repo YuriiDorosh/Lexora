@@ -70,6 +70,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     handleWhoami().then(sendResponse).catch(() => sendResponse({ status: 'error' }));
   } else if (msg.action === 'lexora-get-learned-words') {
     handleGetLearnedWords().then(sendResponse).catch(() => sendResponse({ status: 'error' }));
+  } else if (msg.action === 'lexora-get-my-vocab') {
+    handleGetMyVocab().then(sendResponse).catch(() => sendResponse({ status: 'error' }));
   } else if (msg.action === 'lexora-explain-grammar') {
     handleExplainGrammar(msg).then(sendResponse).catch(() => sendResponse({ status: 'error' }));
   } else if (msg.action === 'lexora-writer-check') {
@@ -165,8 +167,10 @@ async function handleAddWordOverlay({ word, source_language, source_url }) {
     if (!resp.ok) return { status: 'error', message: `HTTP ${resp.status}` };
     const data = await resp.json();
     if (data.status === 'ok') {
-      // Invalidate the M27 word-list cache so the new word is highlighted on next page load
-      chrome.storage.local.remove('lx_word_cache');
+      // Invalidate caches so the new word is picked up on next read:
+      //   lx_word_cache       — M27 review-in-the-wild highlighting
+      //   lx_radar_vocab_cache — M34 YouTube vocab radar
+      chrome.storage.local.remove(['lx_word_cache', 'lx_radar_vocab_cache']);
     }
     return data;
   } catch (err) {
@@ -224,6 +228,44 @@ async function handleGetLearnedWords() {
     if (resp.status === 401) return { status: 'unauthorized' };
     if (!resp.ok) return { status: 'error', message: `HTTP ${resp.status}` };
     return resp.json();
+  } catch (err) {
+    return { status: 'error', message: err.message };
+  }
+}
+
+// ── M34 — YouTube Vocab Radar (lightweight vocab projection) ──────────────
+
+/**
+ * Fetch the user's pvp-eligible vocabulary via GET /lexora_api/my_vocab
+ * and persist it to chrome.storage.local.lx_radar_vocab_cache so the
+ * content script can read the latest known good payload on tick. The
+ * 15-min TTL freshness check lives in extension/youtube_radar.js
+ * (M34-S4-05); this handler is unconditional — it always asks the
+ * server and updates the cache on success.
+ *
+ * Cache is invalidated on /lexora_api/add_word success (both the
+ * AddWord overlay and the right-click context menu branches below).
+ */
+async function handleGetMyVocab() {
+  const baseUrl = await getBaseUrl();
+  const sessionHeaders = await getSessionHeader(baseUrl);
+  try {
+    const resp = await fetch(`${baseUrl}/lexora_api/my_vocab`, {
+      method: 'GET',
+      credentials: 'include',
+      headers: sessionHeaders,
+    });
+    if (resp.status === 401) return { status: 'unauthorized' };
+    if (!resp.ok) return { status: 'error', message: `HTTP ${resp.status}` };
+    const data = await resp.json();
+    if (data && data.status === 'ok') {
+      try {
+        await chrome.storage.local.set({ lx_radar_vocab_cache: data });
+      } catch (storeErr) {
+        console.warn('[Lexora BG] lx_radar_vocab_cache write failed:', storeErr);
+      }
+    }
+    return data;
   } catch (err) {
     return { status: 'error', message: err.message };
   }
@@ -543,8 +585,10 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
 
     const data = await resp.json();
     if (data.status === 'ok') {
-      // Invalidate M27 word-list cache so the new word highlights on next page scan
-      chrome.storage.local.remove('lx_word_cache');
+      // Invalidate caches so the new word is picked up on next read:
+      //   lx_word_cache        — M27 review-in-the-wild highlighting
+      //   lx_radar_vocab_cache — M34 YouTube vocab radar
+      chrome.storage.local.remove(['lx_word_cache', 'lx_radar_vocab_cache']);
       setBadge(tab.id, '✓', '#22c55e');
       chrome.tabs.sendMessage(tab.id, { action: 'show-toast', status: 'ok', word });
     } else if (data.status === 'duplicate') {
