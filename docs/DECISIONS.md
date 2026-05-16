@@ -1267,3 +1267,329 @@ obvious M-thirty-something extension — documented in revisit triggers.
   equivalent `<video>` element discovery + `timeupdate` subscription.
   `_findCueHit`, the cooldown gate, the overlay UI, and the Options page
   are all platform-agnostic and reusable.
+
+---
+
+## ADR-034: Multi-word YouTube Subtitle Selection — Ctrl/⌘-Click multi-select (M35)
+
+**Status:** Accepted (M35, 2026-05-16)
+
+**Context:** M24 wraps each YouTube subtitle word in an isolated
+`<span class="lx-sub-word">` with a `click` listener that opens a single-word
+Quick Look. This breaks down for phrasal verbs ("give up"), idioms ("kick the
+bucket"), and any multi-token expression: the user can only ever look up the
+single word their cursor happens to land on. M35's goal is to let the user
+operate on whole phrases — and have every downstream Quick Look feature
+(Explain Grammar M28, Explain Slang/Idiom M32, Practice Pronunciation M33)
+inherit phrase support for free, because the card reads its word from
+internal state rather than re-querying the DOM.
+
+The decision is **how** to capture multi-word user intent on a player surface
+whose owner (YouTube) has explicit countermeasures against text selection.
+
+### Sub-decision 35a: Strategy A (native browser selection) — IMPLEMENTED, then DISCARDED
+
+**What we tried** (commit `ad92887`):
+
+1. Override `user-select: none` on the caption subtree:
+   ```css
+   .ytp-caption-window-container,
+   .ytp-captions-container,
+   .ytp-caption-segment,
+   .lx-sub-word {
+     user-select: text !important;
+     -webkit-user-select: text !important;
+   }
+   ```
+2. Bind capture-phase `mousedown` / `mousemove` / `mouseup` listeners on the
+   persistent `.ytp-caption-window-container`, each calling
+   `e.stopPropagation()` (only when `target.closest('.lx-sub-word')` matches)
+   and intentionally NOT calling `preventDefault` — preserving the browser's
+   native selection-extension behaviour on `mousemove`.
+3. On `mouseup`, defer one `queueMicrotask` so the browser finalises the
+   selection range, then read `window.getSelection().toString()`, normalise,
+   and route through the Quick Look pipeline if the result has ≥1 internal
+   whitespace.
+4. Suppress the per-span `click` that follows `mouseup` via a
+   `_lxSwallowNextClick` flag drained inside `_onWordClick`.
+
+**Why it failed:**
+
+The user-reported verdict after browser smoke was unambiguous: **"щось воно
+ніфіга не тягнеться"** ("the thing doesn't drag at all"). The native
+selection range never extended past the click anchor.
+
+Root cause: YouTube's player is more aggressive than the M35 architectural
+analysis anticipated. Three concrete obstructions stacked together:
+
+1. **`user-select: none` is re-applied by JS on every cue render.** Setting
+   `user-select: text !important` in our extension stylesheet wins on the
+   FIRST render, but YT writes a new inline style on the new `.lx-sub-word`
+   spans during the next cue swap (~every 2-4 s). Our static CSS rule
+   loses to a dynamically-applied inline style — `!important` doesn't help
+   because YT's inline rule is also effectively `!important` (inline styles
+   beat external CSS at the same specificity level when both are
+   `!important`-tagged, by spec).
+2. **Selection-extension interception runs below event listeners.** Even
+   when we successfully kept `user-select: text` on a span at the moment
+   of `mousedown`, YT's player has an `onselectstart` handler (or
+   equivalent at the JS-event level) that calls `event.preventDefault()`
+   on `selectstart`. Without a `selectstart` listener of our own that
+   beats theirs, the selection never starts.
+3. **Even capture-phase event firewalling can't help.** Our capture-phase
+   `stopPropagation` keeps YT's `mousedown` / `mouseup` listeners on
+   `.html5-video-player` silent — that part worked. But the
+   `selectstart` interception isn't on the player surface; it's tied to
+   the captions container itself.
+
+**The cost-to-recover would have been:** patching a `selectstart` listener
+on the caption container that calls `e.stopPropagation()` AND finding a way
+to block YT's repeated re-application of `user-select: none` on every cue
+render — likely a MutationObserver on the caption container that re-asserts
+our CSS class on every span as it appears, OR injecting a main-world script
+(à la M34) that monkey-patches whatever YT JS is rewriting the inline
+style. Both options add fragile machinery for a UX (drag-to-select on a
+fast-changing inline element) that has its own intrinsic problems —
+cue-segment volatility means a drag that crosses a `.ytp-caption-segment`
+boundary at the moment YT swaps in fresh spans loses the selection anyway.
+
+**Decision:** abandon Strategy A entirely. Revert the code. Find a
+different UX that doesn't fight the platform owner.
+
+### Sub-decision 35b: Strategy B (manual drag state machine) — REJECTED without smoke
+
+**What it would have been:**
+
+`mousedown` on a span sets `_drag.anchor`; `mouseenter` on each subsequent
+span appends to `_drag.spans`; `mouseup` finalises and concatenates
+`_drag.spans.map(s => s.textContent).join(' ')`. Custom `.lx-sub-selected`
+highlight CSS. The browser's native selection is bypassed entirely — we'd
+draw our own visual feedback via CSS classes.
+
+**Why we didn't try it:**
+
+- **Cue-segment volatility still hurts.** YT replaces `.ytp-caption-segment`
+  every 2-4 s. A drag that crosses a swap moment loses its anchor `<span>`
+  (now an orphaned DOM node) and the in-progress selection breaks. We'd
+  have to add cue-change detection and either pause the timeline-display
+  during drags (impossible — we don't control the player) or accept that
+  half of all drag attempts fail.
+- **No native selection feedback.** The user sees a custom highlight
+  instead of the browser's familiar blue. That's a "downgrade" UX —
+  custom highlight color clashes with whatever theming YT uses in
+  ambient mode / dark mode / TV-mode shell.
+- **No protection against the platform owner's next move.** If YT
+  decides to disable pointer events on subtitles tomorrow (they have
+  before), Strategy B breaks too. Strategy C — using only `click` —
+  inherits M24's existing event-surface stability (a year of production
+  use without YT breaking it).
+
+Documented as available in PLAN.md but not implemented. Re-evaluate only
+if Strategy C develops issues that pure-`click` UX can't address.
+
+### Sub-decision 35c: Strategy C (Ctrl/⌘-Click multi-select) — CHOSEN
+
+**The user proposed it** after Strategy A failed in browser smoke. The
+key insight: **don't try to drag at all.** Each Ctrl-click is just a
+regular `click` event with `e.ctrlKey === true` (or `e.metaKey` on
+macOS) — the exact event surface M24 already handles with stable
+production reliability.
+
+**State machine:**
+
+```
+        [idle, buffer empty]
+              │
+   Ctrl-click on .lx-sub-word
+              │
+              ▼
+        [selecting, buffer ≥ 1]   ← Ctrl-click another span: append
+              │                     Ctrl-click selected span:  toggle-out
+              │                     Esc:                       _clearMultiSelection
+              │                     plain click anywhere:      _clearMultiSelection
+              │                     yt-navigate-finish:        _clearMultiSelection
+              │
+   release Ctrl/⌘ (keyup; ctrlKey && metaKey both false)
+              │
+              ▼
+       _finaliseMultiSelection()
+              │
+              ▼
+       _normalisePhrase(words.join(' '))
+              │
+              ▼
+       _openLookupOverlay(phrase, 'phrase')
+              │
+              ▼
+        [idle, buffer empty]
+```
+
+**Why it wins where Strategy A failed:**
+
+| Concern | Strategy A (native) | Strategy C (Ctrl-click) |
+|---|---|---|
+| `user-select: none` | Has to be defeated | Irrelevant — never call `getSelection()` |
+| `selectstart` interception | Has to be defeated | Irrelevant — no selection events |
+| Cue-segment volatility | Selection lost on cue change | Buffer holds span refs; if a span is recycled, `classList.remove` is try/caught and we proceed gracefully |
+| YT bubble-phase listeners | Have to be silenced | M24's existing `e.stopPropagation()` on `click` already handles it |
+| User feedback | Native blue highlight | Custom `.lx-multi-selected` indigo highlight (stronger than M24's `:hover`) |
+| Partial selection | Possible (mid-word) | Impossible (always whole-word) |
+| Code surface | New listener trio + queueMicrotask + swallow flag + WeakSet | One modifier branch on existing `_onWordClick` + two helpers + four document listeners |
+| Stability against platform owner | Fragile (every YT player update is a re-evaluation) | Stable (only depends on `click` + `keyup` events working) |
+
+**Verification:** 16/16 sandbox cases pass on the state machine logic,
+covering the happy path, toggle in/out, out-of-order Ctrl-clicks
+(click order preserved, NOT spatial), deselect-in-middle, abort via
+plain click or Escape, empty-buffer finalise no-op, single Ctrl-click
+degenerates cleanly to the single-word case, and Polish / Greek /
+Ukrainian token preservation through join+normalise. Browser smoke
+confirmed by the user: multi-word selection works, all four downstream
+features (Add to Vocabulary, Explain Grammar, Explain Slang/Idiom,
+Practice Pronunciation) inherit phrase support unchanged.
+
+### Sub-decision 35d: Buffer order = click order, NOT spatial order
+
+When the user Ctrl-clicks "bucket" first, then "kick", then "the", the
+resulting phrase is **"bucket kick the"**, NOT "kick the bucket".
+
+**Rationale:**
+
+- **Deterministic and discoverable.** The user sees their click order
+  reflected in the visual highlight (they Ctrl-clicked "bucket" first, so
+  "bucket" is highlighted first). When they release Ctrl, the phrase they
+  hear ends up in the lookup is the phrase their click order produced.
+  No surprise reordering.
+- **The user already controls the order.** If they want "kick the
+  bucket", they Ctrl-click "kick" first. If they accidentally clicked
+  out of order, the toggle semantics (35e) let them un-click and re-click
+  without releasing the modifier.
+- **No clean rule for "spatial order".** Spans can appear across two
+  simultaneous cue lines (top + bottom dual-track subtitles), or in
+  right-to-left script (Arabic / Hebrew if added). "Spatial order" is
+  ambiguous in those cases — DOM order? Bounding-box `top` then `left`?
+  Every choice creates new edge cases. Click order is unambiguous.
+- **Future opt-in toggle remains possible.** A future Options-page
+  toggle could add "Sort buffer by DOM order before finalise" for users
+  who prefer that semantics. Default off.
+
+### Sub-decision 35e: Toggle semantics on re-Ctrl-click (undo without releasing modifier)
+
+If the user Ctrl-clicks "kick" → "the" → "bucket" → realises they meant
+to include "the" twice, they can Ctrl-click "the" once more to
+**deselect** it. Re-clicking the now-deselected "the" re-selects it.
+
+**Rationale:**
+
+- **Forgiveness.** The buffer is fluid until the user releases Ctrl.
+  Mis-clicks are one click away from being undone.
+- **Discoverable.** Standard OS behaviour for Ctrl-click in file pickers
+  / multi-select lists — users already know it.
+- **Implementation cost is zero.** A single `indexOf` check at the top
+  of the Ctrl branch in `_onWordClick`:
+  ```js
+  const existing = _multiWordSelection.indexOf(span);
+  if (existing >= 0) {
+    _multiWordSelection.splice(existing, 1);
+    span.classList.remove(_MULTI_SELECTED_CLASS);
+  } else {
+    _multiWordSelection.push(span);
+    span.classList.add(_MULTI_SELECTED_CLASS);
+  }
+  ```
+
+### Sub-decision 35f: Finalisation on the LAST modifier release (multi-key safe)
+
+The keyup listener checks `e.ctrlKey || e.metaKey` AFTER the event has
+fired. When the user releases one Ctrl key while still holding the
+other (left Ctrl + right Ctrl), `keyup` fires for the released key but
+the modifier flag stays true. We only finalise when both flags are
+false — i.e., the LAST Ctrl/Meta key has been released.
+
+**Rationale:**
+
+- **Multi-key keyboards exist.** Many users press Ctrl with the side
+  they prefer; some users have remapped both sides. Finalising on the
+  first release would surprise them.
+- **The flag check is one line.** No state machine bookkeeping needed
+  — the browser already tracks which modifiers are held.
+- **Defensive against keyboard repeat / sticky keys.** Accessibility
+  features that synthesise multiple keyup events are handled
+  transparently because we ignore keyups that leave a modifier still
+  held.
+
+```js
+window.addEventListener('keyup', (e) => {
+  if (e.key !== 'Control' && e.key !== 'Meta') return;
+  if (e.ctrlKey || e.metaKey) return;
+  if (!_multiWordSelection.length) return;
+  _finaliseMultiSelection();
+}, true);
+```
+
+### Defensive escape hatches (cross-cutting)
+
+Three independent paths clear the buffer if the natural keyup-finalise
+path doesn't fire:
+
+1. **Plain click anywhere (no modifier held).** Document-level capture-
+   phase `click` listener — drops the buffer silently. Defends against
+   the case where keyup is missed (browser loses focus, alt-tab,
+   keyboard shortcut intercepts the keyup at the OS level).
+2. **Escape key.** Existing document keydown handler extended to also
+   clear the buffer alongside closing any open Quick Look overlay.
+   Mirrors the user's mental model of "Escape cancels everything".
+3. **`yt-navigate-finish`.** SPA navigation between videos clears the
+   buffer before YT recycles the caption container — span references
+   in the buffer would otherwise point at soon-to-be-orphaned DOM.
+
+### Lessons fed back into the codebase
+
+- **Browser smoke before declaring victory.** Strategy A had a clean
+  16-case offline sandbox AND `node --check` passing — both green
+  indicators. The browser test was where it died. Architectural
+  analysis can ALWAYS underestimate platform-owner aggression. Plan
+  every UX milestone with a browser smoke before the docs flip.
+- **Engineering-honest documentation.** The PLAN.md M35 section
+  preserves the full Strategy A / B writeups with the user's
+  verbatim Ukrainian quote ("щось воно ніфіга не тягнеться"). Future
+  readers will see exactly what we tried, why it failed, and won't
+  waste a day re-attempting the same dead end. This is the
+  cost-effective documentation pattern — capture the failure modes
+  in-line with the success narrative.
+- **M24's per-span event surface is still the right primitive.**
+  Strategy A introduced a parallel event surface (capture-phase
+  firewall on the persistent container). Strategy C used the
+  existing per-span `click` listener with one modifier branch.
+  The simpler approach won — fewer event types, fewer DOM
+  reference points, fewer ways for YT's next update to break us.
+- **Click-order over spatial-order for multi-select buffers.**
+  Documented for future radar-history / batch-import features that
+  might also need an ordered user-selected sequence. Click order
+  is unambiguous; spatial order is platform-dependent.
+- **User-proposed UX often beats developer-engineered UX.** The
+  pivot from drag-to-Ctrl-click came directly from the user after
+  the failure. Cheaper to listen than to keep engineering harder.
+
+### Revisit triggers
+
+- **Touch device support.** Ctrl-click doesn't exist on mobile.
+  A future M-thirty-something could add a long-press → multi-select
+  mode that uses `pointerdown` + a 400 ms hold detector to start a
+  selection state machine. Tap each subsequent word to append, lift
+  the hold to finalise. Same `_multiWordSelection` buffer, same
+  `_finaliseMultiSelection` — just a different entry trigger.
+- **Bulk select-all-cue option.** A keyboard shortcut (Shift+Ctrl-click
+  on a span?) could select the entire cue line at once. Useful for
+  grammar explanations on long sentences. Same buffer + finalisation,
+  just a different append rule.
+- **Spatial-order option.** Future Options-page toggle "Sort selection
+  by DOM order before finalise". Default OFF (click order is the
+  current contract). Single sort step inside `_finaliseMultiSelection`.
+- **Modifier-key remapping.** A future Options-page setting could let
+  the user choose Alt instead of Ctrl (some users have Ctrl
+  remapped for accessibility reasons). One-line change inside
+  `_onWordClick`'s modifier branch.
+- **Auto-finalise on a small inactivity timer.** Some users might
+  forget they still have Ctrl held. A 5-second inactivity timer
+  (no Ctrl-click for 5 s while buffer non-empty → finalise) is a
+  possible UX nudge. Default off.

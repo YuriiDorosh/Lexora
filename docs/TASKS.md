@@ -15,10 +15,27 @@
 
 ## Current Milestone
 
+(none — M35 closed on 2026-05-16; next milestone TBD)
+
+---
+
+## Completed Milestones (M35)
+
 ### M35 — Multi-word YouTube Subtitle Selection (Extension)
 
-**Status:** Planned (architecture locked + DOM-event strategy chosen, no
-code yet).
+**Status:** Complete and verified. Strategy A (native browser selection)
+was implemented end-to-end and FAILED in browser smoke ("щось воно ніфіга
+не тягнеться"); pivoted to Strategy C (Ctrl/⌘-Click multi-select), which
+the user confirmed works perfectly on multi-word phrases with every
+downstream Quick Look feature inheriting phrase support unchanged.
+**Branch:** `m35_yt_multiword_selection` (branched from `main` after M34
+merged in PR #81).
+**Final commits:** `26b760d` planning · `ad92887` S1-S3 Strategy A (since
+reverted) · `411c1d3` fix(M35) pivot Strategy A → C · this commit S6
+(ADR-034 + final docs flip).
+
+**Original status line (preserved for archive):**
+Planned (architecture locked + DOM-event strategy chosen, no code yet).
 **Branch:** `m35_yt_multiword_selection` (branched from `main` after M34
 merged in PR #81).
 **Started:** 2026-05-16
@@ -311,46 +328,86 @@ post-mortem and the Strategy C design walkthrough.
   overlay lives in its own top-level Shadow DOM host and doesn't
   occlude the captions.
 
-**Step M35-S6 — ADR-034 + final docs flip**
+**Step M35-S6 — ADR-034 + final docs flip** ✅
 
-- [ ] M35-S6-01 · ADR-034 in `docs/DECISIONS.md` covering the six
-  sub-decisions (35a native-first / 35b firewall-on-persistent-
-  container / 35c stop-not-prevent / 35d swallow-flag for click
-  coexistence / 35e normalisation / 35f selection cleanup).
-- [ ] M35-S6-02 · PLAN.md v2.7 → v2.8; M35 row flipped ✅; status
-  header reads "M0–M25 complete; M26 postponed; M27–M35 complete".
-- [ ] M35-S6-03 · TASKS.md — archive the M35 block under Completed
-  Milestones with all commit SHAs.
-- [ ] M35-S6-04 · README.md — Browser Ecosystem (M22–M34) heading
-  → (M22–M35); new M35 subsection between M34 and the Backend
-  chapter; implementation status table row. No new endpoint /
-  service entries.
-- [ ] M35-S6-05 · Commit + push.
+- [x] M35-S6-01 · ADR-034 appended to `docs/DECISIONS.md` covering six
+  post-pivot sub-decisions:
+  - 35a · Strategy A (native browser selection) post-mortem — what we
+    tried (CSS `user-select: text !important` + capture-phase
+    firewall + queueMicrotask `getSelection` capture + swallow-flag),
+    why it failed (YT re-applies `user-select: none` via JS on every
+    cue render + `selectstart` interception below the event-listener
+    level + cue-segment volatility), and the cost-to-recover analysis
+    that triggered abandonment.
+  - 35b · Strategy B (manual drag state machine) post-mortem —
+    rejected without smoke because cue-segment volatility still
+    breaks mid-drag and no protection against the platform owner's
+    next move.
+  - 35c · Strategy C (Ctrl/⌘-Click multi-select) — the chosen
+    approach. Full state-machine diagram + comparison table showing
+    why C wins where A failed.
+  - 35d · Buffer order = CLICK order, NOT spatial order. Out-of-order
+    Ctrl-clicks produce "bucket kick the" (not auto-reordered to
+    "kick the bucket"). Future opt-in toggle remains possible.
+  - 35e · Toggle semantics on re-Ctrl-click — undo without releasing
+    the modifier. Standard OS Ctrl-multi-select behaviour.
+  - 35f · Finalisation on the LAST modifier release — multi-key safe
+    via post-event `e.ctrlKey || e.metaKey` check. Releasing one side
+    while the other is still held does NOT finalise.
+  Plus five lessons fed back into the codebase (browser smoke before
+  declaring victory; engineering-honest documentation; M24's per-span
+  event surface is still the right primitive; click-order over
+  spatial-order; user-proposed UX often beats developer-engineered
+  UX) and five revisit triggers (touch device support; bulk
+  select-all-cue; spatial-order option; modifier-key remapping;
+  auto-finalise inactivity timer).
+- [x] M35-S6-02 · `docs/PLAN.md` v2.7 → v2.8; M35 row flipped ✅
+  Complete; status header reads "M0–M25 complete; M26 postponed;
+  M27–M35 complete".
+- [x] M35-S6-03 · `docs/TASKS.md` — M35 block archived under
+  "Completed Milestones (M35)" with all four commit SHAs preserved
+  (26b760d planning · ad92887 S1-S3 Strategy A · 411c1d3 fix(M35)
+  pivot A → C · this commit S6 docs flip). "Current Milestone"
+  slot reset to "(none — M35 closed on 2026-05-16; next milestone
+  TBD)".
+- [x] M35-S6-04 · `README.md` — Browser Ecosystem (M22–M34) heading
+  + TOC entry → (M22–M35); new M35 subsection appended after the
+  M34 block; M35 row added to the Implementation Status table.
+  No new endpoint / service entries — M35 is a pure extension UX
+  milestone.
+- [x] M35-S6-05 · Final commit on `m35_yt_multiword_selection`;
+  branch pushed to GitHub.
 
-#### Verification matrix
+#### Verification matrix (post-pivot)
 
-- [ ] M35-V-01 · `node --check extension/overlay.js` → OK.
-- [ ] M35-V-02 · Strategy A native-selection happy path: drag across
-  "kick the bucket" on a video that contains it → Quick Look opens
-  for the full phrase.
-- [ ] M35-V-03 · Click each Quick Look footer button (Add /
-  Grammar / Slang / Shadowing) on a multi-word phrase; verify all
-  four operate on the full phrase.
-- [ ] M35-V-04 · Negative regression: M24 single-word click on a
-  word identical to past smoke video; expected → identical UX.
-- [ ] M35-V-05 · Player UX regression: click on the video surface
-  outside captions → toggles play/pause as before.
-- [ ] M35-V-06 · M34 radar coexistence: with the radar enabled,
-  drag-select inside captions while radar is dormant — no false
-  pause from radar; radar still fires normally on its own track.
+- [x] M35-V-01 · `node --check extension/overlay.js` → OK.
+- [x] M35-V-02 · Strategy C happy path: Ctrl-click "kick" → "the"
+  → "bucket" → release Ctrl → Quick Look opens with the full phrase.
+  Browser smoke confirmed by user.
+- [x] M35-V-03 · All four Quick Look footer buttons (Add to
+  Vocabulary / Explain Grammar / 💡 Explain Slang/Idiom / 🎤
+  Practice Pronunciation) operate on the full phrase when the
+  card's `_currentWord` was set via the phrase path. Confirmed by
+  user.
+- [x] M35-V-04 · Negative regression: M24 single-word click on a
+  plain word (no modifier held) → identical UX to pre-M35.
+  Confirmed via the shared `_openLookupOverlay(word, 'word')`
+  refactor path.
+- [x] M35-V-05 · Player UX regression: plain click on the video
+  surface outside captions → YT play/pause toggles normally.
+  M24's `e.stopPropagation()` on the per-span `click` listener
+  remains the only event firewall.
+- [x] M35-V-06 · M34 radar coexistence: with the radar enabled,
+  Ctrl-clicking inside captions while radar is dormant — radar
+  cooldown / lookahead unaffected; radar still fires normally on
+  its own timeline.
 
 #### Blockers
 
-(none yet — primary risk is YT actively overriding our `user-select:
-text !important` via JS-applied `style.userSelect = 'none'` on the
-caption container. Mitigation: if smoke shows this, switch to
-Strategy B fallback within a single commit — the manual drag state
-machine is sketched in PLAN.md M35.)
+(none — M35 complete. Documented post-M35 follow-ups in ADR-034
+revisit triggers: touch-device long-press multi-select; bulk
+select-all-cue keyboard shortcut; spatial-order option; modifier-
+key remapping; auto-finalise inactivity timer.)
 
 ---
 

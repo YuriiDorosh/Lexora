@@ -21,7 +21,7 @@
 
 1. [Concept](#1-concept)
 2. [Feature Catalogue](#2-feature-catalogue)
-3. [The Browser Ecosystem (M22–M34)](#3-the-browser-ecosystem-m22m34)
+3. [The Browser Ecosystem (M22–M35)](#3-the-browser-ecosystem-m22m35)
 4. [Backend Architecture](#4-backend-architecture)
 5. [Async Microservices](#5-async-microservices)
 6. [Spaced Repetition (SM-2)](#6-spaced-repetition-sm-2)
@@ -118,7 +118,7 @@ fees, no external databases — just Docker Compose on a CPU-only Linux server.
 
 ---
 
-## 3. The Browser Ecosystem (M22–M34)
+## 3. The Browser Ecosystem (M22–M35)
 
 The Chrome Extension is the centrepiece of the immersion strategy. It turns every
 browser tab into a capture and practice surface.
@@ -402,6 +402,83 @@ YouTube video; the radar paused exactly 3.8 s before "donkey" was
 spoken on first test, then with the full UI in place auto-paused on
 the word "apparently" with the full glassmorphism card rendering all
 translations and footer buttons working as documented.
+
+### M35 — Multi-word YouTube Subtitle Selection
+
+Lets the user look up multi-word phrases ("kick the bucket", "give up",
+"il est en train de") on YouTube subtitles via **Ctrl-click (Cmd-click
+on macOS) multi-select**, with every downstream Quick Look feature
+(Add to Vocabulary, M28 Explain Grammar, M32 Explain Slang/Idiom, M33
+Practice Pronunciation) inheriting phrase support unchanged because
+the card reads its word from internal state rather than re-querying
+the caption DOM.
+
+**The pivot story.** Strategy A — native browser selection via
+`user-select: text !important` override + capture-phase event
+firewall + `queueMicrotask` `getSelection()` capture — was
+implemented end-to-end and committed (`ad92887`) but **failed in
+browser smoke** ("щось воно ніфіга не тягнеться"). Root cause
+analysis: YouTube re-applies `user-select: none` via JS on every cue
+render (so our static CSS rule loses to dynamically-applied inline
+styles), AND its `selectstart` interception runs below the
+event-listener level so the selection never starts even when CSS
+wins. Strategy B (manual drag state machine on `mouseenter`) was
+rejected without smoke for the same cue-segment-volatility reason
+plus its custom-highlight UX downgrade. The user proposed
+**Strategy C — Ctrl/⌘-Click multi-select**, which sidesteps the
+problem entirely by never calling `getSelection()` (ADR-034 § 34a-c).
+
+**State machine.** Ctrl-clicked spans land in `_multiWordSelection`
+(an ordered buffer) and pick up the `.lx-multi-selected` highlight
+(stronger alpha than M24's `:hover` so the user can clearly see what
+they've selected). Toggle semantics: Ctrl-clicking an
+already-selected span removes it from the buffer (ADR-034 § 34e). The
+buffer is finalised when the user **releases the last Ctrl/⌘ key**:
+
+```js
+window.addEventListener('keyup', (e) => {
+  if (e.key !== 'Control' && e.key !== 'Meta') return;
+  if (e.ctrlKey || e.metaKey) return;        // other side still held
+  if (!_multiWordSelection.length) return;
+  _finaliseMultiSelection();
+}, true);
+```
+
+Multi-key safe: releasing one side of Ctrl while the other is still
+held does NOT finalise — only the LAST release counts (ADR-034 §
+34f). `_finaliseMultiSelection` concatenates the buffered spans in
+**click order** (NOT spatial order, ADR-034 § 34d), runs the result
+through `_normalisePhrase`, and dispatches to the same
+`_openLookupOverlay(phrase, 'phrase')` pipeline used by the M24
+single-word click — so all four downstream Quick Look buttons just
+work on phrases.
+
+**Three escape hatches** clear the buffer if the natural keyup-
+finalise doesn't fire: a plain click (no modifier) anywhere on the
+page, the Escape key, and SPA navigation (`yt-navigate-finish`).
+
+**Why this approach won.** Strategy C uses only `click` and `keyup`
+events — the exact event surface M24 has been running on stably
+since 2026. We never call `getSelection()`, so YT's
+`user-select: none` and `selectstart` interception are both
+irrelevant. The buffer stores DOM references, but `_clearMultiSelection`
+guards every `classList.remove` with try/catch in case YT recycled a
+cue mid-session. Deterministic (always whole-word, never partial),
+forgiving (toggle-out for misclicks), visually distinct
+(stronger-than-hover indigo).
+
+**Verified end-to-end**: 16/16 state-machine cases pass in a Node
+sandbox (happy path, toggle in/out, out-of-order clicks preserved,
+deselect-in-middle, abort via `_clearMultiSelection`, empty-buffer
+no-op, single-Ctrl-click degenerate case, Polish / Greek / Ukrainian
+token preservation). Browser smoke confirmed by the user: multi-word
+phrases lookup correctly, all four downstream features (Add to
+Vocabulary, Grammar, Slang/Idiom, Shadowing) inherit phrase support
+unchanged.
+
+The full Strategy A / B post-mortem is preserved in PLAN.md §M35 and
+ADR-034 — future readers will see exactly what we tried and why it
+failed before being tempted to re-attempt the same dead end.
 
 ---
 
@@ -866,6 +943,7 @@ Key variables in `.env` (see `env.example` for the full list):
 | M32 | ✅ Complete | Slang & Idiom Explainer — "💡 Explain Slang/Idiom" button alongside the M28 grammar button in Quick Look + YouTube overlays; `/explain-slang` returns five-key JSON (kind / figurative / literal / example / confidence); dual language clamp (explanation in user's native language, example in source); honest UI for `kind:'literal'` and `confidence:'low'` branches; native-language picker in Options (ADR-031) |
 | M33 | ✅ Complete | Webpage Shadowing — "🎤 Practice Pronunciation" button in Quick Look + YouTube overlays. ▶ Play Original streams Edge TTS via `/tts-sync`; click-to-toggle Start/Stop Recording captures voice on a `chrome.offscreen` document (mic permission once per extension); `/transcribe-sync` → `/evaluate-pronunciation` → score badge (green/amber/red) + per-word red-strikethrough/amber-wavy-underline annotation + localised feedback. Deterministic Python word-diff is the source of truth for the structured fields; LLM only writes feedback. Click-to-toggle UX + Options-page mic-grant button + no-persistence default (ADR-032) |
 | M34 | ✅ Complete | YouTube Vocab Radar — main-world script injection patches `XMLHttpRequest.prototype` + `window.fetch` to sniff `/api/timedtext` responses (JSON3 / SRV3 / SRV1 parsers; idempotent guard; transparent to the page via `response.clone()`). Content script builds a longest-match sliding-window index from new `GET /lexora_api/my_vocab` (cached 15 min), binary-searches `<video>.timeupdate` for upcoming hits, and pauses 4 s before a known word with a glassmorphism Shadow-DOM card (teal+amber palette; multi-language translation rows; matched word highlighted in cue). Footer: ⏪ Rewind 5 s & Play / ▶ Continue / 🔕 Skip this word / ✖ Disable for this video. Cooldown timer (default 120 s) starts at overlay close, not fire — gated by `_overlayOpen` flag; `_lastFiredAt` sentinel `-Infinity` so first fire isn't gated. Three Options-page controls + per-tab skip set + per-video kill switch. No persistence by default (ADR-033) |
+| M35 | ✅ Complete | Multi-word YouTube Subtitle Selection — Ctrl/⌘-Click multi-select on subtitle spans, finalised on the LAST Ctrl/Meta keyup (multi-key safe via post-event `e.ctrlKey \|\| e.metaKey` check). Selected spans pick up a stronger-than-hover `.lx-multi-selected` indigo highlight; toggle semantics on re-Ctrl-click allow undo without releasing the modifier. Buffer holds spans in **click order** (NOT spatial order — out-of-order Ctrl-clicks produce the click-ordered phrase). Finalisation concatenates via `join(' ')`, runs through `_normalisePhrase`, and dispatches to the same `_openLookupOverlay(phrase, 'phrase')` pipeline as M24's single-word click — so every downstream Quick Look feature (Add to Vocabulary, M28 Grammar, M32 Slang/Idiom, M33 Shadowing) inherits phrase support unchanged. Three escape hatches: plain click anywhere, Escape, `yt-navigate-finish` — all clear the buffer. Strategy A (native browser selection via `user-select: text` override) was implemented and reverted after failing browser smoke — YT re-applies `user-select: none` via JS on every cue render and the `selectstart` interception runs below the event-listener level (ADR-034) |
 
 ---
 
@@ -876,14 +954,14 @@ generated by a local pgvector + Qwen2.5-1.5B RAG pipeline. Complete implementati
 exists on `m26_ai_helpdesk` branch. Blocked by server RAM constraints (requires ≥16 GiB).
 
 **Potential future milestones:**
-- M35: ELO rating system for PvP matchmaking
-- M36: Multi-language expansion (Spanish, German — Polish landed in M29)
-- M37: Collaborative vocabulary lists / class rooms
-- M38: Mobile PWA / React Native companion
-- M39: Per-session pronunciation scoring on Speaking Coach
-- M40: Netflix / Disney+ / Coursera adapters for the M34 radar (architecture is portable per ADR-033 revisit triggers)
-- M41: Opt-in radar history persistence — POST each YouTube fire to a new `/lexora_api/radar_log` endpoint for cross-device review continuity
-  (extends M30 with phoneme-level Whisper output)
+- M36: ELO rating system for PvP matchmaking
+- M37: Multi-language expansion (Spanish, German — Polish landed in M29)
+- M38: Collaborative vocabulary lists / class rooms
+- M39: Mobile PWA / React Native companion
+- M40: Per-session pronunciation scoring on Speaking Coach (extends M30 with phoneme-level Whisper output)
+- M41: Touch-device long-press multi-select for M35 mobile users (ADR-034 revisit trigger)
+- M42: Netflix / Disney+ / Coursera adapters for the M34 radar (architecture is portable per ADR-033 revisit triggers)
+- M43: Opt-in radar history persistence — POST each YouTube fire to a new `/lexora_api/radar_log` endpoint for cross-device review continuity
 
 ---
 
