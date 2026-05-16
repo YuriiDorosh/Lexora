@@ -44,6 +44,12 @@
   "chrome_url_overrides": {
     "newtab": "newtab.html"
   },
+  "web_accessible_resources": [
+    {
+      "resources": ["youtube_radar_inject.js"],
+      "matches": ["https://www.youtube.com/*"]
+    }
+  ],
   "options_page": "options.html",
   "icons": {
     "16": "icons/icon16.png",

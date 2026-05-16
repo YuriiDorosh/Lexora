@@ -161,46 +161,96 @@ M34-S2-04 awaits user reload)
   Expected: `handler returned: status=ok, words=1000, generated_at=...`
   and the cache `age` is 0–1 s. Schema-assert passes silently.
 
-**Step M34-S3 — Main-world XHR / fetch interception**
+**Step M34-S3 — Main-world XHR / fetch interception** ✅
+(browser console smoke M34-S3-06 awaits user reload)
 
-- [ ] M34-S3-01 · `extension/youtube_radar_inject.js` — file header
-  comment documents the lifecycle and links ADR-033. Runs in the
-  page's main world; idempotent guard (`window.__lxRadarInjected`)
-  to survive double-injection on SPA nav.
-- [ ] M34-S3-02 · `XMLHttpRequest.prototype.open` patched to record the
-  request URL on the instance (`xhr.__lxUrl = url`).
-  `XMLHttpRequest.prototype.send` patched to attach an
-  `addEventListener('load')` callback. On `load`, if `xhr.__lxUrl`
-  matches `/^https?:\/\/[^/]*\.youtube\.com\/api\/timedtext\b/`, read
-  `xhr.responseText` and pass to `_parseAndPost(text)`.
-- [ ] M34-S3-03 · `window.fetch` patched. On every call, if the
-  resolved URL matches `/api/timedtext`, call
-  `response.clone().text()` and pass to `_parseAndPost`. The clone is
-  critical so the page's own consumer still gets the un-touched
-  response body.
-- [ ] M34-S3-04 · `_parseAndPost(text)`:
-  - JSON3 primary: `JSON.parse(text)`; iterate `events[]`; for each
-    event collect `tStartMs`, `dDurationMs`, and join
-    `segs[].utf8` into a single cue string. Skip events with no
-    `segs` or with `segs[].utf8` consisting only of whitespace.
-  - SRV3/XML fallback: `DOMParser.parseFromString(text, 'text/xml')`,
-    iterate `<text>` elements, read `t` and `d` attributes (ms).
-  - On unknown format: log one `console.warn` and bail.
-  - Post `{source:'lx-radar', type:'cues',
-    cues:[{startMs,endMs,text}]}` via `window.postMessage`.
-- [ ] M34-S3-05 · `extension/manifest.json` — `youtube_radar_inject.js`
-  added to `web_accessible_resources` (matched on
-  `*://*.youtube.com/*`).
-- [ ] M34-S3-06 · Console smoke on a youtube.com video page:
+- [x] M34-S3-01 · `extension/youtube_radar_inject.js` created. IIFE
+  with `if (window.__lxRadarInjected) return;` guard at the top —
+  YouTube SPA nav can fire our content script's `<script src=...>`
+  injection twice; the second IIFE execution becomes a no-op so we
+  never double-patch fetch/XHR. File header comment links ADR-033
+  sub-decision 34b and documents the safety contract (never break
+  the page's own request; `response.clone()` for fetch; defensive
+  try/catch around every patch site).
+- [x] M34-S3-02 · `XMLHttpRequest.prototype.open` patched to stash
+  `this.__lxUrl` on the instance (defensive `String(url == null ?
+  '' : url)`, never throws). `send()` patched: if `__lxUrl` matches
+  `TIMEDTEXT_RE = /^https?:\/\/[^/]*\.youtube\.com\/api\/timedtext\b/i`,
+  registers an `addEventListener('load')` that reads `responseText`
+  on `status 2xx` and routes through `_ingest` → `_parseBody` →
+  `_emitCues`. Original `open`/`send` are always called via
+  `apply(this, arguments)` so the page's flow is untouched.
+- [x] M34-S3-03 · `window.fetch` patched. URL extraction handles all
+  three input shapes (string, `Request` object, `URL` object). On
+  `TIMEDTEXT_RE` match, `promise.then(resp => resp.clone().text()
+  .then(_ingest))` — clone forks the body so the page's own consumer
+  still gets the un-touched response. Promise chain has its own
+  `.catch` so a page-level fetch rejection doesn't surface as an
+  unhandled rejection on our side.
+- [x] M34-S3-04 · `_parseBody(text)` dispatcher — strips BOM + leading
+  whitespace, sniffs the first character (`{` → JSON3, `<` → XML),
+  one-time warns on unknown format. `_parseJson3(events)` iterates
+  `events[]`; skips events with no `segs` (silence markers) and
+  cues whose joined `utf8` is whitespace-only; emits
+  `{startMs: tStartMs, endMs: tStartMs + dDurationMs, text}`.
+  `_parseXml(xmlText)` tries SRV3 `<p t="ms" d="ms">` first, falls
+  back to SRV1 `<text start="seconds" dur="seconds">` with sec→ms
+  conversion. Whitespace collapsed via `replace(/\s+/g, ' ')` so
+  HTML-formatted multi-line cues come out as single-line text.
+- [x] M34-S3-05 · `extension/manifest.json` — new
+  `web_accessible_resources` block exposing
+  `youtube_radar_inject.js` matched on
+  `https://www.youtube.com/*`. This lets `youtube_radar.js`
+  (Step S4) load it via
+  `<script src=chrome.runtime.getURL('youtube_radar_inject.js')>`
+  from the page DOM.
+- [x] M34-S3-PRE · Static checks: `node --check
+  youtube_radar_inject.js` passes; `python3 -c "json.load(...)"`
+  confirms `manifest.json` still parses.
+- [x] M34-S3-OFFLINE · Sandboxed functional smoke (Node + `vm` +
+  stubbed `window` / `DOMParser` / `XMLHttpRequest`):
+  - `ready` envelope fires exactly once on IIFE entry. ✓
+  - JSON3 happy path → 2 cues with correct startMs / endMs /
+    concatenated text from multi-segment `segs[]`. Silence
+    markers (no `segs`) and whitespace-only cues correctly
+    excluded. ✓
+  - SRV3 XML happy path → 2 cues, timing math matches JSON3 case. ✓
+  - SRV1 legacy XML (seconds-based `start` / `dur` attributes) →
+    seconds correctly converted to milliseconds. ✓
+  - URL guard: a request to `/api/something_else` is NOT
+    intercepted — strict regex anchor on
+    `/api/timedtext\b` holds. ✓
+  - Idempotency: re-running the IIFE in the same context posts
+    zero new messages (guard short-circuits before patching). ✓
+- [ ] M34-S3-06 · **User-side browser smoke** — reload the unpacked
+  extension, navigate to any YouTube video with captions available,
+  open the page's DevTools console (NOT the SW console — main-world
+  postMessages flow through the page's window), paste:
   ```js
   window.addEventListener('message', e => {
-    if (e.data?.source === 'lx-radar' && e.data?.type === 'cues') {
-      console.log('cues:', e.data.cues.length, 'first:', e.data.cues[0]);
+    if (e.data?.source === 'lx-radar') {
+      if (e.data.type === 'ready') {
+        console.log('%c[lx-radar] inject ready', 'color:#14b8a6');
+      } else if (e.data.type === 'cues') {
+        console.log('%c[lx-radar] cues received: %d (first: %o)',
+          'color:#14b8a6', e.data.cues.length, e.data.cues[0]);
+      }
     }
   });
   ```
-  Turn captions ON. Listener should fire within ~5 s of the captions
-  being requested.
+  Then turn captions ON. Expected: a `ready` log line on every
+  page load, then a `cues received: N (first: {startMs, endMs,
+  text})` line within ~5 s of the captions becoming visible.
+  Note: the `cues` line will only fire AFTER S4 lands and the
+  inject script is actually loaded by `youtube_radar.js` —
+  until then, the file lives in the extension bundle but isn't
+  injected into any page. (You can manually inject it for an
+  early smoke by pasting
+  `const s=document.createElement('script');
+  s.src=chrome.runtime.getURL('youtube_radar_inject.js');
+  document.documentElement.appendChild(s);` into the page console
+  on a YouTube video — note this requires the file to already be
+  in `web_accessible_resources`, which it is after S3-05.)
 
 **Step M34-S4 — Content script `youtube_radar.js` (scanner state machine)**
 
