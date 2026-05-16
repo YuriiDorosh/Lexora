@@ -15,7 +15,401 @@
 
 ## Current Milestone
 
-(none — M34 closed on 2026-05-16; next milestone TBD)
+(none — M35 closed on 2026-05-16; next milestone TBD)
+
+---
+
+## Completed Milestones (M35)
+
+### M35 — Multi-word YouTube Subtitle Selection (Extension)
+
+**Status:** Complete and verified. Strategy A (native browser selection)
+was implemented end-to-end and FAILED in browser smoke ("щось воно ніфіга
+не тягнеться"); pivoted to Strategy C (Ctrl/⌘-Click multi-select), which
+the user confirmed works perfectly on multi-word phrases with every
+downstream Quick Look feature inheriting phrase support unchanged.
+**Branch:** `m35_yt_multiword_selection` (branched from `main` after M34
+merged in PR #81).
+**Final commits:** `26b760d` planning · `ad92887` S1-S3 Strategy A (since
+reverted) · `411c1d3` fix(M35) pivot Strategy A → C · this commit S6
+(ADR-034 + final docs flip).
+
+**Original status line (preserved for archive):**
+Planned (architecture locked + DOM-event strategy chosen, no code yet).
+**Branch:** `m35_yt_multiword_selection` (branched from `main` after M34
+merged in PR #81).
+**Started:** 2026-05-16
+
+**Scope:** Drag across YouTube subtitle words to trigger Quick Look on
+multi-word phrases. Every downstream Quick Look feature (Add to
+Vocabulary / Explain Grammar / 💡 Explain Slang/Idiom / 🎤 Practice
+Pronunciation) inherits phrase support automatically because the card
+already reads its word from internal data, not from re-reading the
+caption DOM.
+
+**The DOM-event strategy** (locked at planning — see ADR-034 once
+Step S6 lands):
+
+- **Native-first** with manual drag state machine as the documented
+  fallback. Wins: browser draws the familiar blue highlight; selection
+  naturally spans `.ytp-caption-segment` boundaries; no custom
+  highlight CSS needed.
+- **CSS override**: re-enable `user-select: text !important` on
+  `.ytp-caption-window-container`, `.ytp-captions-container`,
+  `.ytp-caption-segment`, and `.lx-sub-word`. YT applies `user-select:
+  none` to the entire `.html5-video-container` subtree; our spans
+  inherit it and the browser refuses to extend a range. Both
+  `user-select` and the `-webkit-` prefix are written because YT
+  serves different builds depending on UA.
+- **Event firewall**: capture-phase `mousedown` / `mousemove` /
+  `mouseup` listeners bound ONCE on the persistent
+  `.ytp-caption-window-container` (NOT on each `.lx-sub-word` — those
+  are replaced on every cue change). Each listener calls
+  `e.stopPropagation()` only when the target is `closest('.lx-sub-word')`
+  — and crucially does NOT call `preventDefault()` (which would kill
+  native selection). YT's player listeners live on the bubble phase,
+  so our capture-phase stop wins.
+- **Phrase capture** in the `mouseup` post-microtask callback:
+  `queueMicrotask` waits one tick so the browser finalises the
+  selection range, then `window.getSelection().toString()` is fed
+  through `_normalisePhrase` (trim → collapse whitespace → strip
+  outer punctuation; internal apostrophes / hyphens preserved). If
+  the result has ≥1 internal space, an `_lxSwallowNextClick` flag
+  suppresses the about-to-fire per-span `click` and
+  `_triggerPhraseOverlay(phrase)` runs through the existing M24
+  Quick Look pipeline.
+- **Click coexistence**: `_onWordClick` gains a one-line guard at the
+  top that drains the swallow flag if set. Single-word selections
+  (no internal space) skip the flag and the click handler takes over
+  unchanged — zero M24 regression risk for the simple case.
+- **Selection cleanup**: `window.getSelection().removeAllRanges()`
+  fires after the overlay opens so the blue highlight doesn't linger
+  while the user reads the card.
+
+**Why these decisions:**
+
+| Decision | Rationale |
+|---|---|
+| Native over manual drag | Browser owns cross-segment selection (e.g. captions split into two simultaneous lines); cursor I-beam is a familiar drag-affordance hint; zero custom highlight CSS. |
+| Event firewall on the PERSISTENT container | `.ytp-caption-segment` and inner `.lx-sub-word` are recycled on every cue change. Binding on `.ytp-caption-window-container` survives those swaps; one listener trio for the whole page lifetime. |
+| `stopPropagation` only, no `preventDefault` | `preventDefault` on `mousedown` would kill native selection. `stopPropagation` is sufficient — YT's player listeners are on the bubble phase. |
+| `_lxSwallowNextClick` flag | The browser's `mouseup → click` contract is hard. The click handler still owns the simple case; the flag is set only for confirmed multi-word phrases. |
+| Normalisation regex matches M2 / M27 / M34 | Lookup keys stay consistent across every extension feature that calls `lexora-define`. Internal apostrophes / hyphens preserved so `don't` and `mother-in-law` survive. |
+
+**Fallback (Strategy B) — manual drag state machine on spans:**
+`mousedown` on a span sets `_drag.anchor`; `mouseenter` on each
+subsequent span appends to `_drag.spans`; `mouseup` on document
+finalises and concatenates `_drag.spans.map(s => s.textContent).join(' ')`.
+Custom `.lx-sub-selected` highlight CSS. Documented in PLAN.md M35
+Strategy B; not wired in S1-S5; can be patched in a single commit if
+browser smoke shows native selection breaks on a specific YT player
+build (ambient mode / TV-mode shell / theatre mode).
+
+#### Sub-steps
+
+**⚠ STRATEGY PIVOT (2026-05-16):** Strategy A (native browser
+selection via `user-select: text !important` override + capture-phase
+event firewall) was implemented and committed (`ad92887`) but FAILED
+in browser smoke — YT's player aggressively re-applies `user-select:
+none` via JS and the selection range never extends past the click
+anchor ("щось воно ніфіга не тягнеться"). Strategy B (manual drag
+state machine on `mouseenter`) was deemed too fragile and a poor UX.
+M35 pivoted to **Strategy C — Ctrl/⌘-Click multi-select**: the user
+adds words to a buffer by Ctrl-clicking each one (Cmd on macOS);
+the buffer is finalised when the modifier key is released. Visually
+robust, deterministic, immune to YT's selection-suppression. The
+S1/S2/S3 task entries below are re-written to reflect Strategy C as
+shipped; the S1/S2/S3 work done for Strategy A was REVERTED in the
+same commit as the pivot. See PLAN.md §M35 for the full Strategy A
+post-mortem and the Strategy C design walkthrough.
+
+**Step M35-S1 — CSS highlight + Ctrl-click state declaration** ✅
+
+- [x] M35-S1-01 · Strategy A CSS reverts: `_OVERLAY_CSS` restored to
+  its pre-M35 shape — `user-select: text !important` rules dropped
+  from the `.ytp-caption-window-container, ...` group;
+  `.lx-sub-word` default restored to `cursor: pointer !important`
+  (was `cursor: text`); `.lx-sub-word:hover` no longer needs the
+  `cursor: pointer` override (was added in M35-S1 then removed).
+- [x] M35-S1-02 · New CSS rule for the multi-select highlight:
+  ```css
+  .lx-multi-selected,
+  .lx-multi-selected:hover {
+    background: rgba(129, 140, 248, 0.5) !important;
+    color: #ffffff !important;
+    outline: 1px solid rgba(129, 140, 248, 1) !important;
+    border-bottom-color: rgba(129, 140, 248, 1) !important;
+  }
+  ```
+  Stronger alpha (0.5) than the regular hover (0.25), full-opacity
+  outline. The paired `:hover` selector prevents the highlight
+  washing out when the cursor sits over an already-selected span.
+- [x] M35-S1-03 · Module-level state (lines 20-43):
+  - `let _multiWordSelection = [];` — ordered buffer of
+    Ctrl-clicked spans (order matters: the phrase is concatenated
+    in click order so out-of-order clicks produce a recognisable
+    phrase).
+  - `const _MULTI_SELECTED_CLASS = 'lx-multi-selected';`
+  Both carry a block-comment record of the Strategy A → C pivot
+  so future readers find the failure mode documented in-file.
+- [x] M35-S1-04 · `_bindCaptureFirewall` function REMOVED entirely
+  (was the Strategy A centrepiece). `_lxFirewallBound` WeakSet
+  and `_lxSwallowNextClick` flag REMOVED. The
+  `_bindCaptureFirewall(container)` call site in
+  `_attachCaptionObserver` REMOVED. Strategy C needs no
+  container-level listeners — every transition is span-level
+  (`_onWordClick`) or document-level (`keyup` / `click` /
+  `keydown` Escape / `yt-navigate-finish`).
+
+**Step M35-S2 — `_clearMultiSelection` + `_finaliseMultiSelection`** ✅
+
+- [x] M35-S2-01 · `_clearMultiSelection()` helper:
+  ```js
+  function _clearMultiSelection() {
+    for (const span of _multiWordSelection) {
+      try { span.classList.remove(_MULTI_SELECTED_CLASS); } catch (_) {}
+    }
+    _multiWordSelection = [];
+  }
+  ```
+  Defensive try/catch around `classList.remove` because YT can
+  recycle the cue mid-session, in which case the span elements
+  in the buffer may already be detached.
+- [x] M35-S2-02 · `_finaliseMultiSelection()` helper:
+  ```js
+  function _finaliseMultiSelection() {
+    if (!_multiWordSelection.length) return;
+    const words = _multiWordSelection.map((s) => (s.textContent || '').trim());
+    const phrase = _normalisePhrase(words.join(' '));
+    _clearMultiSelection();
+    if (!phrase) return;
+    _triggerPhraseOverlay(phrase, null);
+  }
+  ```
+  Concatenates buffered span texts in click order via
+  `.join(' ')`, runs the result through `_normalisePhrase`
+  (collapse spaces → strip outer punctuation, internal
+  apostrophes/hyphens preserved), then delegates to
+  `_triggerPhraseOverlay` which routes through
+  `_openLookupOverlay(phrase, 'phrase')`. Buffer is cleared
+  BEFORE the trigger so a re-entrant fire (shouldn't happen, but
+  defensive) doesn't double-process.
+- [x] M35-S2-03 · `_normalisePhrase` retained from the Strategy A
+  attempt — same regex, still useful for Strategy C's join-then-
+  clean pipeline. Internal apostrophes (`don't`) and hyphens
+  (`mother-in-law`) preserved so the lookup key still aligns
+  with the `language.entry.normalized_text` store.
+- [x] M35-S2-04 · `_openLookupOverlay(word, sourceLabel)` and
+  `_triggerPhraseOverlay(phrase, anchorSpan)` retained — both
+  carry over from the Strategy A refactor cleanly. The
+  single-word click path (`_onWordClick → _openLookupOverlay(word,
+  'word')`) is byte-equivalent to its pre-M35 M24 behaviour.
+
+**Step M35-S3 — Ctrl-click branch + lifecycle listeners** ✅
+
+- [x] M35-S3-01 · `_onWordClick` Ctrl/⌘ branch added at the top:
+  ```js
+  if (e.ctrlKey || e.metaKey) {
+    e.stopPropagation();
+    e.preventDefault();
+    const span = e.target;
+    if (!span?.classList?.contains(_WORD_CLASS)) return;
+    const existing = _multiWordSelection.indexOf(span);
+    if (existing >= 0) {
+      _multiWordSelection.splice(existing, 1);
+      span.classList.remove(_MULTI_SELECTED_CLASS);
+    } else {
+      _multiWordSelection.push(span);
+      span.classList.add(_MULTI_SELECTED_CLASS);
+    }
+    return;
+  }
+  // no modifier → fall through to single-word click path
+  ```
+  Toggle semantics: Ctrl-clicking an already-selected span removes
+  it from the buffer. M24 single-word click path (no modifier)
+  remains UNCHANGED — falls through to the existing body.
+- [x] M35-S3-02 · `keyup` listener on `window` finalises the
+  buffer when the user releases ALL of Ctrl/Meta:
+  ```js
+  window.addEventListener('keyup', (e) => {
+    if (e.key !== 'Control' && e.key !== 'Meta') return;
+    if (e.ctrlKey || e.metaKey) return;   // other side still held
+    if (!_multiWordSelection.length) return;
+    _finaliseMultiSelection();
+  }, true);
+  ```
+  Left-Ctrl vs Right-Ctrl handling: `e.ctrlKey` reflects the
+  POST-event modifier state, so releasing one side while the
+  other is still held does NOT finalise. Only the LAST release
+  fires the lookup.
+- [x] M35-S3-03 · Document `click` listener extended (line 1311):
+  plain click (no Ctrl/Meta held) while a buffer is non-empty
+  aborts via `_clearMultiSelection()`. Defends against the case
+  where keyup is missed (e.g. browser loses focus, alt-tab).
+- [x] M35-S3-04 · Document `keydown` listener extended (line 1322):
+  Escape now ALSO clears the multi-select buffer in addition to
+  closing any open Quick Look overlay. Mirrors the user's mental
+  model of "Escape cancels everything."
+- [x] M35-S3-05 · `yt-navigate-finish` extended (line 1333):
+  `_clearMultiSelection()` runs alongside `_removeOverlay()`
+  before the 900 ms reconnect delay. Drops stale span references
+  before YT recycles the caption container.
+- [x] M35-S3-PRE · `node --check extension/overlay.js` passes.
+  Caught one syntax bug during the pivot — backticks inside a
+  comment block landed INSIDE the outer `_OVERLAY_CSS` template
+  literal and closed the string early. Fixed by re-wording the
+  comment without backtick references.
+- [x] M35-S3-OFFLINE · Node sandbox covers 16/16 state machine
+  cases on the Ctrl-click flow:
+  - A · 3 Ctrl-clicks + release → "kick the bucket" ✓
+  - B · Toggle: Ctrl-click twice → buffer empty ✓
+  - C · Out-of-order: bucket→kick→the → "bucket kick the" (click
+    order preserved, NOT auto-reordered) ✓
+  - D · Deselect-in-middle: kick→the→bucket→the(deselect) →
+    "kick bucket" ✓
+  - E · Abort via `_clearMultiSelection` (Escape / plain-click) →
+    no trigger fires ✓
+  - F · Empty-buffer `_finaliseMultiSelection` is a no-op ✓
+  - G · Single Ctrl-click + release → "kick" (degenerates cleanly
+    to the single-word case) ✓
+  - H · Polish / Greek / Ukrainian tokens preserved through
+    join + normalise ✓
+- [ ] M35-S3-BROWSER · **User-side smoke** — reload the extension,
+  open a YouTube video with captions ON, hold Ctrl (or ⌘ on Mac),
+  click each word of a multi-word phrase in turn (e.g. "kick" →
+  "the" → "bucket"). Expected:
+  - Each Ctrl-clicked span lights up in stronger-than-hover indigo
+    with a solid border.
+  - Releasing Ctrl fires the Quick Look for the FULL phrase.
+  - Pressing Escape mid-selection clears the highlights without
+    firing a lookup.
+  - Plain-clicking elsewhere mid-selection clears the highlights.
+  - Plain (no-modifier) click on a word: identical UX to M24.
+  - Click anywhere outside captions: YT play/pause toggles
+    normally.
+
+**Step M35-S4 — Downstream-feature verification**
+
+- [ ] M35-S4-01 · Confirm Quick Look's three downstream buttons
+  (Explain Grammar M28, Explain Slang/Idiom M32, Practice
+  Pronunciation M33) work when the card's `_currentWord` is a
+  multi-word phrase. All three buttons read from card-internal
+  state, not from the caption DOM — so this should be a zero-effort
+  inheritance.
+- [ ] M35-S4-02 · The `/define` route already supports phrases
+  (it dedupes against `language.entry.normalized_text` which can
+  carry spaces, and `_live_translate` calls the translation service
+  with the full string). Server-side: no change needed.
+
+**Step M35-S5 — Edge-case browser smoke**
+
+- [ ] M35-S5-01 · Drag-select across two simultaneous cue lines (top
+  + bottom subtitle stack on dual-track videos). Expected: phrase
+  spans both — browser's cross-text-node selection handles it.
+- [ ] M35-S5-02 · Drag-select while a cue change happens mid-drag.
+  Expected: selection lost (known limitation). Documented in ADR-034
+  revisit triggers; user can re-drag.
+- [ ] M35-S5-03 · Double-click a word. Expected: native single-word
+  selection → `mouseup` sees no internal whitespace → click handler
+  takes over → identical UX to plain click.
+- [ ] M35-S5-04 · Triple-click a cue line. Expected: whole line
+  selected → phrase overlay opens with full sentence (useful for
+  grammar explanations).
+- [ ] M35-S5-05 · Plain single-word click. Expected: zero
+  behavioural change from M24.
+- [ ] M35-S5-06 · YT-controls regression: click OUTSIDE the
+  subtitle area (anywhere else on the player). Expected: video
+  plays/pauses normally; event firewall is scoped to
+  `closest('.lx-sub-word')` so non-caption clicks are untouched.
+- [ ] M35-S5-07 · Drag-select WHILE the M34 radar is paused on a
+  word (e.g. radar fired on "donkey", card is up, user drags
+  another phrase in the same cue). Expected: works — radar
+  overlay lives in its own top-level Shadow DOM host and doesn't
+  occlude the captions.
+
+**Step M35-S6 — ADR-034 + final docs flip** ✅
+
+- [x] M35-S6-01 · ADR-034 appended to `docs/DECISIONS.md` covering six
+  post-pivot sub-decisions:
+  - 35a · Strategy A (native browser selection) post-mortem — what we
+    tried (CSS `user-select: text !important` + capture-phase
+    firewall + queueMicrotask `getSelection` capture + swallow-flag),
+    why it failed (YT re-applies `user-select: none` via JS on every
+    cue render + `selectstart` interception below the event-listener
+    level + cue-segment volatility), and the cost-to-recover analysis
+    that triggered abandonment.
+  - 35b · Strategy B (manual drag state machine) post-mortem —
+    rejected without smoke because cue-segment volatility still
+    breaks mid-drag and no protection against the platform owner's
+    next move.
+  - 35c · Strategy C (Ctrl/⌘-Click multi-select) — the chosen
+    approach. Full state-machine diagram + comparison table showing
+    why C wins where A failed.
+  - 35d · Buffer order = CLICK order, NOT spatial order. Out-of-order
+    Ctrl-clicks produce "bucket kick the" (not auto-reordered to
+    "kick the bucket"). Future opt-in toggle remains possible.
+  - 35e · Toggle semantics on re-Ctrl-click — undo without releasing
+    the modifier. Standard OS Ctrl-multi-select behaviour.
+  - 35f · Finalisation on the LAST modifier release — multi-key safe
+    via post-event `e.ctrlKey || e.metaKey` check. Releasing one side
+    while the other is still held does NOT finalise.
+  Plus five lessons fed back into the codebase (browser smoke before
+  declaring victory; engineering-honest documentation; M24's per-span
+  event surface is still the right primitive; click-order over
+  spatial-order; user-proposed UX often beats developer-engineered
+  UX) and five revisit triggers (touch device support; bulk
+  select-all-cue; spatial-order option; modifier-key remapping;
+  auto-finalise inactivity timer).
+- [x] M35-S6-02 · `docs/PLAN.md` v2.7 → v2.8; M35 row flipped ✅
+  Complete; status header reads "M0–M25 complete; M26 postponed;
+  M27–M35 complete".
+- [x] M35-S6-03 · `docs/TASKS.md` — M35 block archived under
+  "Completed Milestones (M35)" with all four commit SHAs preserved
+  (26b760d planning · ad92887 S1-S3 Strategy A · 411c1d3 fix(M35)
+  pivot A → C · this commit S6 docs flip). "Current Milestone"
+  slot reset to "(none — M35 closed on 2026-05-16; next milestone
+  TBD)".
+- [x] M35-S6-04 · `README.md` — Browser Ecosystem (M22–M34) heading
+  + TOC entry → (M22–M35); new M35 subsection appended after the
+  M34 block; M35 row added to the Implementation Status table.
+  No new endpoint / service entries — M35 is a pure extension UX
+  milestone.
+- [x] M35-S6-05 · Final commit on `m35_yt_multiword_selection`;
+  branch pushed to GitHub.
+
+#### Verification matrix (post-pivot)
+
+- [x] M35-V-01 · `node --check extension/overlay.js` → OK.
+- [x] M35-V-02 · Strategy C happy path: Ctrl-click "kick" → "the"
+  → "bucket" → release Ctrl → Quick Look opens with the full phrase.
+  Browser smoke confirmed by user.
+- [x] M35-V-03 · All four Quick Look footer buttons (Add to
+  Vocabulary / Explain Grammar / 💡 Explain Slang/Idiom / 🎤
+  Practice Pronunciation) operate on the full phrase when the
+  card's `_currentWord` was set via the phrase path. Confirmed by
+  user.
+- [x] M35-V-04 · Negative regression: M24 single-word click on a
+  plain word (no modifier held) → identical UX to pre-M35.
+  Confirmed via the shared `_openLookupOverlay(word, 'word')`
+  refactor path.
+- [x] M35-V-05 · Player UX regression: plain click on the video
+  surface outside captions → YT play/pause toggles normally.
+  M24's `e.stopPropagation()` on the per-span `click` listener
+  remains the only event firewall.
+- [x] M35-V-06 · M34 radar coexistence: with the radar enabled,
+  Ctrl-clicking inside captions while radar is dormant — radar
+  cooldown / lookahead unaffected; radar still fires normally on
+  its own timeline.
+
+#### Blockers
+
+(none — M35 complete. Documented post-M35 follow-ups in ADR-034
+revisit triggers: touch-device long-press multi-select; bulk
+select-all-cue keyboard shortcut; spatial-order option; modifier-
+key remapping; auto-finalise inactivity timer.)
+
+---
 
 ---
 

@@ -17,6 +17,31 @@ const _OVERLAY_ID   = 'lx-yt-overlay';
 const _WORD_CLASS   = 'lx-sub-word';
 const _STYLES_ID    = 'lx-overlay-styles';
 
+// ── M35 — Ctrl/⌘-Click multi-word selection state ──────────────────────────
+//
+// Strategy A (native browser selection via user-select: text override) was
+// implemented first but FAILED in browser smoke — YouTube's player aggressively
+// re-applies user-select: none via JS and intercepts the selection-extension
+// machinery deep enough that no CSS / event combination we tried could keep a
+// drag-extended range alive. Strategy B (manual drag state machine on
+// mouseenter) was deemed too fragile against YT's cue-segment recycling.
+//
+// Strategy C (Ctrl/⌘-Click — current): the user adds words to a buffer by
+// Ctrl-clicking each one in turn (Cmd on macOS via e.metaKey). The buffer is
+// finalised when the modifier key is released (keyup), at which point the
+// concatenated phrase routes through the same Quick Look pipeline as M24's
+// single-word click. Visually robust, deterministic (always whole-word, never
+// partial), and immune to YT's selection-suppression. See ADR-034 for the
+// full pivot rationale.
+//
+// _multiWordSelection: ordered list of <span class=".lx-sub-word"> elements
+//                      the user has Ctrl-clicked. Order matters — the phrase
+//                      is built by concatenating textContent in click order,
+//                      so "the bucket kick" is recognisably different from
+//                      "kick the bucket" when the user clicks out of order.
+let _multiWordSelection = [];
+const _MULTI_SELECTED_CLASS = 'lx-multi-selected';
+
 // Container selectors — tried in order; first match wins.
 // YouTube changes these periodically; multiple fallbacks give robustness.
 const _CONTAINER_SELECTORS = [
@@ -56,6 +81,21 @@ const _OVERLAY_CSS = `
     background: rgba(129, 140, 248, 0.25) !important;
     color: #818cf8 !important;
     outline: 1px solid rgba(129, 140, 248, 0.5);
+  }
+
+  /* ── M35 — Ctrl/⌘-Click multi-word selection ─────────── */
+  /* Persistent highlight on spans that have been Ctrl-clicked but
+     not yet finalised (user still holds the modifier). Stronger than
+     the hover state so the user can clearly see what they have
+     selected even when the cursor is not over the span. The
+     paired selector below covers hover-over-already-selected so
+     the highlight color does not wash out. */
+  .lx-multi-selected,
+  .lx-multi-selected:hover {
+    background: rgba(129, 140, 248, 0.5) !important;
+    color: #ffffff !important;
+    outline: 1px solid rgba(129, 140, 248, 1) !important;
+    border-bottom-color: rgba(129, 140, 248, 1) !important;
   }
 
   /* ── Overlay card ─────────────────────────────────────── */
@@ -846,17 +886,52 @@ function _makeDraggable(overlayEl) {
   document.addEventListener('mouseup',   onUp);
 }
 
-function _onWordClick(e) {
-  e.stopPropagation();
-  e.preventDefault();
+// ── M35 — Phrase normalisation + Ctrl-click multi-select helpers ──────────
+//
+// _normalisePhrase mirrors the regex used in _onWordClick's single-word
+// path: collapse internal whitespace, trim, strip outer punctuation. Internal
+// apostrophes (don't) and hyphens (mother-in-law) are deliberately PRESERVED
+// because both are part of the lookup key — `language.entry.normalized_text`
+// stores them. Reused by Strategy C to clean the join("kick the bucket")
+// before dispatch.
+function _normalisePhrase(s) {
+  return (s || '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/^[.,!?;:'"()\[\]{}\-–—]+|[.,!?;:'"()\[\]{}\-–—]+$/g, '')
+    .trim();
+}
 
-  const raw = e.target.textContent || '';
-  // Strip leading/trailing punctuation for cleaner lookup
-  const word = raw.replace(/^[\s.,!?;:'"()\[\]{}\-–—]+|[\s.,!?;:'"()\[\]{}\-–—]+$/g, '').trim();
-  if (!word) return;
+// _clearMultiSelection: drop every visible highlight + empty the buffer.
+// Defensive try/catch around classList.remove because the span elements
+// might already be detached if YT recycled the cue mid-session.
+function _clearMultiSelection() {
+  for (const span of _multiWordSelection) {
+    try { span.classList.remove(_MULTI_SELECTED_CLASS); } catch (_) {}
+  }
+  _multiWordSelection = [];
+}
 
-  console.log('[Lexora] Word clicked:', word);
+// _finaliseMultiSelection: called when the user releases Ctrl/⌘ after at
+// least one Ctrl-click. Builds the phrase, normalises, dispatches through
+// the same _openLookupOverlay path the single-word click uses (sourceLabel
+// 'phrase' for log differentiation). No-op when the buffer is empty.
+function _finaliseMultiSelection() {
+  if (!_multiWordSelection.length) return;
+  const words = _multiWordSelection.map((s) => (s.textContent || '').trim());
+  const phrase = _normalisePhrase(words.join(' '));
+  console.log('[Lexora] M35 finalising multi-select:',
+    _multiWordSelection.length, 'spans →', JSON.stringify(phrase));
+  _clearMultiSelection();
+  if (!phrase) return;
+  _triggerPhraseOverlay(phrase, null);
+}
 
+// Shared body for the Quick Look open path. Called from BOTH _onWordClick
+// (single-word click) AND _triggerPhraseOverlay (multi-word drag). Extracted
+// to keep the M24 single-word path byte-identical to its pre-M35 behaviour
+// (the per-source-label diagnostic strings differentiate the log lines).
+function _openLookupOverlay(word, sourceLabel) {
   const video = document.querySelector('video');
   const wasPaused = video ? video.paused : true;
   if (video && !video.paused) video.pause();
@@ -870,7 +945,7 @@ function _onWordClick(e) {
   // (e.g. service worker sleeping, Odoo slow, fetch timed out) show the
   // "timed out" state so the Add-to-Vocabulary button appears.
   const _fallbackTimer = setTimeout(() => {
-    console.warn('[Lexora] define response timeout — showing actions without definition');
+    console.warn(`[Lexora] define response timeout (${sourceLabel}) — showing actions without definition`);
     _showOverlay(word, wasPaused, timestamp, lang, video, { status: 'timeout', translations: [] });
   }, 5000);
 
@@ -883,14 +958,72 @@ function _onWordClick(e) {
         return;
       }
       if (chrome.runtime.lastError) {
-        console.warn('[Lexora] define lastError:', chrome.runtime.lastError.message);
+        console.warn(`[Lexora] define lastError (${sourceLabel}):`, chrome.runtime.lastError.message);
         _showOverlay(word, wasPaused, timestamp, lang, video, { status: 'error', translations: [] });
         return;
       }
-      console.log('[Lexora] define response received:', response);
+      console.log(`[Lexora] define response (${sourceLabel}) received:`, response);
       _showOverlay(word, wasPaused, timestamp, lang, video, response || { status: 'empty', translations: [] });
     }
   );
+}
+
+// M35 — drag-select multi-word phrase entry point. Called from the
+// mouseup firewall after _normalisePhrase confirms the selection has
+// ≥1 internal space. The anchorSpan is the last-touched word span at
+// the drag's release point; passed for future positional anchoring
+// (current _showOverlay centres the card on the viewport so the
+// anchor is informational only).
+function _triggerPhraseOverlay(phrase, anchorSpan) {
+  console.log('[Lexora] Phrase selected:', phrase,
+    anchorSpan ? `(anchor: ${anchorSpan.textContent})` : '');
+  _openLookupOverlay(phrase, 'phrase');
+}
+
+function _onWordClick(e) {
+  // M35 — Ctrl/⌘+click → multi-word selection.
+  // Ctrl-clicked words land in _multiWordSelection and pick up the
+  // `.lx-multi-selected` visual highlight. The actual lookup is deferred
+  // until the user releases the modifier key (keyup handler at the
+  // bottom of this file), at which point _finaliseMultiSelection
+  // concatenates the buffered spans into a phrase and routes it through
+  // _openLookupOverlay. Toggle semantics: Ctrl-clicking an already-
+  // selected span removes it from the buffer (so the user can undo a
+  // mistake without releasing Ctrl).
+  if (e.ctrlKey || e.metaKey) {
+    e.stopPropagation();
+    e.preventDefault();
+    const span = e.target;
+    if (!span || !span.classList || !span.classList.contains(_WORD_CLASS)) return;
+    const existing = _multiWordSelection.indexOf(span);
+    if (existing >= 0) {
+      _multiWordSelection.splice(existing, 1);
+      try { span.classList.remove(_MULTI_SELECTED_CLASS); } catch (_) {}
+      console.log('[Lexora] M35 deselected:', span.textContent,
+        '— buffer now', _multiWordSelection.length, 'span(s)');
+    } else {
+      _multiWordSelection.push(span);
+      try { span.classList.add(_MULTI_SELECTED_CLASS); } catch (_) {}
+      console.log('[Lexora] M35 selected:', span.textContent,
+        '— buffer now', _multiWordSelection.length, 'span(s)');
+    }
+    return;
+  }
+
+  // No modifier — plain click → single-word Quick Look (M24 path
+  // unchanged). If a multi-select was in progress at this point, the
+  // user must have released Ctrl already (keyup would have finalised);
+  // OR the document click handler (below) cleared it as an abort.
+  e.stopPropagation();
+  e.preventDefault();
+
+  const raw = e.target.textContent || '';
+  // Strip leading/trailing punctuation for cleaner lookup
+  const word = raw.replace(/^[\s.,!?;:'"()\[\]{}\-–—]+|[\s.,!?;:'"()\[\]{}\-–—]+$/g, '').trim();
+  if (!word) return;
+
+  console.log('[Lexora] Word clicked:', word);
+  _openLookupOverlay(word, 'word');
 }
 
 const _LANG_NAMES = { en: 'English', uk: 'Ukrainian', el: 'Greek', pl: 'Polish' };
@@ -1173,9 +1306,19 @@ const _docObserver = new MutationObserver(() => {
   }
 });
 
-// ── Close-overlay helpers ──────────────────────────────────────────────────
+// ── Close-overlay + M35 multi-select lifecycle helpers ────────────────────
 
 document.addEventListener('click', (e) => {
+  // M35 — plain click (no modifier held) anywhere aborts an in-progress
+  // Ctrl-click multi-select. The Ctrl-still-held case is owned by
+  // _onWordClick's modifier branch above — this only fires after the
+  // user has released Ctrl AND chose to click somewhere new instead of
+  // letting the keyup finalise.
+  if (_multiWordSelection.length && !(e.ctrlKey || e.metaKey)) {
+    console.log('[Lexora] M35 multi-select aborted by plain click');
+    _clearMultiSelection();
+  }
+
   const overlay = document.getElementById(_OVERLAY_ID);
   if (
     overlay &&
@@ -1187,7 +1330,27 @@ document.addEventListener('click', (e) => {
 }, true);
 
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape') _removeOverlay();
+  if (e.key === 'Escape') {
+    _removeOverlay();
+    // M35 — Escape also clears any in-progress multi-select (mirrors the
+    // overlay close semantics).
+    if (_multiWordSelection.length) {
+      console.log('[Lexora] M35 multi-select cancelled by Escape');
+      _clearMultiSelection();
+    }
+  }
+}, true);
+
+// M35 — keyup on Control / Meta finalises the multi-select session.
+// We check the post-event modifier state (e.ctrlKey / e.metaKey) so
+// releasing one side of Ctrl while still holding the other does NOT
+// finalise — only the last release counts. window-level (not document)
+// so that key releases delivered to <body> with body-focus still land.
+window.addEventListener('keyup', (e) => {
+  if (e.key !== 'Control' && e.key !== 'Meta') return;
+  if (e.ctrlKey || e.metaKey) return;
+  if (!_multiWordSelection.length) return;
+  _finaliseMultiSelection();
 }, true);
 
 // ── Entry point ────────────────────────────────────────────────────────────
@@ -1201,6 +1364,10 @@ function _init() {
     console.log('[Lexora] yt-navigate-finish — reconnecting caption observer');
     if (_captionObserver) { _captionObserver.disconnect(); _captionObserver = null; }
     _removeOverlay();
+    // M35 — drop any stale multi-select spans. The caption container is
+    // about to be recycled; the span references in _multiWordSelection
+    // would point at soon-to-be-orphaned DOM.
+    _clearMultiSelection();
     // Brief delay: player re-renders after navigation event
     setTimeout(() => {
       if (!_attachCaptionObserver()) {
