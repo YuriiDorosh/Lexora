@@ -394,57 +394,148 @@ for now hits log + pause the video)
      and the video pauses. Click YT play to resume; next hit
      respects the 120 s cooldown.
 
-**Step M34-S5 — Radar overlay UI**
+**Step M34-S5 — Radar overlay UI** ✅
+(browser smoke deferred to user reload — see M34-S5-BROWSER)
 
-- [ ] M34-S5-01 · `_RADAR_CSS` string constant: glassmorphism card,
-  teal/amber accent palette
-  (`rgba(20,184,166,0.5)` border + `rgba(245,158,11,0.6)` action
-  buttons). Flex-sandwich layout
-  (`.lx-radar-header / .lx-radar-scroll / .lx-radar-footer`) with
-  `!important` on all structural flex / overflow props (M28-12d rule
-  — YouTube's stylesheet will fight us otherwise). `z-index:
-  2147483600` (one below the existing Quick Look host so a click-on-
-  word overlay always wins).
-- [ ] M34-S5-02 · `_renderRadarOverlay(hit, video)`:
-  - Shadow DOM host `#lx-radar-shadow-host` appended to
-    `document.body` (singleton — replace if already present).
-  - Header: 📡 emoji + "Lexora Radar" + small "Word in your
-    vocabulary" hint.
-  - Body: `.lx-radar-word` (large bold, original casing from
-    `hit.entry.word`); `.lx-radar-trans` rows for each non-source
-    language present in `hit.entry.translations` (🇺🇦/🇬🇷/🇵🇱);
-    `.lx-radar-cue` italic block with the full cue text and the
-    matched word emphasised via `<mark>`.
-  - Footer: four buttons
-    1. `⏪ Rewind 5 s & Play` → `_onRewindAndPlay()`
-    2. `▶ Continue` → `_onContinue()`
-    3. `🔕 Skip this word` → `_onSkipWord(hit.word)`
-    4. `✖ Disable for this video` → `_onDisableForVideo()`
-- [ ] M34-S5-03 · `_makeDraggable(card)` — reuse M28-17 pattern for
-  header drag with viewport clamping.
-- [ ] M34-S5-04 · External-play detection: a one-shot listener on the
-  video's `play` event closes the overlay if the user clicks YouTube's
-  own play button while it's open. (Without this, hitting the YT play
-  button leaves an orphan overlay.)
-- [ ] M34-S5-05 · `_closeOverlay()` advances
-  `_lastFiredAt = performance.now()` (cooldown timer starts at
-  close, not fire — sub-decision 34c).
+- [x] M34-S5-01 · `_RADAR_HOST_CSS` + `_RADAR_SHADOW_CSS` string
+  constants added in `youtube_radar.js`. Host CSS (page-level) sets
+  `position:fixed; bottom:24px; left:50%; transform:translateX(-50%);
+  z-index:2147483600; width:380px;` — all with `!important` so YT's
+  stylesheet can't reposition us. Shadow CSS uses the M28-12d flex
+  sandwich `.lx-radar-header (flex-shrink:0) / .lx-radar-scroll
+  (flex:1 1 auto; min-height:0; overflow-y:auto) / .lx-radar-footer
+  (flex-shrink:0)` — every structural prop carries `!important`.
+  Palette: teal+amber gradient header (`rgba(20,184,166,0.32)` →
+  `rgba(245,158,11,0.22)`), teal primary CTA, amber skip button,
+  red kill switch. `<mark class="lx-radar-mark">` for the matched
+  word inside the cue uses amber background.
+- [x] M34-S5-02 · `_renderRadarOverlay(hit, video)`:
+  - Lazy `_ensureRadarStyles()` injects the host-scoped CSS once.
+  - Creates a top-level `<div id="lx-radar-shadow-host">` appended
+    to `document.body || document.documentElement`. Attaches Shadow
+    DOM via `host.attachShadow({mode:'open'})`. `:host { all:
+    initial; }` shields against page CSS leaking in.
+  - Header has 📡 icon + "Lexora Radar" title + small "Word from
+    your vocabulary" hint + a ✕ close button (semantics = ▶
+    Continue).
+  - Scroll body: `.lx-radar-word` (22 px bold, original casing
+    from `hit.word`); per-language translation rows assembled from
+    `hit.entry.translations` in fixed `uk / el / pl / en` order
+    minus the source language (so the user always sees flags in a
+    consistent left-to-right reading order). If the entry has no
+    translations, renders `<div class="lx-radar-trans-empty">No
+    translations on file for this entry.</div>` — defensive but
+    unlikely since `/my_vocab` filters to `pvp_eligible=True`.
+    `.lx-radar-cue` italic block with the matched word wrapped in
+    `<mark>` via `_highlightWord(cueText, word)` — regex-escapes
+    the word and case-insensitively wraps every occurrence.
+  - Footer (2-col grid): row 1 is the full-width teal CTA
+    `⏪ Rewind 5 s & Play`; row 2 splits into `▶ Continue` and
+    `🔕 Skip this word`; row 3 is full-width red `✖ Disable
+    radar for this video`. All four buttons wired to
+    `_onRewindAndPlay / _onContinue / _onSkipWord / _onDisableForVideo`.
+- [x] M34-S5-03 · `_makeRadarDraggable(host, shadow)` follows the
+  M28-17 pattern with viewport clamping:
+  - `mousedown` on the header (skips button clicks via
+    `e.target.closest('button')` filter).
+  - First drag: convert from `bottom: 24px; left: 50%;
+    transform: translateX(-50%)` to absolute `top/left` coordinates
+    via `getBoundingClientRect`. `_radarDragInitialised` flag
+    survives until the host is removed.
+  - `mousemove` clamps `left ∈ [0, viewportWidth - cardWidth]` and
+    `top ∈ [0, viewportHeight - cardHeight]` so the card can never
+    scroll off-screen. Sets all coords with `style.setProperty('...',
+    '...px', 'important')` to beat the host CSS.
+- [x] M34-S5-04 · External-play detection
+  (`_bindExternalPlayDetection(video)` /
+  `_unbindExternalPlayDetection()`):
+  - On render, binds a `play` listener on the `<video>` that calls
+    `_closeOverlay()` when fired while `_overlayOpen === true`.
+  - On `_closeOverlay()`, the listener is unbound FIRST so our own
+    `_safePlay(video)` calls (triggered by the footer buttons) never
+    re-enter the close path — clean teardown without races.
+  - On `yt-navigate-finish`, we also unbind because the
+    `<video>` element is usually replaced by YouTube's SPA.
+- [x] M34-S5-05 · `_closeOverlay()` advances
+  `_lastFiredAt = performance.now()` — cooldown timer starts at
+  CLOSE per sub-decision 34c. `_onTimeUpdate()` no longer advances
+  the timer at fire time; it relies on `_overlayOpen` to gate
+  re-fires while a card is up. Verified in a Node sandbox:
+  - Scenario A (fresh page → fire → 30 s dismiss → second-fire
+    blocked for 120 s, then fires; third-fire same): 3 fires, 3
+    closes, 3 overlay-open re-fire blocks. ✓
+  - Scenario B (user never closes the overlay): exactly 1 fire,
+    every subsequent tick returns `overlay-open`. Proves the
+    no-advance-at-fire contract holds end-to-end. ✓
+- [x] M34-S5-06 · `_onTimeUpdate()` updated:
+  - Added `if (_overlayOpen) return;` short-circuit at the top of
+    the gating chain.
+  - Removed `_lastFiredAt = now;` from the FIRE branch (advance
+    moved to `_closeOverlay`).
+  - Fire branch now calls `_renderRadarOverlay(hit, _currentVideo)`
+    after the pause + log.
+- [x] M34-S5-07 · `_onYtNavigate()` tears down any open overlay
+  (`_unbindExternalPlayDetection(); _closeOverlayDom();
+  _overlayOpen = false;`) before resetting timeline state. Without
+  this, an SPA nav while a card is up would leave an orphan host
+  pointing at a stale video element.
+- [x] M34-S5-PRE · `node --check youtube_radar.js` → OK.
+- [ ] M34-S5-BROWSER · User-side smoke: reload the extension, open
+  a YouTube video that contains a vocabulary word with captions ON.
+  Expect:
+  1. Video auto-pauses ~4 s before the word
+     (page console: `[lx-radar] HIT! word=...`).
+  2. Glassmorphism card slides into view at the bottom of the
+     viewport, teal/amber accent, the matched word highlighted in
+     the cue.
+  3. ⏪ Rewind 5 s & Play → `video.currentTime` drops by 5 s,
+     video resumes, overlay closes.
+  4. Card is draggable by its header; drops anywhere onscreen
+     stay onscreen (viewport-clamped).
+  5. 🔕 Skip this word → the same word never re-pauses for the
+     rest of this tab's life; other words still trigger.
+  6. ✖ Disable radar for this video → no further pauses on this
+     page; SPA nav to a new video resets the kill switch.
+  7. Clicking YouTube's own play button (instead of any of our
+     buttons) also closes the overlay.
+  8. Cooldown starts AT CLOSE — try clicking ▶ Continue, wait
+     30 s, then play the same kind of vocabulary-dense section.
+     The next pause should be ~90 s away, not immediate.
 
-**Step M34-S6 — Options page surface**
+**Step M34-S6 — Options page surface** ✅
 
-- [ ] M34-S6-01 · `extension/options.html` — new section
-  "📡 YouTube Vocab Radar (M34)" with:
-  - Checkbox "Enable Radar"
-  - Number input "Cooldown between auto-pauses (seconds)" — min 10,
-    max 3600, default 120.
-  - Number input "Look-ahead window (seconds)" — min 1, max 15,
-    default 4.
-  - Helper paragraph: what the radar does + privacy note "Your
-    YouTube watch history stays in your browser — Lexora only learns
-    that you have certain words saved."
-- [ ] M34-S6-02 · `extension/options.js` — initial load reads + pre-
-  fills all three values from `chrome.storage.sync`. `change`
-  autosaves. No Save button.
+- [x] M34-S6-01 · `extension/options.html` — new section "📡
+  YouTube Vocab Radar (M34)" below the M32 picker:
+  - `<label class="lx-toggle-row">` with checkbox `lx-radar-enabled`
+    (default `checked`, matches the storage-default-ON contract).
+    Toggle title "Enable Radar" + a one-line hint that explains
+    what the radar does.
+  - Two-column `.lx-radar-row` flex strip with number inputs
+    `lx-radar-cooldown` (min 10, max 3600, step 10, default 120)
+    and `lx-radar-lookahead` (min 1, max 15, step 1, default 4).
+    Both styled with the existing dark theme + teal focus border.
+  - `.lx-radar-hint` paragraph explains the two values and includes
+    the privacy line "Your YouTube watch history stays in the
+    browser — Lexora only learns that you have certain words
+    saved."
+- [x] M34-S6-02 · `extension/options.js`:
+  - Three new element handles
+    (`radarEnabledEl / radarCooldownEl / radarLookaheadEl`).
+  - `chrome.storage.sync.get([...])` array extended with all three
+    new keys. Initial-load population follows the same
+    "undefined !== false" default-ON pattern used by the M31
+    Writer toggle. Cooldown/lookahead use defensive
+    `isFinite(n) && n >= min` clamping when reading.
+  - Three `change` listeners autosave to `chrome.storage.sync`.
+    Cooldown clamps `[10, 3600]`; lookahead clamps `[1, 15]`;
+    both write-back the clamped value to the input so the user
+    sees the corrected number immediately.
+  - youtube_radar.js's `chrome.storage.onChanged` listener (M34-S4-04)
+    consumes these writes within one tick — no page reload needed
+    for the toggle / cooldown / lookahead to take effect.
+- [x] M34-S6-PRE · `node --check options.js` → OK; HTML cross-ref
+  grep confirms all three IDs are present in options.html and
+  referenced in options.js.
 
 **Step M34-S7 — ADR-033 + final docs flip**
 

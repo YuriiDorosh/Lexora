@@ -44,6 +44,8 @@
   const _VIDEO_POLL_MAX_TRIES = 120;            // 60 s of polling
   const _INJECT_ATTR = 'data-lx-radar-inject';
   const _INJECT_FILE = 'youtube_radar_inject.js';
+  const _OVERLAY_HOST_ID = 'lx-radar-shadow-host';
+  const _OVERLAY_STYLES_ID = 'lx-radar-host-styles';
 
   // Same Unicode-aware token regex used by M27 + M33, broadened to also cover
   // polytonic Greek (ἀ-῿) so old transcript pages still tokenise correctly.
@@ -69,6 +71,12 @@
   let _videoKillSwitch = false;
   let _currentVideo    = null;
   let _videoPollIv     = null;
+
+  // ── Overlay state (S5) ──
+  let _overlayHost          = null;   // top-level Shadow DOM host element
+  let _overlayOpen          = false;  // gates re-fire while a card is up
+  let _externalPlayHandler  = null;   // {video, fn} bound to detect YT-play
+  let _radarDragInitialised = false;  // converts bottom/transform → top/left on first drag
 
   // ── Tokenisation & normalisation ────────────────────────────────────────
 
@@ -300,6 +308,460 @@
     });
   }
 
+  // ── Overlay UI (S5) ─────────────────────────────────────────────────────
+
+  function _escHtml(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  /**
+   * Wrap exact-case occurrences of `word` within `cueText` in <mark>.
+   * Falls back to plain-escaped cue if the word isn't found (e.g. our
+   * matcher accepted a sliding-window hit but the original casing
+   * doesn't line up cleanly — unlikely with our lowercase-normalised
+   * tokenisation, but defensive).
+   */
+  function _highlightWord(cueText, word) {
+    const safeCue = _escHtml(cueText);
+    if (!word) return safeCue;
+    const safeWord = _escHtml(word);
+    const escapedRe = safeWord.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&');
+    // \b doesn't work cleanly with Unicode word boundaries in JS — use
+    // lookahead/behind for ASCII-letter boundaries; in practice good
+    // enough for visualising the match in a glassmorphism card.
+    const re = new RegExp('(' + escapedRe + ')', 'gi');
+    return safeCue.replace(re, '<mark class="lx-radar-mark">$1</mark>');
+  }
+
+  // Embedded CSS — same pattern as M27 _REVIEW_CSS / M28 _QL_CSS / M33
+  // _RADAR_CSS (M33 audio shadow had a different palette). All structural
+  // flex / overflow props carry !important per the M28-12d rule —
+  // YouTube's own stylesheet will fight us otherwise.
+  const _RADAR_HOST_CSS = `
+    #${_OVERLAY_HOST_ID} {
+      position: fixed !important;
+      bottom: 24px !important;
+      left: 50% !important;
+      transform: translateX(-50%) !important;
+      z-index: 2147483600 !important;
+      width: 380px !important;
+      max-width: calc(100vw - 32px) !important;
+      pointer-events: auto !important;
+      font-family: 'Inter', 'Segoe UI', system-ui, sans-serif !important;
+    }
+  `;
+
+  const _RADAR_SHADOW_CSS = `
+    :host { all: initial; }
+    *, *::before, *::after { box-sizing: border-box; }
+
+    .lx-radar-card {
+      display: flex !important;
+      flex-direction: column !important;
+      max-height: 70vh !important;
+      background: rgba(15, 23, 42, 0.94);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      border: 1px solid rgba(20, 184, 166, 0.55);
+      border-radius: 14px;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.55),
+                  0 0 0 1px rgba(20, 184, 166, 0.15);
+      color: #f1f5f9;
+      font-size: 13px;
+      line-height: 1.45;
+      overflow: hidden !important;
+    }
+
+    .lx-radar-header {
+      flex-shrink: 0 !important;
+      display: flex !important;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 14px;
+      background: linear-gradient(90deg,
+        rgba(20, 184, 166, 0.32),
+        rgba(245, 158, 11, 0.22));
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      cursor: move;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+    .lx-radar-header-icon { font-size: 16px; }
+    .lx-radar-header-title {
+      flex: 1 1 auto;
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: #ccfbf1;
+    }
+    .lx-radar-header-hint {
+      font-size: 10px;
+      font-weight: 500;
+      color: rgba(255, 255, 255, 0.45);
+      text-transform: none;
+      letter-spacing: 0;
+    }
+    .lx-radar-close-btn {
+      flex-shrink: 0;
+      width: 22px;
+      height: 22px;
+      padding: 0;
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      border-radius: 6px;
+      color: #f1f5f9;
+      font-size: 13px;
+      line-height: 1;
+      cursor: pointer;
+    }
+    .lx-radar-close-btn:hover { background: rgba(255, 255, 255, 0.18); }
+
+    .lx-radar-scroll {
+      flex: 1 1 auto !important;
+      min-height: 0 !important;
+      overflow-y: auto !important;
+      padding: 14px 16px 12px;
+    }
+
+    .lx-radar-word {
+      font-size: 22px;
+      font-weight: 700;
+      letter-spacing: 0.01em;
+      color: #f1f5f9;
+      margin-bottom: 8px;
+      word-break: break-word;
+    }
+
+    .lx-radar-trans {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      margin-bottom: 10px;
+    }
+    .lx-radar-trans-row {
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+      font-size: 13px;
+      color: #f1f5f9;
+    }
+    .lx-radar-flag { font-size: 13px; opacity: 0.95; flex-shrink: 0; }
+    .lx-radar-trans-text {
+      color: rgba(255, 255, 255, 0.92);
+      word-break: break-word;
+    }
+    .lx-radar-trans-empty {
+      font-style: italic;
+      font-size: 11px;
+      color: rgba(255, 255, 255, 0.4);
+    }
+
+    .lx-radar-cue {
+      margin-top: 8px;
+      padding: 8px 10px;
+      background: rgba(255, 255, 255, 0.04);
+      border-left: 3px solid rgba(20, 184, 166, 0.55);
+      border-radius: 4px;
+      font-size: 12px;
+      font-style: italic;
+      color: rgba(255, 255, 255, 0.82);
+      word-break: break-word;
+    }
+    .lx-radar-mark {
+      background: rgba(245, 158, 11, 0.32);
+      color: #fde68a;
+      padding: 0 2px;
+      border-radius: 2px;
+      font-weight: 600;
+      font-style: normal;
+    }
+
+    .lx-radar-footer {
+      flex-shrink: 0 !important;
+      display: grid !important;
+      grid-template-columns: 1fr 1fr;
+      gap: 6px;
+      padding: 10px 12px 12px;
+      border-top: 1px solid rgba(255, 255, 255, 0.06);
+      background: rgba(0, 0, 0, 0.2);
+    }
+    .lx-radar-btn {
+      padding: 8px 10px;
+      border-radius: 8px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      border: 1px solid transparent;
+      color: #f1f5f9;
+      background: rgba(255, 255, 255, 0.06);
+      transition: background 0.12s ease, transform 0.08s ease;
+    }
+    .lx-radar-btn:hover  { background: rgba(255, 255, 255, 0.14); }
+    .lx-radar-btn:active { transform: translateY(1px); }
+
+    .lx-radar-btn-primary {
+      grid-column: 1 / 3;
+      background: linear-gradient(90deg, #14b8a6, #0d9488);
+      border-color: rgba(20, 184, 166, 0.55);
+      color: #ffffff;
+    }
+    .lx-radar-btn-primary:hover {
+      background: linear-gradient(90deg, #2dd4bf, #14b8a6);
+    }
+
+    .lx-radar-btn-skip   { border-color: rgba(245, 158, 11, 0.45); color: #fde68a; }
+    .lx-radar-btn-skip:hover   { background: rgba(245, 158, 11, 0.18); }
+    .lx-radar-btn-kill   { border-color: rgba(239, 68, 68, 0.40); color: #fca5a5; }
+    .lx-radar-btn-kill:hover   { background: rgba(239, 68, 68, 0.18); }
+  `;
+
+  function _ensureRadarStyles() {
+    if (document.getElementById(_OVERLAY_STYLES_ID)) return;
+    const style = document.createElement('style');
+    style.id = _OVERLAY_STYLES_ID;
+    style.textContent = _RADAR_HOST_CSS;
+    (document.head || document.documentElement).appendChild(style);
+  }
+
+  function _renderRadarOverlay(hit, video) {
+    if (_overlayOpen) return;            // belt+braces; tick guards too
+    _ensureRadarStyles();
+    _closeOverlayDom();                  // remove any stale leftover host
+
+    const host = document.createElement('div');
+    host.id = _OVERLAY_HOST_ID;
+    (document.body || document.documentElement).appendChild(host);
+    const shadow = host.attachShadow({ mode: 'open' });
+
+    const translations = (hit.entry && hit.entry.translations) || {};
+    const transRows = [];
+    const FLAGS = { en: '🇬🇧', uk: '🇺🇦', el: '🇬🇷', pl: '🇵🇱' };
+    // Show every non-source language we have a translation for.
+    const order = ['uk', 'el', 'pl', 'en'].filter(
+      (l) => l !== hit.entry.lang && translations[l],
+    );
+    for (const lang of order) {
+      transRows.push(
+        `<div class="lx-radar-trans-row">
+           <span class="lx-radar-flag">${_escHtml(FLAGS[lang] || lang)}</span>
+           <span class="lx-radar-trans-text">${_escHtml(translations[lang])}</span>
+         </div>`
+      );
+    }
+    const transBlock = transRows.length
+      ? `<div class="lx-radar-trans">${transRows.join('')}</div>`
+      : '<div class="lx-radar-trans-empty">No translations on file for this entry.</div>';
+
+    const cueHtml = _highlightWord(hit.cueText || '', hit.word);
+
+    shadow.innerHTML = `
+      <style>${_RADAR_SHADOW_CSS}</style>
+      <div class="lx-radar-card" role="dialog" aria-label="Lexora Radar — word in your vocabulary">
+        <div class="lx-radar-header" data-lx-drag>
+          <span class="lx-radar-header-icon" aria-hidden="true">📡</span>
+          <div class="lx-radar-header-title">
+            Lexora Radar
+            <div class="lx-radar-header-hint">Word from your vocabulary</div>
+          </div>
+          <button class="lx-radar-close-btn" id="lx-radar-x" aria-label="Continue playing">✕</button>
+        </div>
+
+        <div class="lx-radar-scroll">
+          <div class="lx-radar-word">${_escHtml(hit.word)}</div>
+          ${transBlock}
+          <div class="lx-radar-cue">${cueHtml}</div>
+        </div>
+
+        <div class="lx-radar-footer">
+          <button id="lx-radar-rewind" class="lx-radar-btn lx-radar-btn-primary">
+            ⏪ Rewind 5 s &amp; Play
+          </button>
+          <button id="lx-radar-continue" class="lx-radar-btn">▶ Continue</button>
+          <button id="lx-radar-skip"     class="lx-radar-btn lx-radar-btn-skip">🔕 Skip this word</button>
+          <button id="lx-radar-kill"     class="lx-radar-btn lx-radar-btn-kill" style="grid-column: 1 / 3;">
+            ✖ Disable radar for this video
+          </button>
+        </div>
+      </div>
+    `;
+
+    // ── Bind button handlers ─────────────────────────────────────────────
+    const $ = (sel) => shadow.querySelector(sel);
+
+    $('#lx-radar-x').addEventListener('click', () => {
+      // Top-right ✕ = same semantics as ▶ Continue: dismiss + resume.
+      _onContinue(video);
+    });
+    $('#lx-radar-rewind').addEventListener('click', () => _onRewindAndPlay(video));
+    $('#lx-radar-continue').addEventListener('click', () => _onContinue(video));
+    $('#lx-radar-skip').addEventListener('click', () => _onSkipWord(hit.word, video));
+    $('#lx-radar-kill').addEventListener('click', () => _onDisableForVideo(video));
+
+    _makeRadarDraggable(host, shadow);
+    _bindExternalPlayDetection(video);
+
+    _overlayHost = host;
+    _overlayOpen = true;
+  }
+
+  // ── Button actions ──────────────────────────────────────────────────────
+
+  function _onRewindAndPlay(video) {
+    if (video) {
+      try {
+        const t = Math.max(0, (video.currentTime || 0) - 5);
+        video.currentTime = t;
+      } catch (e) {}
+    }
+    _closeOverlay();
+    _safePlay(video);
+  }
+
+  function _onContinue(video) {
+    _closeOverlay();
+    _safePlay(video);
+  }
+
+  function _onSkipWord(word, video) {
+    if (word) _tabSkip.add(_normToken(word));
+    console.log(_LOG_PREFIX + ' skipping %o for this tab (%d skipped total)',
+      _LOG_STYLE, word, _tabSkip.size);
+    _closeOverlay();
+    _safePlay(video);
+  }
+
+  function _onDisableForVideo(video) {
+    _videoKillSwitch = true;
+    console.log(_LOG_PREFIX + ' radar disabled for this video (kill switch on)', _LOG_STYLE);
+    _closeOverlay();
+    _safePlay(video);
+  }
+
+  function _safePlay(video) {
+    if (!video) return;
+    try {
+      const p = video.play();
+      // Some browsers return a Promise that can reject if autoplay is
+      // gated. We requested this play in response to a user click, so
+      // it should be fine, but swallow any reject just in case.
+      if (p && typeof p.catch === 'function') p.catch(() => {});
+    } catch (e) {}
+  }
+
+  // ── Close overlay (cooldown advances HERE per sub-decision 34c) ─────────
+
+  function _closeOverlayDom() {
+    // Idempotent DOM removal — does NOT touch cooldown / open flag.
+    const existing = document.getElementById(_OVERLAY_HOST_ID);
+    if (existing) {
+      try { existing.remove(); } catch (e) {}
+    }
+    _overlayHost = null;
+    _radarDragInitialised = false;
+  }
+
+  function _closeOverlay() {
+    if (!_overlayOpen) {
+      _closeOverlayDom();
+      return;
+    }
+    _unbindExternalPlayDetection();
+    _closeOverlayDom();
+    _overlayOpen = false;
+    // CRITICAL (sub-decision 34c): cooldown timer starts at close, not
+    // at fire. The user can read the alert at their own pace; the
+    // 120 s clock only starts ticking once they dismiss it.
+    _lastFiredAt = performance.now();
+    console.log(_LOG_PREFIX + ' overlay closed; cooldown timer started (%ds)',
+      _LOG_STYLE, Math.round(_cooldownMs / 1000));
+  }
+
+  // ── External-play detection ─────────────────────────────────────────────
+  // The user can hit YouTube's own play button (or press space, or click the
+  // video surface). In those cases we want the overlay to close too so it
+  // doesn't linger over a playing video. We bind a 'play' listener on the
+  // <video> at render time and tear it down on close — our own _safePlay
+  // calls always close FIRST, so they never see the listener.
+
+  function _bindExternalPlayDetection(video) {
+    if (!video) return;
+    const fn = () => {
+      if (_overlayOpen) {
+        console.log(_LOG_PREFIX + ' external play detected — closing overlay', _LOG_STYLE);
+        _closeOverlay();
+      }
+    };
+    try { video.addEventListener('play', fn); } catch (e) { return; }
+    _externalPlayHandler = { video, fn };
+  }
+
+  function _unbindExternalPlayDetection() {
+    if (!_externalPlayHandler) return;
+    try {
+      _externalPlayHandler.video.removeEventListener('play', _externalPlayHandler.fn);
+    } catch (e) {}
+    _externalPlayHandler = null;
+  }
+
+  // ── Draggable header (M28-17 pattern, viewport-clamped) ─────────────────
+
+  function _makeRadarDraggable(host, shadow) {
+    const header = shadow.querySelector('[data-lx-drag]');
+    if (!header) return;
+    let dragging = false;
+    let startX = 0, startY = 0;
+    let hostStartLeft = 0, hostStartTop = 0;
+
+    function onDown(e) {
+      // Ignore drags that start on a button inside the header.
+      if (e.target && e.target.closest && e.target.closest('button')) return;
+      dragging = true;
+
+      // First drag: convert from bottom+translateX(-50%) to top/left so
+      // we have a single set of coordinates to mutate.
+      if (!_radarDragInitialised) {
+        const rect = host.getBoundingClientRect();
+        host.style.setProperty('top',       rect.top + 'px',  'important');
+        host.style.setProperty('left',      rect.left + 'px', 'important');
+        host.style.setProperty('bottom',    'auto',           'important');
+        host.style.setProperty('transform', 'none',           'important');
+        _radarDragInitialised = true;
+      }
+      const r = host.getBoundingClientRect();
+      hostStartLeft = r.left;
+      hostStartTop  = r.top;
+      startX = e.clientX;
+      startY = e.clientY;
+      e.preventDefault();
+
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup',   onUp);
+    }
+    function onMove(e) {
+      if (!dragging) return;
+      const dx = e.clientX - startX;
+      const dy = e.clientY - startY;
+      const rect = host.getBoundingClientRect();
+      const maxLeft = Math.max(0, window.innerWidth  - rect.width);
+      const maxTop  = Math.max(0, window.innerHeight - rect.height);
+      const nl = Math.min(maxLeft, Math.max(0, hostStartLeft + dx));
+      const nt = Math.min(maxTop,  Math.max(0, hostStartTop  + dy));
+      host.style.setProperty('left', nl + 'px', 'important');
+      host.style.setProperty('top',  nt + 'px', 'important');
+    }
+    function onUp() {
+      dragging = false;
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup',   onUp);
+    }
+    header.addEventListener('mousedown', onDown);
+  }
+
   // ── Scanner tick ────────────────────────────────────────────────────────
 
   function _findNextHitIndex(currentMs) {
@@ -319,30 +781,32 @@
     if (now - _lastTickMs < _TICK_THROTTLE_MS) return;
     _lastTickMs = now;
 
+    if (_overlayOpen) return;                  // already paused + showing UI
     if (!_masterEnabled || _videoKillSwitch || !_radarHits.length) return;
     if (now - _lastFiredAt < _cooldownMs) return;
 
     const currentMs = (_currentVideo.currentTime || 0) * 1000;
     const idx = _findNextHitIndex(currentMs);
     if (idx === -1) return;
-    if (idx === _lastFiredIdx) return;     // already paused on this very hit
+    if (idx === _lastFiredIdx) return;         // already fired on this very hit
 
     const hit = _radarHits[idx];
     const delta = hit.atMs - currentMs;
-    if (delta > _lookaheadMs) return;       // not in the look-ahead window yet
+    if (delta > _lookaheadMs) return;          // not in the look-ahead window yet
     if (_tabSkip.has(_normToken(hit.word))) return;
 
     // FIRE 🎯
     _lastFiredIdx = idx;
-    // NOTE: S4-only contract — advance _lastFiredAt at fire time so the
-    // cooldown timer starts now. S5 will move this advance to the
-    // overlay-close handler so the user gets a full cooldown after they
-    // dismiss the alert (sub-decision 34c).
-    _lastFiredAt = now;
+    // NOTE (sub-decision 34c): cooldown timer does NOT advance here in
+    // S5 — it's advanced inside _closeOverlay() so the user gets a full
+    // 120 s of breathing room AFTER they dismiss the alert. The
+    // _overlayOpen flag above prevents re-fire while the card is up.
     try { _currentVideo.pause(); } catch (e) {}
 
     console.log(_LOG_PREFIX + ' HIT! word=%o at=%dms (Δ%dms) cue=%o',
       _LOG_STYLE, hit.word, hit.atMs, Math.round(delta), hit.cueText);
+
+    _renderRadarOverlay(hit, _currentVideo);
   }
 
   // ── Video element attachment + polling ──────────────────────────────────
@@ -384,6 +848,14 @@
 
   function _onYtNavigate() {
     console.log(_LOG_PREFIX + ' yt-navigate-finish — resetting state', _LOG_STYLE);
+    // Tear down any open overlay first so it doesn't linger over the
+    // next video; this also unbinds the external-play listener from the
+    // old <video> element which is about to be replaced.
+    if (_overlayOpen) {
+      _unbindExternalPlayDetection();
+      _closeOverlayDom();
+      _overlayOpen = false;
+    }
     _radarHits       = [];
     _latestCues      = null;
     _videoKillSwitch = false;
