@@ -35,6 +35,13 @@
       ],
       "js": ["overlay.js"],
       "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://www.youtube.com/*"
+      ],
+      "js": ["youtube_radar.js"],
+      "run_at": "document_idle"
     }
   ],
   "background": {
