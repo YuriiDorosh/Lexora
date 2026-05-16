@@ -8,6 +8,9 @@ document.addEventListener('DOMContentLoaded', () => {
   const savedMsg = document.getElementById('lx-saved');
   const writerEl = document.getElementById('lx-writer-enabled');
   const nativeEl = document.getElementById('lexora_native_language');
+  const radarEnabledEl   = document.getElementById('lx-radar-enabled');
+  const radarCooldownEl  = document.getElementById('lx-radar-cooldown');
+  const radarLookaheadEl = document.getElementById('lx-radar-lookahead');
 
   // ── Initial load ────────────────────────────────────────────────────────
   // lexora_writer_enabled is the M31 feature toggle, default ON when the
@@ -15,8 +18,16 @@ document.addEventListener('DOMContentLoaded', () => {
   // false, so the FAB shows by default for first-time users).
   // lexora_native_language is the M32 explanation-language picker; default
   // 'en' when the key is absent.
+  // lexora_radar_*           are M34 — default ON / 120 s / 4 s.
   chrome.storage.sync.get(
-    ['lexoraBaseUrl', 'lexora_writer_enabled', 'lexora_native_language'],
+    [
+      'lexoraBaseUrl',
+      'lexora_writer_enabled',
+      'lexora_native_language',
+      'lexora_radar_enabled',
+      'lexora_radar_cooldown_seconds',
+      'lexora_radar_lookahead_seconds',
+    ],
     result => {
       input.value = result.lexoraBaseUrl || DEFAULT_BASE_URL;
       if (writerEl) {
@@ -24,6 +35,17 @@ document.addEventListener('DOMContentLoaded', () => {
       }
       if (nativeEl) {
         nativeEl.value = result.lexora_native_language || 'en';
+      }
+      if (radarEnabledEl) {
+        radarEnabledEl.checked = result.lexora_radar_enabled !== false;
+      }
+      if (radarCooldownEl) {
+        const cd = Number(result.lexora_radar_cooldown_seconds);
+        radarCooldownEl.value = (isFinite(cd) && cd >= 10) ? cd : 120;
+      }
+      if (radarLookaheadEl) {
+        const la = Number(result.lexora_radar_lookahead_seconds);
+        radarLookaheadEl.value = (isFinite(la) && la >= 1) ? la : 4;
       }
     },
   );
@@ -52,6 +74,34 @@ document.addEventListener('DOMContentLoaded', () => {
   if (nativeEl) {
     nativeEl.addEventListener('change', () => {
       chrome.storage.sync.set({ lexora_native_language: nativeEl.value });
+    });
+  }
+
+  // ── M34: Radar controls (autosave; clamped in JS as a defence in depth) ─
+  // youtube_radar.js subscribes to chrome.storage.onChanged for all three
+  // keys, so a change here takes effect on the next timeupdate tick
+  // without a page reload.
+  if (radarEnabledEl) {
+    radarEnabledEl.addEventListener('change', () => {
+      chrome.storage.sync.set({ lexora_radar_enabled: radarEnabledEl.checked });
+    });
+  }
+  if (radarCooldownEl) {
+    radarCooldownEl.addEventListener('change', () => {
+      let v = Number(radarCooldownEl.value);
+      if (!isFinite(v) || v < 10) v = 10;
+      if (v > 3600) v = 3600;
+      radarCooldownEl.value = v;
+      chrome.storage.sync.set({ lexora_radar_cooldown_seconds: v });
+    });
+  }
+  if (radarLookaheadEl) {
+    radarLookaheadEl.addEventListener('change', () => {
+      let v = Number(radarLookaheadEl.value);
+      if (!isFinite(v) || v < 1) v = 1;
+      if (v > 15) v = 15;
+      radarLookaheadEl.value = v;
+      chrome.storage.sync.set({ lexora_radar_lookahead_seconds: v });
     });
   }
 

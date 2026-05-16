@@ -21,7 +21,7 @@
 
 1. [Concept](#1-concept)
 2. [Feature Catalogue](#2-feature-catalogue)
-3. [The Browser Ecosystem (M22–M33)](#3-the-browser-ecosystem-m22m33)
+3. [The Browser Ecosystem (M22–M34)](#3-the-browser-ecosystem-m22m34)
 4. [Backend Architecture](#4-backend-architecture)
 5. [Async Microservices](#5-async-microservices)
 6. [Spaced Repetition (SM-2)](#6-spaced-repetition-sm-2)
@@ -118,7 +118,7 @@ fees, no external databases — just Docker Compose on a CPU-only Linux server.
 
 ---
 
-## 3. The Browser Ecosystem (M22–M33)
+## 3. The Browser Ecosystem (M22–M34)
 
 The Chrome Extension is the centrepiece of the immersion strategy. It turns every
 browser tab into a capture and practice surface.
@@ -335,6 +335,73 @@ button on a visible UI surface that explicitly registers the grant
 record→evaluate cycle is ephemeral. The portal's `/my/speaking` (M30)
 remains the persistent surface for users who want to review progress over
 time (ADR-032 § 32f).
+
+### M34 — YouTube Vocab Radar
+
+Turns YouTube viewing into a passive vocabulary review surface. The
+extension fetches the user's saved vocabulary via
+`GET /lexora_api/my_vocab` (capped 1000 entries, `pvp_eligible=True`,
+cached client-side for 15 min) and uses a **main-world script injection**
+to intercept the page's own `/api/timedtext` XHR / `fetch` requests for
+caption tracks. The injected script (`extension/youtube_radar_inject.js`)
+patches `XMLHttpRequest.prototype` and `window.fetch`, parses JSON3
+(modern YouTube default) or SRV3 / SRV1 XML (fallback), and
+`window.postMessage`s the normalised cue array
+`[{startMs, endMs, text}, ...]` back to the isolated-world content script
+(ADR-033 § 34b).
+
+The content script (`extension/youtube_radar.js`) builds a hit timeline
+from the cue track using a **longest-match sliding window** —
+phrases sorted descending by token count are tried first, so
+`kick the bucket` beats `kick` when both are in vocabulary (ADR-033 §
+34e). On `<video>.timeupdate` (throttled 250 ms), a binary search finds
+the next upcoming hit; if it lands within the look-ahead window (default
+4 s) the radar:
+
+1. Pauses the video before the word is spoken.
+2. Renders a glassmorphism Shadow-DOM card with the matched word, all
+   non-source-language translations (🇺🇦 / 🇬🇷 / 🇵🇱 / 🇬🇧 rows in fixed
+   order), and the surrounding cue with the matched word highlighted in
+   `<mark>`.
+3. Offers four footer actions: **⏪ Rewind 5 s & Play** (sets
+   `currentTime -= 5`), **▶ Continue**, **🔕 Skip this word** (per-tab,
+   in-memory), **✖ Disable radar for this video** (per-video kill
+   switch).
+
+**Cooldown timer starts at OVERLAY CLOSE, not at fire** (ADR-033 § 34c).
+A user reading the alert for 30 s doesn't lose 30 s of their 120 s
+cooldown — the clock starts ticking only after they dismiss the card.
+Implemented via an `_overlayOpen` flag that short-circuits the tick
+while a card is up, plus a single `_lastFiredAt = performance.now()`
+write inside `_closeOverlay()`. Initial value `-Infinity` (not `0`) so
+the first fire on a fresh page isn't gated by `performance.now() - 0`
+treating page-load time as cooldown.
+
+**Options page surface** (M34-S6): Enable Radar toggle, Cooldown
+seconds (10-3600, default 120), Look-ahead seconds (1-15, default 4).
+All three keys live in `chrome.storage.sync`; `youtube_radar.js`
+subscribes to `chrome.storage.onChanged` so changes take effect on the
+next tick without a page reload.
+
+**Top-level overlay host**, not nested in the M24 click-on-word Quick
+Look (ADR-033 § 34d). The two surfaces have different trigger paths
+(auto-pause vs user-click) and live at independent z-indexes
+(`2147483600` for the radar; `2147483601` for Quick Look — click-on-word
+always wins if both happen to be open). Teal+amber palette
+distinguishes the radar from the indigo M28 grammar block and the
+amber M32 slang block.
+
+**Privacy default**: radar events are **not** persisted server-side. No
+DB write per fire, no `language.review` update, no telemetry log. The
+user's YouTube watch history stays in their browser — Lexora's backend
+only learns that the user has certain words saved (the static
+`/my_vocab` GET) (ADR-033 § 34f).
+
+**Verified end-to-end**: browser smoke captured 3621 cues from a real
+YouTube video; the radar paused exactly 3.8 s before "donkey" was
+spoken on first test, then with the full UI in place auto-paused on
+the word "apparently" with the full glassmorphism card rendering all
+translations and footer buttons working as documented.
 
 ---
 
@@ -798,6 +865,7 @@ Key variables in `.env` (see `env.example` for the full list):
 | M31 | ✅ Complete | Lexora Writer — floating "L" FAB on every focused `<textarea>` / `[contenteditable]`; sends field text to `/analyze-writing`; React-compatible Apply-to-text via the native HTMLTextAreaElement setter + `InputEvent`; strict eligibility skips passwords / search / code editors / login forms; Options-page toggle; server-side safety net guarantees every change is documented (ADR-031) |
 | M32 | ✅ Complete | Slang & Idiom Explainer — "💡 Explain Slang/Idiom" button alongside the M28 grammar button in Quick Look + YouTube overlays; `/explain-slang` returns five-key JSON (kind / figurative / literal / example / confidence); dual language clamp (explanation in user's native language, example in source); honest UI for `kind:'literal'` and `confidence:'low'` branches; native-language picker in Options (ADR-031) |
 | M33 | ✅ Complete | Webpage Shadowing — "🎤 Practice Pronunciation" button in Quick Look + YouTube overlays. ▶ Play Original streams Edge TTS via `/tts-sync`; click-to-toggle Start/Stop Recording captures voice on a `chrome.offscreen` document (mic permission once per extension); `/transcribe-sync` → `/evaluate-pronunciation` → score badge (green/amber/red) + per-word red-strikethrough/amber-wavy-underline annotation + localised feedback. Deterministic Python word-diff is the source of truth for the structured fields; LLM only writes feedback. Click-to-toggle UX + Options-page mic-grant button + no-persistence default (ADR-032) |
+| M34 | ✅ Complete | YouTube Vocab Radar — main-world script injection patches `XMLHttpRequest.prototype` + `window.fetch` to sniff `/api/timedtext` responses (JSON3 / SRV3 / SRV1 parsers; idempotent guard; transparent to the page via `response.clone()`). Content script builds a longest-match sliding-window index from new `GET /lexora_api/my_vocab` (cached 15 min), binary-searches `<video>.timeupdate` for upcoming hits, and pauses 4 s before a known word with a glassmorphism Shadow-DOM card (teal+amber palette; multi-language translation rows; matched word highlighted in cue). Footer: ⏪ Rewind 5 s & Play / ▶ Continue / 🔕 Skip this word / ✖ Disable for this video. Cooldown timer (default 120 s) starts at overlay close, not fire — gated by `_overlayOpen` flag; `_lastFiredAt` sentinel `-Infinity` so first fire isn't gated. Three Options-page controls + per-tab skip set + per-video kill switch. No persistence by default (ADR-033) |
 
 ---
 
@@ -808,11 +876,13 @@ generated by a local pgvector + Qwen2.5-1.5B RAG pipeline. Complete implementati
 exists on `m26_ai_helpdesk` branch. Blocked by server RAM constraints (requires ≥16 GiB).
 
 **Potential future milestones:**
-- M31: ELO rating system for PvP matchmaking
-- M32: Multi-language expansion (Spanish, German — Polish landed in M29)
-- M33: Collaborative vocabulary lists / class rooms
-- M34: Mobile PWA / React Native companion
-- M35: Per-session pronunciation scoring on Speaking Coach
+- M35: ELO rating system for PvP matchmaking
+- M36: Multi-language expansion (Spanish, German — Polish landed in M29)
+- M37: Collaborative vocabulary lists / class rooms
+- M38: Mobile PWA / React Native companion
+- M39: Per-session pronunciation scoring on Speaking Coach
+- M40: Netflix / Disney+ / Coursera adapters for the M34 radar (architecture is portable per ADR-033 revisit triggers)
+- M41: Opt-in radar history persistence — POST each YouTube fire to a new `/lexora_api/radar_log` endpoint for cross-device review continuity
   (extends M30 with phoneme-level Whisper output)
 
 ---

@@ -174,6 +174,42 @@
       border-radius: 3px;
       font-size: 11px;
     }
+
+    /* M34 — Radar number inputs */
+    .lx-radar-row {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+    .lx-radar-row .lx-radar-field { flex: 1 1 0; }
+    .lx-radar-field label {
+      font-size: 11px;
+      margin-bottom: 4px;
+    }
+    input[type="number"] {
+      width: 100%;
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      border-radius: 8px;
+      color: #f1f5f9;
+      font-size: 14px;
+      padding: 9px 11px;
+      outline: none;
+      -moz-appearance: textfield;
+    }
+    input[type="number"]:focus { border-color: #14b8a6; }
+    input[type="number"]::-webkit-outer-spin-button,
+    input[type="number"]::-webkit-inner-spin-button {
+      -webkit-appearance: none;
+      margin: 0;
+    }
+    .lx-radar-hint {
+      font-size: 11px;
+      color: rgba(255, 255, 255, 0.4);
+      line-height: 1.5;
+      margin-top: 4px;
+      margin-bottom: 0;
+    }
   </style>
 </head>
 <body>
@@ -232,6 +268,40 @@
     When you click "💡 Explain Slang/Idiom" in the Quick Look or YouTube
     overlay, the figurative meaning and literal translation will be
     rendered in this language.
+  </p>
+
+  <div class="lx-section-divider"></div>
+  <div class="lx-section-label">YouTube Vocab Radar (M34)</div>
+
+  <label class="lx-toggle-row" for="lx-radar-enabled">
+    <input type="checkbox" id="lx-radar-enabled" checked>
+    <span class="lx-toggle-text">
+      <span class="lx-toggle-title">Enable Radar</span>
+      <span class="lx-toggle-hint">
+        On YouTube, pause the video a few seconds before a word from
+        your vocabulary is spoken. A small alert lets you rewind 5 s
+        to hear the word in its native context.
+      </span>
+    </span>
+  </label>
+
+  <div class="lx-radar-row">
+    <div class="lx-radar-field">
+      <label for="lx-radar-cooldown">Cooldown (seconds)</label>
+      <input type="number" id="lx-radar-cooldown" min="10" max="3600" step="10" value="120">
+    </div>
+    <div class="lx-radar-field">
+      <label for="lx-radar-lookahead">Look-ahead (seconds)</label>
+      <input type="number" id="lx-radar-lookahead" min="1" max="15" step="1" value="4">
+    </div>
+  </div>
+  <p class="lx-radar-hint">
+    <strong>Cooldown</strong> is the minimum gap between two auto-pauses,
+    starting when you dismiss the alert — keeps the radar from pausing
+    every other sentence on long videos. <strong>Look-ahead</strong> is
+    how many seconds before a word the radar pauses, so you have time
+    to read the alert. Your YouTube watch history stays in the browser —
+    Lexora only learns that you have certain words saved.
   </p>
 
   <script src="options.js"></script>

@@ -1,8 +1,8 @@
 # Lexora — Implementation Plan (MVP)
 
-> Version: 2.4 (M33 — Webpage Shadowing — Complete)
-> Last updated: 2026-05-09
-> Status: M0–M25 complete; M26 postponed (resource constraints); M27–M33 complete
+> Version: 2.6 (M34 — YouTube Vocab Radar — Complete)
+> Last updated: 2026-05-16
+> Status: M0–M25 complete; M26 postponed (resource constraints); M27–M34 complete
 
 ---
 
@@ -61,6 +61,7 @@
 | M31 | Browser Extension — Lexora Writer | ✅ Complete | Active-writing assistant. Floating "L" FAB on every focused `<textarea>` / `[contenteditable]`; strict eligibility (skips passwords / search / code editors / login forms). Click → `POST /lexora_api/writer_check` → LLM `POST /analyze-writing` → corrections + improved JSON. Apply-to-text uses the React-compatible native-setter + InputEvent pattern. Server-side safety net guarantees every text change is documented (ADR-031) |
 | M32 | Browser Extension — Slang & Idiom Explainer | ✅ Complete | New "💡 Explain Slang/Idiom" button alongside the M28 "Explain Grammar" button in both Quick Look and YouTube overlays. `POST /lexora_api/explain_slang` → LLM `POST /explain-slang`; returns kind enum (idiom / slang / phrasal_verb / literal / unknown), figurative + literal meaning in the user's native language, example in source language, confidence enum. UI handles the literal and low-confidence branches honestly (ADR-031) |
 | M33 | Browser Extension — Webpage Shadowing | ✅ Complete | Pronunciation practice on any webpage. "🎤 Practice Pronunciation" button in QL + YouTube overlays expands a Shadowing block with ▶ Play Original (Edge TTS via `POST /tts-sync`) and click-to-toggle Start/Stop Recording (mic on `chrome.offscreen` doc — granted once per extension). User audio runs through `/transcribe-sync` → `/evaluate-pronunciation`; deterministic Python word-diff is the source of truth for score + missed/mispronounced words; LLM contributes only the localised feedback string (ADR-032) |
+| M34 | Browser Extension — YouTube Vocab Radar | ✅ Complete | Passive vocabulary radar for YouTube. Background fetches the user's vocabulary via new `GET /lexora_api/my_vocab`; main-world inject patches `XMLHttpRequest.prototype` + `window.fetch` to sniff `/api/timedtext` (JSON3 primary, SRV3/SRV1 XML fallback, DOM-observer for live streams). Content script builds a longest-match sliding-window index over the cue track and pauses the video ~4 s before a known word. Glassmorphism Shadow-DOM card shows the word + all-language translations (🇺🇦/🇬🇷/🇵🇱/🇬🇧) + the surrounding cue with the word highlighted, plus ⏪ Rewind 5 s & Play / ▶ Continue / 🔕 Skip this word / ✖ Disable for this video. Cooldown timer (default 120 s) starts at overlay close, not at fire, so the user can read the alert at their pace. Three Options-page controls + per-tab skip set + per-video kill switch. No persistence by default (ADR-033) |
 
 ---
 
@@ -2488,3 +2489,478 @@ curl -X POST http://localhost:5433/lexora_api/shadow_evaluate \
 ```
 
 **Acceptance:** a user reading any webpage can select a sentence, click 🎤, hear the TTS, hold-to-record themselves, and within ~40 s see a 0-100 score, per-word red/amber annotation, and a one-sentence feedback note in their language. Mic permission is requested once per extension, not per webpage. No data is persisted server-side without explicit opt-in.
+
+---
+
+## M34 — YouTube Vocab Radar (Extension)
+
+**Goal:** Bring spaced repetition to where the user already spends their time —
+YouTube. The extension scans upcoming subtitles for words the user has saved.
+When a known word is about to be spoken, the radar pauses the video and shows
+a glassmorphism alert with the word, translations, and the surrounding cue.
+One click on "⏪ Rewind 5 s & Play" replays the natural-context pronunciation.
+A configurable cooldown (default 120 s between auto-pauses) prevents
+interruption storms for users with hundreds of saved words.
+
+This is the **first organic-context** extension feature — the user doesn't have
+to click anything or select text; vocabulary surfaces naturally as they watch.
+Architectural pattern is read-only: no recording (M33), no input (M31), no
+selection (M28/M32). Pure passive look-ahead + targeted UI interruption.
+
+**Architecture (synchronous fetch + look-ahead scanner; no RabbitMQ, no LLM,
+no per-event server roundtrip):**
+
+```
+Background service worker (on startup + on add_word cache invalidation)
+   → GET /lexora_api/my_vocab  (Odoo proxy, lightweight projection)
+   → caches result in chrome.storage.local (lx_radar_vocab_cache, 15-min TTL)
+
+On youtube.com tab navigation:
+   manifest content_scripts loads extension/youtube_radar.js
+   → reads vocab cache (cache miss → fires lexora-get-my-vocab via background)
+   → injects extension/youtube_radar_inject.js into the page's main world
+       (web_accessible_resources entry; bridge via window.postMessage)
+
+In the page's main world (inject script):
+   patches XMLHttpRequest.prototype.send / fetch
+   sniffs for *.youtube.com/api/timedtext requests
+   on response, posts the JSON3 / SRV3 cue array back to the content script
+   via window.postMessage({type:'lx-radar-cues', cues:[...]})
+
+In the content script (isolated world):
+   receives the cue array, normalises into [{startMs, endMs, text}]
+   builds a Map<normalised_word, vocab_entry> from the cached vocab
+   tokenises every cue; pre-computes a sorted "hit timeline":
+     [{atMs, word, entry, cue}]
+   subscribes to <video>.timeupdate (throttled to ~250 ms)
+   on each tick: peek the next hit within LOOK_AHEAD_MS (default 4000 ms)
+       AND respect COOLDOWN_MS (default 120 000 ms) since the last firing
+       AND check the per-tab skip set + master kill-switch
+   if eligible: video.pause(); render the radar overlay
+       overlay buttons:
+         "⏪ Rewind 5 s & Play" → video.currentTime = max(0, t - 5); video.play()
+         "▶ Continue"          → video.play()
+         "🔕 Skip this word"    → addToTabSkipSet(word); video.play()
+         "✖ Disable for this video" → tabKillSwitch = true; video.play()
+```
+
+### Sub-decision 34a: New Odoo proxy `GET /lexora_api/my_vocab`
+
+A separate, leaner endpoint from M27's `/lexora_api/get_learned_words` because
+the use-case is different:
+
+- **M27 (review-in-the-wild)** — highlights every known word on every webpage.
+  Needs SRS state + days-ago to colour the underline. Capped at 500.
+- **M34 (radar)** — match against subtitle cues; renders a single alert on hit.
+  Needs all-language translations cleanly. Capped at 1000 (some users have
+  bigger active vocab than 500). No SRS state needed.
+
+**Pydantic-equivalent response shape:**
+
+```json
+{
+  "status": "ok",
+  "words": [
+    {
+      "id": 1234,
+      "word": "ephemeral",
+      "normalized": "ephemeral",
+      "lang": "en",
+      "translations": {
+        "uk": "короткочасний",
+        "el": "εφήμερος",
+        "pl": "efemeryczny"
+      }
+    }
+  ],
+  "generated_at": 1747094400
+}
+```
+
+- Auth: `_require_session()` (browser-extension session bridge, same as
+  every other `/lexora_api/*` route since M22).
+- Query: joins `language.entry` with `language.translation` for every
+  `status='completed'` translation. Filter: `status='active'` AND
+  `pvp_eligible=True` (i.e. has at least one completed translation —
+  otherwise the radar alert would have nothing useful to show).
+- Order: `write_date desc` (most recently touched first; matches the
+  user's mental "recent vocab" model).
+- Cap: 1000 entries. Env-overridable via `LEXORA_RADAR_VOCAB_LIMIT`.
+- CORS reflection identical to all other `/lexora_api/*` routes.
+
+**Why not reuse `/lexora_api/get_learned_words` with a query param?** The two
+endpoints will diverge over time (SRS state for M27; per-language filters for
+M34) and bundling them risks one consumer breaking the other on every change.
+The shapes are also subtly different (`translations` dict vs. SRS metadata).
+Two endpoints, single responsibility each.
+
+### Sub-decision 34b: Look-ahead via `/api/timedtext` XHR interception (with DOM fallback)
+
+**The hard problem:** to look ~4 seconds ahead, we need to know what the next
+cue will be **before YouTube renders it**. DOM observation of
+`.ytp-caption-segment` (M24 pattern) only shows the **current** cue. There are
+three viable paths:
+
+| Option | Mechanism | Look-ahead | Pros | Cons |
+|---|---|---|---|---|
+| A | Intercept `/api/timedtext` XHR | Full track | Get the whole cue list at once; precise timing | Requires main-world injection; YouTube format (JSON3 / SRV3) can shift |
+| B | Read `<track>` / `TextTrack` API | Full track | Standard Web API; clean | YouTube hides cues inside Shadow DOM and disables the native track on the `<video>` |
+| C | DOM observation only (M24-style) | Zero | Already works; no main-world injection | Cannot look ahead; would have to pause AS the word is spoken — too late |
+
+**Decision: Option A as primary, Option C as fallback.**
+
+- **Primary path (A):** `extension/youtube_radar_inject.js` runs in the page's
+  main world (loaded via `chrome.scripting.executeScript` with
+  `world: 'MAIN'`, or via the classic `<script src=getURL(...)>` injection
+  if `chrome.scripting` is unavailable from content scripts). It patches
+  `XMLHttpRequest.prototype.open` + `send` and `window.fetch`. On any
+  `*.youtube.com/api/timedtext` response, it parses the JSON3 body
+  (YouTube's modern caption format, has `events[]` with `tStartMs`,
+  `dDurationMs`, `segs[].utf8`) and posts the normalised cue array back to
+  the content script via `window.postMessage`. Falls back gracefully on
+  SRV3 / XML format if JSON3 is absent.
+- **Fallback path (C):** if no `/api/timedtext` request fires within the
+  first 10 seconds of playback (e.g. live stream, auto-translated tracks
+  loaded differently, or YouTube switches formats), the content script
+  starts a `MutationObserver` on `.ytp-caption-window-container` and matches
+  against the **current** cue. The radar still works, just with zero
+  look-ahead — pauses fire as the word is spoken. Documented as a known
+  degraded mode.
+
+**Manifest changes:**
+
+- `youtube_radar.js` added to `content_scripts` matched on `*://*.youtube.com/*`.
+- `youtube_radar_inject.js` added to `web_accessible_resources` matched on
+  the same pattern so the page's main world can load it.
+- No new permissions (no `tabs`, no `scripting` — the content-script-driven
+  injection via `<script src=getURL>` works under existing `activeTab`).
+
+**Why not intercept network traffic via `webRequest`?** MV3 disallows
+synchronous response inspection in the service worker. Even with
+`declarativeNetRequest`, we can't read response bodies. The main-world
+injection is the only MV3-compatible way to read the cue payload.
+
+### Sub-decision 34c: Cooldown + skip controls
+
+The radar would be unusable for a user with 500 saved words and a chatty
+YouTube channel — every other sentence would pause the video. Three control
+layers, all configurable in the Options page:
+
+| Control | Default | Storage | Persistence |
+|---|---|---|---|
+| Master toggle "Enable Radar" | ON | `chrome.storage.sync.lexora_radar_enabled` | Persistent |
+| Cooldown between pauses | 120 s | `chrome.storage.sync.lexora_radar_cooldown_seconds` | Persistent |
+| Look-ahead window | 4 s | `chrome.storage.sync.lexora_radar_lookahead_seconds` | Persistent |
+| Per-tab skipped words | {} | `chrome.storage.session.lexora_radar_skip_<tabId>` | Tab-lifetime |
+| Per-video kill switch | OFF | in-memory only | Page-lifetime |
+
+The per-tab skip set is **session-scoped** (cleared on tab close) so the user's
+"I already know this one for now" doesn't permanently exclude the word from
+future practice. The master toggle and the per-video kill switch give the
+user two escape hatches at different scopes.
+
+**Cooldown rule:** the timer starts when the radar **closes** (not when it
+fires) — so a user reading a long alert isn't punished with the next pause
+firing immediately after they hit Continue.
+
+### Sub-decision 34d: Radar UI — top-level overlay, not nested in the Quick Look card
+
+The existing YouTube overlay (`extension/overlay.js`, M24 + M28 + M32 + M33)
+is **click-on-subtitle-word** triggered. M34's radar is **auto-triggered**
+on a different code path. Putting both in the same DOM container would
+guarantee a layout/z-index/visibility-state collision the first time a user
+clicked a subtitle word while a radar alert was already open.
+
+**Decision:** new top-level overlay `#lx-radar-card` (Shadow DOM host on the
+extension's content-script side, same pattern as the Quick Look overlay's
+`#lx-ql-shadow-host`). Positioned bottom-centre, ~360 px wide. Glassmorphism
+with a teal/amber accent (visually distinct from the indigo M28 grammar
+block and the amber M32 slang block — so a user with both features active
+on the same page sees three colour-coded surfaces, not a mush).
+
+**Structure** (re-using M28-12d flex-sandwich + `!important` flex props):
+
+```
+.lx-radar-card
+  .lx-radar-header   (📡 Lexora Radar — Word in your vocabulary)
+  .lx-radar-scroll
+    .lx-radar-word       (large, bold)
+    .lx-radar-trans      (🇺🇦/🇬🇷/🇵🇱 rows where present)
+    .lx-radar-cue        (italic; the full subtitle sentence the word came from)
+  .lx-radar-footer
+    [⏪ Rewind 5 s & Play]
+    [▶ Continue]
+    [🔕 Skip this word]
+    [✖ Disable for this video]
+```
+
+The header is **draggable** (reuses the M28-17 `_makeDraggable(overlayEl)`
+pattern with viewport clamping). The card auto-closes if `<video>.play()` is
+called from outside the radar (e.g. user clicks the YouTube play button
+directly).
+
+### Sub-decision 34e: Match algorithm
+
+The vocab Map is keyed by `normalize(word)` (lowercase + Unicode NFC +
+diacritic-preserving — same `_normalize_word` helper as M27 uses). For each
+cue:
+
+1. Tokenise cue text on the same Unicode word-boundary regex M27 + M33 use
+   (`/[\wÀ-ɏͰ-ϿЀ-ӿ'-]+/u`). Preserves Greek, Cyrillic, Polish diacritics.
+2. For each token, strip leading/trailing punctuation, lowercase, NFC.
+3. Look up in the vocab Map. **First hit wins** per cue (no multi-pause from
+   one cue; a single cue can only consume one pause budget).
+4. Multi-word phrases (e.g. "give up", "kick the bucket") are checked **first**
+   as a sliding window over 2-3 token N-grams, before single-token lookup.
+   This way `kick the bucket` doesn't get pre-empted by `kick` if both are in
+   the vocab. The radar prefers the **longest-match** entry.
+5. The hit is recorded with the cue's `startMs` (not the token's index within
+   the cue — sub-cue timing isn't reliably exposed in the JSON3 format).
+
+### Sub-decision 34f: No persistence
+
+Radar events are ephemeral. No DB write, no `language.review` update, no
+"the user encountered this word in a YouTube video" telemetry. Rationale:
+
+- M27 already covers passive review-in-the-wild on web pages — its SRS
+  integration is the right place for "user has seen this word recently".
+  If M34 also wrote to SRS state, a single video binge would skew review
+  scheduling.
+- Privacy: the user's YouTube watch history doesn't leave the extension.
+- Same default as M33 (no persistence by default; opt-in revisit trigger).
+
+### Step-by-step work plan
+
+**Step 1 — Odoo proxy `GET /lexora_api/my_vocab`**
+
+- `language_portal/controllers/portal_api.py`:
+  - New `_MAX_RADAR_VOCAB = int(os.environ.get('LEXORA_RADAR_VOCAB_LIMIT', '1000'))` constant.
+  - `@http.route('/lexora_api/my_vocab', type='http', auth='none', methods=['GET'], csrf=False)`.
+  - `_require_session()` first line.
+  - Query active `language.entry` rows owned by the caller, `pvp_eligible=True`,
+    ordered `write_date desc`, capped at `_MAX_RADAR_VOCAB`.
+  - For each entry: build `translations = {t.target_language: t.translated_text
+    for t in entry.translation_ids if t.status == 'completed' and t.translated_text}`.
+  - Build the JSON envelope and return via `_json_response()` so CORS
+    reflection lands consistently.
+- `OPTIONS` preflight handled by the existing wildcard preflight controller in
+  the same file (no new OPTIONS route needed).
+
+**Step 2 — Extension background fetch + cache**
+
+- `extension/background.js`:
+  - New `handleGetMyVocab()` — GET `/lexora_api/my_vocab` via existing
+    session-cookie bridge (`getSessionHeader` → `X-Lexora-Session-Id`).
+    On 200, persists to `chrome.storage.local.lx_radar_vocab_cache` with
+    `generated_at` timestamp. On 401, returns `{status:'unauthorized'}` so
+    the content script can stay silent.
+  - `lexora-get-my-vocab` message router case.
+  - Cache invalidation hook: extend the existing `handleAddWordOverlay` /
+    context-menu `add_word` post-success block to also wipe
+    `lx_radar_vocab_cache`. (M27 already wipes `lx_word_cache` there; same
+    pattern, second key.)
+- Cache TTL = 15 min (same as M27's review-in-the-wild cache, same rationale).
+
+**Step 3 — Main-world inject script for `/api/timedtext` interception**
+
+- New file `extension/youtube_radar_inject.js`:
+  - Runs in the page's main world via `<script src=getURL(...)>` element
+    appended to `document.documentElement` by `youtube_radar.js`.
+  - Patches `XMLHttpRequest.prototype.open` to record URLs; patches `send`
+    so `addEventListener('load')` callbacks can read `responseText` once
+    URL matches `/^https?:\/\/[^/]*\.youtube\.com\/api\/timedtext\b/`.
+  - Patches `window.fetch` similarly (`Response.clone().text()` to read
+    without consuming the page's own consumer).
+  - Posts cues via `window.postMessage({source:'lx-radar', type:'cues',
+    cues:[{startMs, endMs, text}]}, '*')`. Source field guards against
+    cross-extension postMessage collisions.
+  - JSON3 parser primary; SRV3/XML fallback; logs a one-time warning if
+    the format is unknown.
+- `extension/manifest.json`:
+  - Add `"youtube_radar_inject.js"` to `web_accessible_resources` (resources
+    list, with `matches: ["*://*.youtube.com/*"]`).
+  - Add `extension/youtube_radar.js` to `content_scripts` for YouTube.
+
+**Step 4 — Content script `youtube_radar.js` (scanner + UI)**
+
+- New file `extension/youtube_radar.js`:
+  - On `document_idle`, load the inject script (idempotent —
+    `if (document.querySelector('script[data-lx-radar-inject])')` guard).
+  - Bootstrap: read master toggle + cooldown + lookahead from
+    `chrome.storage.sync`; default ON, 120 s, 4 s.
+  - `_getVocab()` async — read `lx_radar_vocab_cache`; on miss or stale
+    (>15 min) send `lexora-get-my-vocab` and re-cache. Returns
+    `Map<normalized, entry>` plus a separate phrase-list for the
+    longest-match sliding window.
+  - `window.addEventListener('message', ...)` listens for the inject script's
+    `lx-radar / cues` envelope. Rebuilds the hit timeline.
+  - **Hit timeline construction:** for each cue, run the longest-match
+    sliding window (3-gram → 2-gram → 1-gram); first hit per cue records
+    `{atMs: cue.startMs, word, entry, cueText}`. Result is sorted by `atMs`
+    and held in a closure variable `_radarHits`.
+  - **Scan tick:** subscribes to `<video>.timeupdate` (throttled via a
+    `_lastTickMs` guard, ~250 ms). On each tick:
+    - `currentMs = video.currentTime * 1000`
+    - Find the next hit with `atMs > currentMs && atMs <= currentMs +
+      LOOKAHEAD_MS`.
+    - If found AND `(performance.now() - _lastFiredAt) > COOLDOWN_MS` AND
+      `!_tabSkip.has(hit.word)` AND `!_videoKillSwitch` AND
+      `masterToggle === true`:
+      - `video.pause()`
+      - `_renderRadarOverlay(hit, video)`
+      - (do NOT advance `_lastFiredAt` until the overlay closes — see
+        sub-decision 34c rationale)
+  - **Navigation reset:** YouTube is an SPA. Listen for
+    `yt-navigate-finish` events (YouTube custom event fired on URL change)
+    and reset `_radarHits`, `_videoKillSwitch`, and the per-tab skip set
+    on every nav. Without this, an old video's hits keep firing on the new
+    video.
+
+**Step 5 — Radar overlay UI**
+
+- Glassmorphism Shadow DOM host appended to `document.body`.
+- `_RADAR_CSS` string constant injected once (`_ensureRadarStyles`).
+  Teal/amber palette (`rgba(20,184,166,...)` + `rgba(245,158,11,...)`),
+  consistent with M33's teal recorder + M32's amber slang block.
+- Four footer buttons wired to:
+  1. `_onRewindAndPlay()` — `video.currentTime = Math.max(0,
+     video.currentTime - 5); _closeOverlay(); video.play();`
+  2. `_onContinue()` — `_closeOverlay(); video.play();`
+  3. `_onSkipWord(word)` — `_tabSkip.add(word); _closeOverlay();
+     video.play();`
+  4. `_onDisableForVideo()` — `_videoKillSwitch = true; _closeOverlay();
+     video.play();`
+- `_closeOverlay()` advances `_lastFiredAt = performance.now()` so the
+  cooldown timer starts at close, not at fire.
+- `_makeDraggable(card)` reuses the M28-17 pattern for header-drag with
+  viewport clamping.
+
+**Step 6 — Options page surface**
+
+- `extension/options.html`:
+  - New "YouTube Vocab Radar (M34)" section with:
+    - Checkbox "Enable Radar" → `lexora_radar_enabled` (default ON).
+    - Number input "Cooldown between pauses (seconds)" → `lexora_radar_cooldown_seconds`
+      (default 120, min 10, max 3600).
+    - Number input "Look-ahead window (seconds)" → `lexora_radar_lookahead_seconds`
+      (default 4, min 1, max 15).
+    - Hint paragraph explaining what the radar does and that no data is
+      persisted server-side.
+- `extension/options.js`:
+  - Initial load reads + pre-fills all three values.
+  - `change` autosave (no Save button — consistent with M31/M32 toggle
+    pattern). Content script subscribes to `chrome.storage.onChanged` so
+    a toggle change takes effect on the next `timeupdate` tick without a
+    page reload.
+
+**Step 7 — ADR-033 + final docs flip**
+
+- ADR-033 in `docs/DECISIONS.md` covering six sub-decisions:
+  33a · separate `/my/vocab` endpoint; 33b · XHR interception + DOM
+  fallback strategy; 33c · cooldown rule + per-tab skip set + per-video
+  kill switch; 33d · top-level overlay vs. nested-in-Quick-Look; 33e ·
+  longest-match sliding window; 33f · no persistence.
+- `PLAN.md` v2.5 → v2.6; M34 row flipped ✅ Complete; status header
+  reflects M0-M34 done.
+- `TASKS.md` archive.
+- `README.md` — Browser Ecosystem subsection adds M34; LLM service
+  endpoint list **unchanged** (M34 doesn't add a sync LLM endpoint).
+- Commit + push.
+
+### Verification commands
+
+```bash
+# Step 1 — Odoo proxy
+docker exec odoo odoo -d lexora --update language_portal \
+  --stop-after-init --no-http
+docker restart odoo
+
+curl -X GET http://localhost:5433/lexora_api/my_vocab \
+  -H "X-Lexora-Session-Id: <sid>"
+# → {"status":"ok","words":[...],"generated_at":...}
+
+# Step 2 — Background cache (run from extension SW DevTools console)
+await chrome.runtime.sendMessage({action:'lexora-get-my-vocab'});
+// → {status:'ok', words:[...]}
+const {lx_radar_vocab_cache: cache} = await chrome.storage.local.get('lx_radar_vocab_cache');
+console.log('cache_size', cache.words.length, 'age_s',
+  Math.round((Date.now() - cache.generated_at*1000)/1000));
+
+# Step 3 — XHR interception smoke (run on any youtube.com video page console)
+window.addEventListener('message', e => {
+  if (e.data?.source === 'lx-radar' && e.data?.type === 'cues') {
+    console.log('cues received:', e.data.cues.length, 'first:', e.data.cues[0]);
+  }
+});
+// Then turn captions ON. Within a few seconds the listener should fire.
+
+# Steps 4-5 — Browser smoke (user-side):
+# Load extension, open any YouTube video with subtitles ON that contains
+# a word from your vocabulary. Within a few seconds of the word appearing
+# on screen, the video should pause and the Radar overlay should appear
+# with translations and rewind button. Confirm:
+#   - "⏪ Rewind 5 s & Play" sets currentTime correctly and resumes playback.
+#   - "🔕 Skip this word" suppresses subsequent pauses for that word in the tab.
+#   - 120 s cooldown enforced (try a video with the same word appearing twice
+#     within 60 s — second pause should be suppressed).
+#   - SPA navigation (clicking a video recommendation) resets state cleanly.
+
+# Step 6 — Options
+# Toggle "Enable Radar" OFF in Options → no pauses on the next subtitle hit.
+# Drop cooldown to 10 s → pauses now allowed every 10 s.
+```
+
+**Acceptance:** a user with ≥50 saved vocabulary words can play any
+subtitled YouTube video and within a minute see the radar pause the video
+on a known word. The "⏪ Rewind 5 s & Play" button replays the word in
+its native context. The 120 s cooldown prevents pause-storms. The user
+can disable the radar per-video, per-word, or globally via Options.
+Vocabulary cache refreshes when the user adds new words via the existing
+"Add to List" flow.
+
+---
+
+## Dependency Graph (final, M0–M34)
+
+```
+M0 → M1 → M2 → M3
+               ↓
+               M4 → M4b → M4c
+               ↓
+          M5   M6
+          ↓    ↓
+          M7 ←→ M8
+          ↓
+          M9 → M10 → M11 → M12 → M13 → M14 → M15 → M16 → M17 → M18
+                                                                    ↓
+                                                              M18.5 (Header)
+                                                                    ↓
+                                                  M19 ←──────── parallel ──────→ M20
+                                                                    ↓
+                                                                   M21
+                                                                    ↓
+                                            M22 (Extension scaffold + Odoo API)
+                                                 ↓              ↓           ↓
+                                               M23          M24           M25
+                                          (Contextual)   (Subtitles)  (New Tab)
+                                                 ↓              ↓
+                                               M27            M28
+                                          (Highlighting)  (Grammar LLM)
+                                                    (M26 — AI Helpdesk — postponed ⏸)
+                                                 ↓              ↓
+                                               M31            M32
+                                            (Writer)       (Slang)
+                                                                ↓
+                                                              M33
+                                                          (Shadowing)
+                                                                ↓
+                                                              M34
+                                                       (YouTube Radar)
+```
+
+M34 depends on **M22** (extension scaffold + `_require_session()` proxy
+pattern), **M24** (existing YouTube content-script bootstrap; M34 adds a
+sibling content script, not an extension of it), and **M27** (vocab cache
+pattern + cache-invalidation hook on `add_word` success). No new service
+dependencies — M34 is the first extension milestone that touches neither
+the LLM service nor the audio service.

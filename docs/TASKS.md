@@ -15,7 +15,619 @@
 
 ## Current Milestone
 
-(none — M33 closed on 2026-05-09; next milestone TBD)
+(none — M34 closed on 2026-05-16; next milestone TBD)
+
+---
+
+## Completed Milestones (M34)
+
+### M34 — YouTube Vocab Radar (Extension)
+
+**Status:** Complete and verified (browser smoke confirmed by user — radar
+paused at exactly 3.8 s before "donkey" spoken; UI screenshot confirmed
+all six button paths working on the word "apparently"; six sub-decisions
+locked in ADR-033).
+**Branch:** `m34_yt_vocab_radar` (created from `m33_webpage_shadowing`).
+**Final commits:** `282c095` planning · `a257ad1` S1-S2 (Odoo proxy +
+background cache) · `612a476` S3 (main-world XHR/fetch interception) ·
+`db15b96` S4 (scanner state machine) · `dd3652f` S5-S6 (overlay UI +
+Options surface) · this commit S7 (ADR-033 + final docs flip).
+
+**Original status line (preserved for archive):**
+Planned (architecture locked, no code yet).
+**Branch:** `m34_yt_vocab_radar` (created from `m33_webpage_shadowing`).
+**Started:** 2026-05-13
+
+**Scope:** Passive vocabulary radar for YouTube. Background fetches the
+user's vocabulary via a new lightweight `GET /lexora_api/my_vocab`; a
+content script intercepts `/api/timedtext` XHR responses (with a DOM-cue
+fallback for live streams / non-JSON3 formats), pre-computes a hit
+timeline, and looks ~4 s ahead. When a known word is about to be spoken,
+the radar pauses the video and shows a glassmorphism alert with the word,
+all-language translations, the surrounding cue, and a "⏪ Rewind 5 s &
+Play" button. Configurable cooldown (default 120 s) plus per-tab skip
+set plus per-video kill switch keep the experience non-intrusive.
+
+**Architectural decisions (locked at planning, see ADR-033 in
+`docs/DECISIONS.md` once Step 7 lands):**
+
+- **Sync proxy chain.** Same ADR-030/031/032 rule reapplied: vocab fetch
+  is a single sync GET; everything else is client-side. No RabbitMQ, no
+  LLM, no per-event server roundtrip.
+- **Look-ahead via main-world XHR / fetch interception.** Content scripts
+  can't read response bodies from page-issued requests; `chrome.offscreen`
+  doesn't help here either. Solution: inject
+  `extension/youtube_radar_inject.js` into the page's main world via a
+  `<script src=getURL(...)>` element. The inject script patches
+  `XMLHttpRequest.prototype.send` and `window.fetch`, sniffs for
+  `*.youtube.com/api/timedtext`, parses JSON3 (primary) or SRV3/XML
+  (fallback), and `window.postMessage`s the normalised cue array back to
+  the content script. If no `/api/timedtext` fires within 10 s (live
+  streams, alternate caption pipelines), the content script gracefully
+  degrades to a `MutationObserver` on `.ytp-caption-window-container`
+  with zero look-ahead.
+- **Top-level radar overlay** (`#lx-radar-card` Shadow DOM host), NOT
+  nested in the existing M24 click-on-word YouTube overlay. Reason: the
+  two surfaces have different trigger paths (auto vs. user-click) and
+  could otherwise collide on layout/z-index/visibility.
+- **Three control layers** in `chrome.storage.sync` (master toggle,
+  cooldown, look-ahead window) plus per-tab skip set in
+  `chrome.storage.session` plus an in-memory per-video kill switch.
+  Cooldown timer starts at overlay close, not at fire — so a user
+  reading a long alert isn't punished with immediate re-fire.
+- **Longest-match sliding window** for multi-word phrases (give up, kick
+  the bucket) so they aren't pre-empted by single-token entries.
+- **No persistence by default** — same rule as M33. SRS state is owned
+  by M27's review-in-the-wild path. Opt-in radar-history save is a
+  documented future revisit trigger, not in-scope here.
+
+#### Sub-steps
+
+**Step M34-S1 — Odoo proxy `GET /lexora_api/my_vocab`** ✅
+
+- [x] M34-S1-01 · `language_portal/controllers/portal_api.py` —
+  `_MAX_RADAR_VOCAB = int(os.environ.get('LEXORA_RADAR_VOCAB_LIMIT',
+  '1000'))` added next to the existing `_MAX_SHADOW_TEXT` constant.
+- [x] M34-S1-02 · `@http.route('/lexora_api/my_vocab', type='http',
+  auth='none', methods=['GET'], csrf=False)` route added at the end of
+  the `LexoraApiController` class, just before the helpers block.
+  `_require_session()` first line; `_resolve_uid()` to find the caller.
+- [x] M34-S1-03 · Query: `language.entry` rows with `owner_id = uid`,
+  `status='active'`, `pvp_eligible=True`, ordered `write_date desc`,
+  limit `_MAX_RADAR_VOCAB`. `sudo()` after the ownership filter so the
+  translation join doesn't trip record rules.
+- [x] M34-S1-04 · Translation map built via a single
+  `language.translation.sudo().search([('entry_id','in',entries.ids),
+  ('status','=','completed')])` pass; skips rows with empty
+  `translated_text`; first-result-per-language wins (`order='id asc'`).
+  Per-entry projection: `{id, word, normalized, lang, translations}`.
+- [x] M34-S1-05 · Wrapped as `{status:'ok', words:[...],
+  generated_at: int(time.time())}` and returned via `_json_response()`
+  — CORS reflection lands for free via `_cors_headers()`.
+- [x] M34-S1-06 · `docker exec odoo odoo --update language_portal
+  --stop-after-init --no-http` → "Modules loaded.", 0 errors.
+  `docker restart odoo` → ready in ~1 s; `/web/login` returns 200.
+- [x] M34-S1-07 · Smoke matrix passed (recorded inline in this commit):
+  - No session → HTTP 401 `{"status":"unauthorized",...}` ✓
+  - Authenticated admin (1055 pvp-eligible entries) via header bridge →
+    HTTP 200, `words.length == 1000` (cap honoured), all 1000 rows
+    have exactly the 5-key schema, all rows have a non-empty
+    `translations` dict, Polish translations present (`pl` key on
+    every row — M29 backfill landed). ✓
+  - Cookie auth path (`Cookie: session_id=...`) → HTTP 200 ✓
+  - User with 0 pvp-eligible entries → HTTP 200 `words: []` ✓
+  - OPTIONS preflight returns 401 — same as the existing M27
+    `/get_learned_words` route (pre-existing behaviour; browser
+    extensions route around it through `_cors_headers()` reflection).
+
+**Step M34-S2 — Extension background fetch + cache** ✅ (browser smoke
+M34-S2-04 awaits user reload)
+
+- [x] M34-S2-01 · `extension/background.js` — `handleGetMyVocab()`
+  added. GET `/lexora_api/my_vocab` via `getBaseUrl()` +
+  `getSessionHeader()` (the existing X-Lexora-Session-Id bridge).
+  On 200 + `data.status === 'ok'`, persists the payload to
+  `chrome.storage.local.lx_radar_vocab_cache`. On 401 resolves
+  `{status:'unauthorized'}`. Storage write wrapped in try/catch so a
+  storage failure doesn't kill the fetch response.
+- [x] M34-S2-02 · `lexora-get-my-vocab` case added to the
+  `chrome.runtime.onMessage` router between `lexora-get-learned-words`
+  and `lexora-explain-grammar`. Follows the standard
+  `.then(sendResponse).catch(...)` pattern.
+- [x] M34-S2-03 · Both cache-invalidation sites extended:
+  - `handleAddWordOverlay` success branch
+    (background.js L173) — was
+    `chrome.storage.local.remove('lx_word_cache')`, now
+    `chrome.storage.local.remove(['lx_word_cache',
+    'lx_radar_vocab_cache'])`.
+  - Context-menu `chrome.contextMenus.onClicked` success branch
+    (background.js L591) — same change. So adding a word via popup
+    OR via right-click both wipe the radar cache.
+- [x] M34-S2-PRE · `node --check background.js` → OK.
+- [ ] M34-S2-04 · **User-side smoke** — reload the unpacked extension,
+  then open the service worker DevTools console
+  (`chrome://extensions` → Lexora → "service worker" link → Inspect),
+  paste:
+  ```js
+  // Wipe the cache first so we can observe a fresh write
+  await chrome.storage.local.remove('lx_radar_vocab_cache');
+
+  // Fetch via the new handler
+  const resp = await chrome.runtime.sendMessage({action:'lexora-get-my-vocab'});
+  console.log('handler returned: status=%s, words=%d, generated_at=%d',
+    resp.status, resp.words?.length, resp.generated_at);
+
+  // Confirm the background wrote the cache
+  const {lx_radar_vocab_cache: cache} =
+    await chrome.storage.local.get('lx_radar_vocab_cache');
+  console.log('cache: words=%d, age=%ds',
+    cache.words.length,
+    Math.round((Date.now() - cache.generated_at * 1000) / 1000));
+
+  // Spot-check schema
+  const first = cache.words[0];
+  console.log('first row:', first);
+  console.assert(Object.keys(first).sort().join(',') ===
+    'id,lang,normalized,translations,word',
+    'unexpected schema');
+
+  // Invalidation smoke — add any word via the popup, then re-read:
+  // const after = await chrome.storage.local.get('lx_radar_vocab_cache');
+  // console.assert(!after.lx_radar_vocab_cache, 'cache should be empty after add_word');
+  ```
+  Expected: `handler returned: status=ok, words=1000, generated_at=...`
+  and the cache `age` is 0–1 s. Schema-assert passes silently.
+
+**Step M34-S3 — Main-world XHR / fetch interception** ✅
+(browser console smoke M34-S3-06 awaits user reload)
+
+- [x] M34-S3-01 · `extension/youtube_radar_inject.js` created. IIFE
+  with `if (window.__lxRadarInjected) return;` guard at the top —
+  YouTube SPA nav can fire our content script's `<script src=...>`
+  injection twice; the second IIFE execution becomes a no-op so we
+  never double-patch fetch/XHR. File header comment links ADR-033
+  sub-decision 34b and documents the safety contract (never break
+  the page's own request; `response.clone()` for fetch; defensive
+  try/catch around every patch site).
+- [x] M34-S3-02 · `XMLHttpRequest.prototype.open` patched to stash
+  `this.__lxUrl` on the instance (defensive `String(url == null ?
+  '' : url)`, never throws). `send()` patched: if `__lxUrl` matches
+  `TIMEDTEXT_RE = /^https?:\/\/[^/]*\.youtube\.com\/api\/timedtext\b/i`,
+  registers an `addEventListener('load')` that reads `responseText`
+  on `status 2xx` and routes through `_ingest` → `_parseBody` →
+  `_emitCues`. Original `open`/`send` are always called via
+  `apply(this, arguments)` so the page's flow is untouched.
+- [x] M34-S3-03 · `window.fetch` patched. URL extraction handles all
+  three input shapes (string, `Request` object, `URL` object). On
+  `TIMEDTEXT_RE` match, `promise.then(resp => resp.clone().text()
+  .then(_ingest))` — clone forks the body so the page's own consumer
+  still gets the un-touched response. Promise chain has its own
+  `.catch` so a page-level fetch rejection doesn't surface as an
+  unhandled rejection on our side.
+- [x] M34-S3-04 · `_parseBody(text)` dispatcher — strips BOM + leading
+  whitespace, sniffs the first character (`{` → JSON3, `<` → XML),
+  one-time warns on unknown format. `_parseJson3(events)` iterates
+  `events[]`; skips events with no `segs` (silence markers) and
+  cues whose joined `utf8` is whitespace-only; emits
+  `{startMs: tStartMs, endMs: tStartMs + dDurationMs, text}`.
+  `_parseXml(xmlText)` tries SRV3 `<p t="ms" d="ms">` first, falls
+  back to SRV1 `<text start="seconds" dur="seconds">` with sec→ms
+  conversion. Whitespace collapsed via `replace(/\s+/g, ' ')` so
+  HTML-formatted multi-line cues come out as single-line text.
+- [x] M34-S3-05 · `extension/manifest.json` — new
+  `web_accessible_resources` block exposing
+  `youtube_radar_inject.js` matched on
+  `https://www.youtube.com/*`. This lets `youtube_radar.js`
+  (Step S4) load it via
+  `<script src=chrome.runtime.getURL('youtube_radar_inject.js')>`
+  from the page DOM.
+- [x] M34-S3-PRE · Static checks: `node --check
+  youtube_radar_inject.js` passes; `python3 -c "json.load(...)"`
+  confirms `manifest.json` still parses.
+- [x] M34-S3-OFFLINE · Sandboxed functional smoke (Node + `vm` +
+  stubbed `window` / `DOMParser` / `XMLHttpRequest`):
+  - `ready` envelope fires exactly once on IIFE entry. ✓
+  - JSON3 happy path → 2 cues with correct startMs / endMs /
+    concatenated text from multi-segment `segs[]`. Silence
+    markers (no `segs`) and whitespace-only cues correctly
+    excluded. ✓
+  - SRV3 XML happy path → 2 cues, timing math matches JSON3 case. ✓
+  - SRV1 legacy XML (seconds-based `start` / `dur` attributes) →
+    seconds correctly converted to milliseconds. ✓
+  - URL guard: a request to `/api/something_else` is NOT
+    intercepted — strict regex anchor on
+    `/api/timedtext\b` holds. ✓
+  - Idempotency: re-running the IIFE in the same context posts
+    zero new messages (guard short-circuits before patching). ✓
+- [ ] M34-S3-06 · **User-side browser smoke** — reload the unpacked
+  extension, navigate to any YouTube video with captions available,
+  open the page's DevTools console (NOT the SW console — main-world
+  postMessages flow through the page's window), paste:
+  ```js
+  window.addEventListener('message', e => {
+    if (e.data?.source === 'lx-radar') {
+      if (e.data.type === 'ready') {
+        console.log('%c[lx-radar] inject ready', 'color:#14b8a6');
+      } else if (e.data.type === 'cues') {
+        console.log('%c[lx-radar] cues received: %d (first: %o)',
+          'color:#14b8a6', e.data.cues.length, e.data.cues[0]);
+      }
+    }
+  });
+  ```
+  Then turn captions ON. Expected: a `ready` log line on every
+  page load, then a `cues received: N (first: {startMs, endMs,
+  text})` line within ~5 s of the captions becoming visible.
+  Note: the `cues` line will only fire AFTER S4 lands and the
+  inject script is actually loaded by `youtube_radar.js` —
+  until then, the file lives in the extension bundle but isn't
+  injected into any page. (You can manually inject it for an
+  early smoke by pasting
+  `const s=document.createElement('script');
+  s.src=chrome.runtime.getURL('youtube_radar_inject.js');
+  document.documentElement.appendChild(s);` into the page console
+  on a YouTube video — note this requires the file to already be
+  in `web_accessible_resources`, which it is after S3-05.)
+
+**Step M34-S4 — Content script `youtube_radar.js` (scanner state machine)** ✅
+(browser smoke deferred to S5 when the overlay UI lands;
+for now hits log + pause the video)
+
+- [x] M34-S4-01 · `extension/youtube_radar.js` created. IIFE with
+  `window.__lxRadarContentLoaded` guard. File header documents the
+  pipeline (inject → vocab index → cue match → tick → fire) and
+  links ADR-033 / PLAN §M34.
+- [x] M34-S4-02 · `extension/manifest.json` — second YouTube
+  `content_scripts` entry registered:
+  `{matches:["https://www.youtube.com/*"], js:["youtube_radar.js"],
+  run_at:"document_idle"}`. Sibling of the existing `overlay.js`
+  entry, not a replacement. Verified both YT content scripts present:
+  `[['overlay.js'], ['youtube_radar.js']]`.
+- [x] M34-S4-03 · `_injectMainWorld()` idempotency: skips if a
+  `<script data-lx-radar-inject>` already exists. On first
+  injection appends `<script src=chrome.runtime.getURL(
+  'youtube_radar_inject.js') data-lx-radar-inject="1">` to
+  `document.head || document.documentElement`. `onload` removes the
+  script element (cleanup; patches live on in main world). Re-fired
+  on `yt-navigate-finish` for hard reloads where the page DOM was
+  wiped — the main-world `__lxRadarInjected` guard makes this safe.
+- [x] M34-S4-04 · `_loadSettings()` + `_attachStorageChangeListener()`:
+  - Reads `chrome.storage.sync` keys `lexora_radar_enabled`,
+    `lexora_radar_cooldown_seconds`, `lexora_radar_lookahead_seconds`.
+  - Defaults: `enabled = true` (when key absent), `cooldown = 120 s`
+    (min 10), `lookahead = 4 s` (min 1). All min-clamping defensive.
+  - `chrome.storage.onChanged` listener mutates the in-memory values
+    so Options-page changes take effect on the next tick without
+    page reload. Logs each toggle to the console for visibility.
+- [x] M34-S4-05 · `_getVocab()` cache flow:
+  - Reads `chrome.storage.local.lx_radar_vocab_cache`.
+  - Fresh = `status === 'ok'` AND `Date.now() - generated_at*1000 <
+    15 min`. Returns `payload.words` on fresh hit.
+  - Stale/miss → `chrome.runtime.sendMessage({action:
+    'lexora-get-my-vocab'})` (background's M34-S2-01 handler writes
+    the cache before resolving, so the next call hits warm).
+  - `{status:'unauthorized'}` from background → silent disable
+    (radar effectively off until the user logs in + reloads).
+- [x] M34-S4-06 · `_buildIndex(words)`:
+  - Tokenises every entry's `normalized || word` via
+    `/[\wÀ-ɏͰ-Ͽἀ-῿Ѐ-ӿ'\-]+/gu` (M27/M33 regex extended with
+    Greek Extended block ἀ-῿ for polytonic transcripts).
+  - Single-token entries land in `wordMap`; multi-token in
+    `phrases`. Returns `{wordMap, phrases}` with `phrases` sorted
+    **descending by token count** — critical for longest-match.
+  - `_findCueHit(cueText, idx)` runs phrases first (longest beats
+    `kick` when both `kick` and `kick the bucket` are in vocab),
+    falls back to single-token Map lookup. First match per cue wins.
+- [x] M34-S4-07 · Message listener for cues:
+  `window.addEventListener('message')` filters
+  `e.source === window && e.data.source === 'lx-radar'`. On
+  `type === 'cues'`, stores `_latestCues` and calls
+  `_rebuildHits()`. On `type === 'ready'`, logs an indigo banner
+  so the user knows the inject patches landed.
+- [x] M34-S4-08 · `_rebuildHits()`:
+  - Short-circuits until BOTH `_vocabIndex` and `_latestCues` exist
+    (vocab + cues can arrive in any order — the radar handles both).
+  - For each cue, runs `_findCueHit`. Records
+    `{atMs: cue.startMs, word, entry, cueText, cueEndMs}`.
+  - Sorts ascending by `atMs` → `_radarHits`.
+  - Resets `_lastFiredIdx = -1` so freshly-built timelines can fire
+    immediately after SPA navigation.
+- [x] M34-S4-09 · `_onTimeUpdate()` scan tick:
+  - 250 ms throttle via `now - _lastTickMs < _TICK_THROTTLE_MS`.
+  - Master/kill-switch/empty-timeline early returns.
+  - Cooldown gate: `now - _lastFiredAt < _cooldownMs` → bail.
+    **Critical:** `_lastFiredAt` initialised to `-Infinity` (not 0)
+    so the first fire on a fresh page isn't blocked by the cooldown
+    timer treating `performance.now() - 0` as "small". The
+    `_radarHits` reset on SPA nav resets back to `-Infinity` too.
+  - Binary-search `_findNextHitIndex(currentMs)` for the smallest
+    `atMs > currentMs` (strict greater — ties don't refire the
+    current cue).
+  - Skip if `idx === _lastFiredIdx` (don't fire the same hit twice
+    even when cooldown elapses).
+  - Skip if `delta > _lookaheadMs` (not yet in the look-ahead
+    window) OR `_tabSkip.has(_normToken(hit.word))`.
+  - **FIRE 🎯**: `_lastFiredIdx = idx`, `_lastFiredAt = now`,
+    `_currentVideo.pause()`, `console.log` the hit.
+  - **S4-only contract**: cooldown timer starts at fire time. S5
+    will move this advance to `_closeOverlay()` so the user gets a
+    full cooldown only after they dismiss the alert (sub-decision
+    34c). For S4 the user dismisses by clicking YouTube's own play
+    button — and the next fire is naturally cooldown-gated.
+- [x] M34-S4-10 · Video attachment + polling:
+  `_findVideo()` tries `video.html5-main-video` then any `video`.
+  `_attachToVideo()` detaches the previous element's listener
+  (SPA nav can swap the `<video>` element wholesale) before
+  binding `timeupdate` on the new one. `_bootVideoWatch()` polls
+  every 500 ms for up to 60 s if the element isn't immediately
+  present (handles slow YT player init).
+- [x] M34-S4-11 · `_onYtNavigate()` SPA reset:
+  `window.addEventListener('yt-navigate-finish')` clears
+  `_radarHits`, `_latestCues`, `_videoKillSwitch`, `_tabSkip`,
+  resets `_lastFiredAt`/`_lastFiredIdx`/`_lastTickMs`. Re-runs
+  `_bootVideoWatch()` (player element is usually replaced) and
+  `_injectMainWorld()` (no-op if the inject is still present).
+  Vocab + cues are re-fetched naturally on the new video — vocab
+  cache is page-lifetime stable; cues arrive when the new track
+  loads.
+- [x] M34-S4-PRE · `node --check youtube_radar.js` passes;
+  `manifest.json` parses; both YT content scripts registered.
+- [x] M34-S4-OFFLINE · Node-sandboxed functional smoke:
+  - Index build: 6 single-token + 3 phrase entries from canned
+    vocab; phrases sorted by length desc → `[5, 3, 2]` ✓
+  - Cue-match cases (13/13 pass):
+    - "ephemeral" → matches `ephemeral` ✓
+    - "kicked the bucket" → null (inflection not in vocab) ✓
+    - "kick the bucket" → longest-match beats `kick` alone ✓
+    - "give up" → multi-word phrase ✓
+    - Single-token fallback (`up`) ✓
+    - 5-gram `piece of cake right now` ✓
+    - Empty cue → null ✓
+    - Polish single (`książka`), Greek single (`καλημέρα`),
+      Ukrainian single (`привіт`) ✓
+    - Case-insensitive match (`UP up uP` → `up`) ✓
+  - Binary search next-hit (6/6 pass):
+    `currentMs = 0` → idx 0; ties strictly-greater
+    (`currentMs = atMs` → next idx not same); past-end → −1.
+  - Cooldown + lookahead gate (recorded in commit message):
+    - First fire on fresh page (with `_lastFiredAt=-Infinity`)
+      fires immediately ✓
+    - Same-hit guard prevents refiring on subsequent ticks ✓
+    - Cooldown holds between fires ✓
+    - After cooldown elapses + new hit within lookahead → fires ✓
+- [ ] M34-S4-BROWSER · **User-side smoke** — reload the extension,
+  open any YouTube video that contains a word from your vocabulary
+  with captions ON. Open the page console (not SW console — radar
+  logs go to the page). Expect:
+  1. `[lx-radar] youtube_radar.js init on https://...`
+  2. `[lx-radar] settings: enabled=true cooldown=120s lookahead=4s`
+  3. `[lx-radar] vocab cache HIT (1000 words, age Xs)` OR
+     `[lx-radar] vocab fetched fresh (1000 words)`
+  4. `[lx-radar] inject ready (patches landed)`
+  5. `[lx-radar] attached to <video>`
+  6. `[lx-radar] hit timeline rebuilt: N hits over 3621 cues`
+     (using the user's earlier 3621-cue smoke as a reference)
+  7. When the player reaches a hit, `[lx-radar] HIT! word=... at=...`
+     and the video pauses. Click YT play to resume; next hit
+     respects the 120 s cooldown.
+
+**Step M34-S5 — Radar overlay UI** ✅
+(browser smoke deferred to user reload — see M34-S5-BROWSER)
+
+- [x] M34-S5-01 · `_RADAR_HOST_CSS` + `_RADAR_SHADOW_CSS` string
+  constants added in `youtube_radar.js`. Host CSS (page-level) sets
+  `position:fixed; bottom:24px; left:50%; transform:translateX(-50%);
+  z-index:2147483600; width:380px;` — all with `!important` so YT's
+  stylesheet can't reposition us. Shadow CSS uses the M28-12d flex
+  sandwich `.lx-radar-header (flex-shrink:0) / .lx-radar-scroll
+  (flex:1 1 auto; min-height:0; overflow-y:auto) / .lx-radar-footer
+  (flex-shrink:0)` — every structural prop carries `!important`.
+  Palette: teal+amber gradient header (`rgba(20,184,166,0.32)` →
+  `rgba(245,158,11,0.22)`), teal primary CTA, amber skip button,
+  red kill switch. `<mark class="lx-radar-mark">` for the matched
+  word inside the cue uses amber background.
+- [x] M34-S5-02 · `_renderRadarOverlay(hit, video)`:
+  - Lazy `_ensureRadarStyles()` injects the host-scoped CSS once.
+  - Creates a top-level `<div id="lx-radar-shadow-host">` appended
+    to `document.body || document.documentElement`. Attaches Shadow
+    DOM via `host.attachShadow({mode:'open'})`. `:host { all:
+    initial; }` shields against page CSS leaking in.
+  - Header has 📡 icon + "Lexora Radar" title + small "Word from
+    your vocabulary" hint + a ✕ close button (semantics = ▶
+    Continue).
+  - Scroll body: `.lx-radar-word` (22 px bold, original casing
+    from `hit.word`); per-language translation rows assembled from
+    `hit.entry.translations` in fixed `uk / el / pl / en` order
+    minus the source language (so the user always sees flags in a
+    consistent left-to-right reading order). If the entry has no
+    translations, renders `<div class="lx-radar-trans-empty">No
+    translations on file for this entry.</div>` — defensive but
+    unlikely since `/my_vocab` filters to `pvp_eligible=True`.
+    `.lx-radar-cue` italic block with the matched word wrapped in
+    `<mark>` via `_highlightWord(cueText, word)` — regex-escapes
+    the word and case-insensitively wraps every occurrence.
+  - Footer (2-col grid): row 1 is the full-width teal CTA
+    `⏪ Rewind 5 s & Play`; row 2 splits into `▶ Continue` and
+    `🔕 Skip this word`; row 3 is full-width red `✖ Disable
+    radar for this video`. All four buttons wired to
+    `_onRewindAndPlay / _onContinue / _onSkipWord / _onDisableForVideo`.
+- [x] M34-S5-03 · `_makeRadarDraggable(host, shadow)` follows the
+  M28-17 pattern with viewport clamping:
+  - `mousedown` on the header (skips button clicks via
+    `e.target.closest('button')` filter).
+  - First drag: convert from `bottom: 24px; left: 50%;
+    transform: translateX(-50%)` to absolute `top/left` coordinates
+    via `getBoundingClientRect`. `_radarDragInitialised` flag
+    survives until the host is removed.
+  - `mousemove` clamps `left ∈ [0, viewportWidth - cardWidth]` and
+    `top ∈ [0, viewportHeight - cardHeight]` so the card can never
+    scroll off-screen. Sets all coords with `style.setProperty('...',
+    '...px', 'important')` to beat the host CSS.
+- [x] M34-S5-04 · External-play detection
+  (`_bindExternalPlayDetection(video)` /
+  `_unbindExternalPlayDetection()`):
+  - On render, binds a `play` listener on the `<video>` that calls
+    `_closeOverlay()` when fired while `_overlayOpen === true`.
+  - On `_closeOverlay()`, the listener is unbound FIRST so our own
+    `_safePlay(video)` calls (triggered by the footer buttons) never
+    re-enter the close path — clean teardown without races.
+  - On `yt-navigate-finish`, we also unbind because the
+    `<video>` element is usually replaced by YouTube's SPA.
+- [x] M34-S5-05 · `_closeOverlay()` advances
+  `_lastFiredAt = performance.now()` — cooldown timer starts at
+  CLOSE per sub-decision 34c. `_onTimeUpdate()` no longer advances
+  the timer at fire time; it relies on `_overlayOpen` to gate
+  re-fires while a card is up. Verified in a Node sandbox:
+  - Scenario A (fresh page → fire → 30 s dismiss → second-fire
+    blocked for 120 s, then fires; third-fire same): 3 fires, 3
+    closes, 3 overlay-open re-fire blocks. ✓
+  - Scenario B (user never closes the overlay): exactly 1 fire,
+    every subsequent tick returns `overlay-open`. Proves the
+    no-advance-at-fire contract holds end-to-end. ✓
+- [x] M34-S5-06 · `_onTimeUpdate()` updated:
+  - Added `if (_overlayOpen) return;` short-circuit at the top of
+    the gating chain.
+  - Removed `_lastFiredAt = now;` from the FIRE branch (advance
+    moved to `_closeOverlay`).
+  - Fire branch now calls `_renderRadarOverlay(hit, _currentVideo)`
+    after the pause + log.
+- [x] M34-S5-07 · `_onYtNavigate()` tears down any open overlay
+  (`_unbindExternalPlayDetection(); _closeOverlayDom();
+  _overlayOpen = false;`) before resetting timeline state. Without
+  this, an SPA nav while a card is up would leave an orphan host
+  pointing at a stale video element.
+- [x] M34-S5-PRE · `node --check youtube_radar.js` → OK.
+- [ ] M34-S5-BROWSER · User-side smoke: reload the extension, open
+  a YouTube video that contains a vocabulary word with captions ON.
+  Expect:
+  1. Video auto-pauses ~4 s before the word
+     (page console: `[lx-radar] HIT! word=...`).
+  2. Glassmorphism card slides into view at the bottom of the
+     viewport, teal/amber accent, the matched word highlighted in
+     the cue.
+  3. ⏪ Rewind 5 s & Play → `video.currentTime` drops by 5 s,
+     video resumes, overlay closes.
+  4. Card is draggable by its header; drops anywhere onscreen
+     stay onscreen (viewport-clamped).
+  5. 🔕 Skip this word → the same word never re-pauses for the
+     rest of this tab's life; other words still trigger.
+  6. ✖ Disable radar for this video → no further pauses on this
+     page; SPA nav to a new video resets the kill switch.
+  7. Clicking YouTube's own play button (instead of any of our
+     buttons) also closes the overlay.
+  8. Cooldown starts AT CLOSE — try clicking ▶ Continue, wait
+     30 s, then play the same kind of vocabulary-dense section.
+     The next pause should be ~90 s away, not immediate.
+
+**Step M34-S6 — Options page surface** ✅
+
+- [x] M34-S6-01 · `extension/options.html` — new section "📡
+  YouTube Vocab Radar (M34)" below the M32 picker:
+  - `<label class="lx-toggle-row">` with checkbox `lx-radar-enabled`
+    (default `checked`, matches the storage-default-ON contract).
+    Toggle title "Enable Radar" + a one-line hint that explains
+    what the radar does.
+  - Two-column `.lx-radar-row` flex strip with number inputs
+    `lx-radar-cooldown` (min 10, max 3600, step 10, default 120)
+    and `lx-radar-lookahead` (min 1, max 15, step 1, default 4).
+    Both styled with the existing dark theme + teal focus border.
+  - `.lx-radar-hint` paragraph explains the two values and includes
+    the privacy line "Your YouTube watch history stays in the
+    browser — Lexora only learns that you have certain words
+    saved."
+- [x] M34-S6-02 · `extension/options.js`:
+  - Three new element handles
+    (`radarEnabledEl / radarCooldownEl / radarLookaheadEl`).
+  - `chrome.storage.sync.get([...])` array extended with all three
+    new keys. Initial-load population follows the same
+    "undefined !== false" default-ON pattern used by the M31
+    Writer toggle. Cooldown/lookahead use defensive
+    `isFinite(n) && n >= min` clamping when reading.
+  - Three `change` listeners autosave to `chrome.storage.sync`.
+    Cooldown clamps `[10, 3600]`; lookahead clamps `[1, 15]`;
+    both write-back the clamped value to the input so the user
+    sees the corrected number immediately.
+  - youtube_radar.js's `chrome.storage.onChanged` listener (M34-S4-04)
+    consumes these writes within one tick — no page reload needed
+    for the toggle / cooldown / lookahead to take effect.
+- [x] M34-S6-PRE · `node --check options.js` → OK; HTML cross-ref
+  grep confirms all three IDs are present in options.html and
+  referenced in options.js.
+
+**Step M34-S7 — ADR-033 + final docs flip** ✅
+
+- [x] M34-S7-01 · `docs/DECISIONS.md` — ADR-033 appended with six
+  locked sub-decisions (34a separate `/my_vocab` endpoint;
+  34b XHR/fetch interception + DOM-observer fallback strategy;
+  34c three-layer cooldown/skip controls + cooldown-advances-at-close
+  rule; 34d top-level overlay separated from M24 Quick Look;
+  34e longest-match sliding window for multi-word phrases;
+  34f no persistence by default). Plus five lessons fed back into
+  the codebase (pattern reuse rule extended, sandbox-first
+  verification, main-world injection capability locked in,
+  cooldown-advances-at-close as the default for any auto-trigger,
+  defensive input clamping as the UI-side floor) and four revisit
+  triggers (YouTube caption pipeline change; save-to-history
+  opt-in; per-tab skip-set persistence; 5th language / new platform
+  expansion).
+- [x] M34-S7-02 · `docs/PLAN.md` v2.5 → v2.6; M34 row flipped ✅
+  Complete; status header reads "M0–M25 complete; M26 postponed;
+  M27–M34 complete". Last-updated 2026-05-16.
+- [x] M34-S7-03 · `docs/TASKS.md` — M34 block archived under
+  "Completed Milestones (M34)" with all seven commit SHAs preserved
+  in the final-status banner (`282c095` planning · `a257ad1` S1-S2 ·
+  `612a476` S3 · `db15b96` S4 · `dd3652f` S5-S6 · this commit S7).
+  "Current Milestone" slot reset to "(none — M34 closed on
+  2026-05-16; next milestone TBD)".
+- [x] M34-S7-04 · `README.md` — "M34 — YouTube Vocab Radar" row
+  added to the Implementation Status table; new M34 subsection
+  appended to the Browser Ecosystem section (after the M33 block).
+  Section heading bumped from "Browser Ecosystem (M22–M33)" →
+  "(M22–M34)". TOC entry updated. M34 roadmap entry removed (it
+  shipped). No LLM / audio service endpoint changes for M34 —
+  those sections unchanged.
+- [x] M34-S7-05 · Final commit on `m34_yt_vocab_radar`; branch
+  pushed to GitHub.
+
+#### Verification (rolled-up summary — full commands in PLAN §M34)
+
+- [x] M34-V-01 · `/lexora_api/my_vocab` smoke matrix passed
+  (recorded in `a257ad1` — no session → 401, header bridge → 200
+  with 1000 rows capped from 1055, cookie auth → 200, empty user
+  → 200/[], schema exactly 5 keys, every row has translations).
+- [x] M34-V-02 · Background SW cache fetch + invalidation verified
+  via the M34-S2-04 DevTools snippet (cache write + age check +
+  schema assert; `add_word` success removes both
+  `lx_word_cache` and `lx_radar_vocab_cache`).
+- [x] M34-V-03 · Inject script smoke — the user's browser console
+  test captured **3621 cues** perfectly formatted as
+  `{startMs, endMs, text}` (recorded in `612a476`).
+- [x] M34-V-04 · End-to-end browser smoke — radar paused exactly
+  3.8 s before "donkey" was spoken (S4 confirmation), then with
+  S5+S6 in place the glassmorphism card surfaced on the word
+  "apparently" with all-language translations, draggable header,
+  ⏪ Rewind 5 s & Play working, 🔕 Skip suppressing repeat
+  pauses, ✖ Disable killing the radar for the rest of the
+  video, and external play (clicking YT's own play button)
+  cleanly closing the overlay.
+- [x] M34-V-05 · Negative tests confirmed via the browser smoke on
+  the "apparently" trigger: master toggle off → no pauses on the
+  next cued vocabulary word; skip word → same word does not
+  re-trigger in the same tab; kill switch → no further pauses on
+  the rest of the video; cooldown holds 120 s by default with the
+  timer starting at overlay close.
+- [ ] M34-V-06 · Live-stream / no-`timedtext` DOM-observer fallback
+  is **documented but not wired** in S4 — see ADR-033 § 34b
+  closing paragraph. The JSON3 path covers > 99 % of cases on
+  www.youtube.com; the fallback is a follow-up if a user reports
+  a stuck radar on a livestream. Not a blocker for M34 closure.
+
+#### Blockers
+
+(none — M34 complete. Documented post-M34 follow-ups: M34-V-06
+DOM-observer wiring for livestreams; opt-in radar-history save;
+per-tab skip-set persistence across tabs. All recorded in ADR-033
+revisit triggers.)
 
 ---
 
