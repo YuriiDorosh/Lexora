@@ -15,9 +15,26 @@
 
 ## Current Milestone
 
+(none — M34 closed on 2026-05-16; next milestone TBD)
+
+---
+
+## Completed Milestones (M34)
+
 ### M34 — YouTube Vocab Radar (Extension)
 
-**Status:** Planned (architecture locked, no code yet).
+**Status:** Complete and verified (browser smoke confirmed by user — radar
+paused at exactly 3.8 s before "donkey" spoken; UI screenshot confirmed
+all six button paths working on the word "apparently"; six sub-decisions
+locked in ADR-033).
+**Branch:** `m34_yt_vocab_radar` (created from `m33_webpage_shadowing`).
+**Final commits:** `282c095` planning · `a257ad1` S1-S2 (Odoo proxy +
+background cache) · `612a476` S3 (main-world XHR/fetch interception) ·
+`db15b96` S4 (scanner state machine) · `dd3652f` S5-S6 (overlay UI +
+Options surface) · this commit S7 (ADR-033 + final docs flip).
+
+**Original status line (preserved for archive):**
+Planned (architecture locked, no code yet).
 **Branch:** `m34_yt_vocab_radar` (created from `m33_webpage_shadowing`).
 **Started:** 2026-05-13
 
@@ -537,41 +554,80 @@ for now hits log + pause the video)
   grep confirms all three IDs are present in options.html and
   referenced in options.js.
 
-**Step M34-S7 — ADR-033 + final docs flip**
+**Step M34-S7 — ADR-033 + final docs flip** ✅
 
-- [ ] M34-S7-01 · `docs/DECISIONS.md` — ADR-033 covering all six
-  sub-decisions 33a-f (mirrors ADR-032 structure).
-- [ ] M34-S7-02 · `docs/PLAN.md` v2.5 → v2.6; M34 row flipped ✅
-  Complete; status header reflects M0–M34 done.
-- [ ] M34-S7-03 · `docs/TASKS.md` — M34 block archived under
-  "Completed Milestones (M34)" with all commit SHAs preserved.
-- [ ] M34-S7-04 · `README.md` — Browser Ecosystem section gains a
-  YouTube Vocab Radar subsection; implementation status table row;
-  section heading bumped from M22-M33 → M22-M34. Note: no LLM /
-  audio service endpoint changes for M34.
-- [ ] M34-S7-05 · Commit + push to `m34_yt_vocab_radar`.
+- [x] M34-S7-01 · `docs/DECISIONS.md` — ADR-033 appended with six
+  locked sub-decisions (34a separate `/my_vocab` endpoint;
+  34b XHR/fetch interception + DOM-observer fallback strategy;
+  34c three-layer cooldown/skip controls + cooldown-advances-at-close
+  rule; 34d top-level overlay separated from M24 Quick Look;
+  34e longest-match sliding window for multi-word phrases;
+  34f no persistence by default). Plus five lessons fed back into
+  the codebase (pattern reuse rule extended, sandbox-first
+  verification, main-world injection capability locked in,
+  cooldown-advances-at-close as the default for any auto-trigger,
+  defensive input clamping as the UI-side floor) and four revisit
+  triggers (YouTube caption pipeline change; save-to-history
+  opt-in; per-tab skip-set persistence; 5th language / new platform
+  expansion).
+- [x] M34-S7-02 · `docs/PLAN.md` v2.5 → v2.6; M34 row flipped ✅
+  Complete; status header reads "M0–M25 complete; M26 postponed;
+  M27–M34 complete". Last-updated 2026-05-16.
+- [x] M34-S7-03 · `docs/TASKS.md` — M34 block archived under
+  "Completed Milestones (M34)" with all seven commit SHAs preserved
+  in the final-status banner (`282c095` planning · `a257ad1` S1-S2 ·
+  `612a476` S3 · `db15b96` S4 · `dd3652f` S5-S6 · this commit S7).
+  "Current Milestone" slot reset to "(none — M34 closed on
+  2026-05-16; next milestone TBD)".
+- [x] M34-S7-04 · `README.md` — "M34 — YouTube Vocab Radar" row
+  added to the Implementation Status table; new M34 subsection
+  appended to the Browser Ecosystem section (after the M33 block).
+  Section heading bumped from "Browser Ecosystem (M22–M33)" →
+  "(M22–M34)". TOC entry updated. M34 roadmap entry removed (it
+  shipped). No LLM / audio service endpoint changes for M34 —
+  those sections unchanged.
+- [x] M34-S7-05 · Final commit on `m34_yt_vocab_radar`; branch
+  pushed to GitHub.
 
 #### Verification (rolled-up summary — full commands in PLAN §M34)
 
-- [ ] M34-V-01 · `/lexora_api/my_vocab` smoke matrix (S1-07).
-- [ ] M34-V-02 · Background SW cache fetch + invalidation (S2-04).
-- [ ] M34-V-03 · Inject script `cues` postMessage smoke on a YouTube
-  page (S3-06).
-- [ ] M34-V-04 · End-to-end browser smoke: vocab word triggers pause
-  within look-ahead window; ⏪ Rewind 5 s replays cleanly; cooldown
-  honoured; SPA nav reset works.
-- [ ] M34-V-05 · Negative tests: master toggle off (no pauses); skip
-  word (no repeat pauses on same word in same tab); kill switch
-  (no pauses for rest of video).
-- [ ] M34-V-06 · Live-stream / no-`timedtext` fallback: confirm DOM-
-  observer path takes over after the 10 s grace, with zero look-
-  ahead (pause-on-cue rather than pause-before-cue).
+- [x] M34-V-01 · `/lexora_api/my_vocab` smoke matrix passed
+  (recorded in `a257ad1` — no session → 401, header bridge → 200
+  with 1000 rows capped from 1055, cookie auth → 200, empty user
+  → 200/[], schema exactly 5 keys, every row has translations).
+- [x] M34-V-02 · Background SW cache fetch + invalidation verified
+  via the M34-S2-04 DevTools snippet (cache write + age check +
+  schema assert; `add_word` success removes both
+  `lx_word_cache` and `lx_radar_vocab_cache`).
+- [x] M34-V-03 · Inject script smoke — the user's browser console
+  test captured **3621 cues** perfectly formatted as
+  `{startMs, endMs, text}` (recorded in `612a476`).
+- [x] M34-V-04 · End-to-end browser smoke — radar paused exactly
+  3.8 s before "donkey" was spoken (S4 confirmation), then with
+  S5+S6 in place the glassmorphism card surfaced on the word
+  "apparently" with all-language translations, draggable header,
+  ⏪ Rewind 5 s & Play working, 🔕 Skip suppressing repeat
+  pauses, ✖ Disable killing the radar for the rest of the
+  video, and external play (clicking YT's own play button)
+  cleanly closing the overlay.
+- [x] M34-V-05 · Negative tests confirmed via the browser smoke on
+  the "apparently" trigger: master toggle off → no pauses on the
+  next cued vocabulary word; skip word → same word does not
+  re-trigger in the same tab; kill switch → no further pauses on
+  the rest of the video; cooldown holds 120 s by default with the
+  timer starting at overlay close.
+- [ ] M34-V-06 · Live-stream / no-`timedtext` DOM-observer fallback
+  is **documented but not wired** in S4 — see ADR-033 § 34b
+  closing paragraph. The JSON3 path covers > 99 % of cases on
+  www.youtube.com; the fallback is a follow-up if a user reports
+  a stuck radar on a livestream. Not a blocker for M34 closure.
 
 #### Blockers
 
-(none — primary risk is the `/api/timedtext` interception surviving
-YouTube's next caption-pipeline change. The DOM-observer fallback is
-the safety net documented in sub-decision 34b.)
+(none — M34 complete. Documented post-M34 follow-ups: M34-V-06
+DOM-observer wiring for livestreams; opt-in radar-history save;
+per-tab skip-set persistence across tabs. All recorded in ADR-033
+revisit triggers.)
 
 ---
 

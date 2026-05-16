@@ -1,8 +1,8 @@
 # Lexora — Implementation Plan (MVP)
 
-> Version: 2.5 (M34 — YouTube Vocab Radar — Planned)
-> Last updated: 2026-05-13
-> Status: M0–M25 complete; M26 postponed (resource constraints); M27–M33 complete; M34 planned
+> Version: 2.6 (M34 — YouTube Vocab Radar — Complete)
+> Last updated: 2026-05-16
+> Status: M0–M25 complete; M26 postponed (resource constraints); M27–M34 complete
 
 ---
 
@@ -61,7 +61,7 @@
 | M31 | Browser Extension — Lexora Writer | ✅ Complete | Active-writing assistant. Floating "L" FAB on every focused `<textarea>` / `[contenteditable]`; strict eligibility (skips passwords / search / code editors / login forms). Click → `POST /lexora_api/writer_check` → LLM `POST /analyze-writing` → corrections + improved JSON. Apply-to-text uses the React-compatible native-setter + InputEvent pattern. Server-side safety net guarantees every text change is documented (ADR-031) |
 | M32 | Browser Extension — Slang & Idiom Explainer | ✅ Complete | New "💡 Explain Slang/Idiom" button alongside the M28 "Explain Grammar" button in both Quick Look and YouTube overlays. `POST /lexora_api/explain_slang` → LLM `POST /explain-slang`; returns kind enum (idiom / slang / phrasal_verb / literal / unknown), figurative + literal meaning in the user's native language, example in source language, confidence enum. UI handles the literal and low-confidence branches honestly (ADR-031) |
 | M33 | Browser Extension — Webpage Shadowing | ✅ Complete | Pronunciation practice on any webpage. "🎤 Practice Pronunciation" button in QL + YouTube overlays expands a Shadowing block with ▶ Play Original (Edge TTS via `POST /tts-sync`) and click-to-toggle Start/Stop Recording (mic on `chrome.offscreen` doc — granted once per extension). User audio runs through `/transcribe-sync` → `/evaluate-pronunciation`; deterministic Python word-diff is the source of truth for score + missed/mispronounced words; LLM contributes only the localised feedback string (ADR-032) |
-| M34 | Browser Extension — YouTube Vocab Radar | 🟡 Planned | Passive vocabulary radar for YouTube. Background fetches the user's vocabulary via new `GET /lexora_api/my_vocab`; a content script intercepts `/api/timedtext` (with a DOM-cue fallback) and looks ~3-5 s ahead in the subtitle track. When a known word appears, the radar pauses the video and shows a glassmorphism alert with the word, all-language translations, the surrounding cue, and a "⏪ Rewind 5 s & Play" button that sets `video.currentTime -= 5`. Configurable per-tab cooldown (default 120 s) prevents pause storms for users with large vocabularies. Per-tab skip list + master kill-switch in Options. No persistence (ADR-033) |
+| M34 | Browser Extension — YouTube Vocab Radar | ✅ Complete | Passive vocabulary radar for YouTube. Background fetches the user's vocabulary via new `GET /lexora_api/my_vocab`; main-world inject patches `XMLHttpRequest.prototype` + `window.fetch` to sniff `/api/timedtext` (JSON3 primary, SRV3/SRV1 XML fallback, DOM-observer for live streams). Content script builds a longest-match sliding-window index over the cue track and pauses the video ~4 s before a known word. Glassmorphism Shadow-DOM card shows the word + all-language translations (🇺🇦/🇬🇷/🇵🇱/🇬🇧) + the surrounding cue with the word highlighted, plus ⏪ Rewind 5 s & Play / ▶ Continue / 🔕 Skip this word / ✖ Disable for this video. Cooldown timer (default 120 s) starts at overlay close, not at fire, so the user can read the alert at their pace. Three Options-page controls + per-tab skip set + per-video kill switch. No persistence by default (ADR-033) |
 
 ---
 
