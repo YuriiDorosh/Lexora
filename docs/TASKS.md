@@ -15,7 +15,228 @@
 
 ## Current Milestone
 
-(none — M34 closed on 2026-05-16; next milestone TBD)
+### M35 — Multi-word YouTube Subtitle Selection (Extension)
+
+**Status:** Planned (architecture locked + DOM-event strategy chosen, no
+code yet).
+**Branch:** `m35_yt_multiword_selection` (branched from `main` after M34
+merged in PR #81).
+**Started:** 2026-05-16
+
+**Scope:** Drag across YouTube subtitle words to trigger Quick Look on
+multi-word phrases. Every downstream Quick Look feature (Add to
+Vocabulary / Explain Grammar / 💡 Explain Slang/Idiom / 🎤 Practice
+Pronunciation) inherits phrase support automatically because the card
+already reads its word from internal data, not from re-reading the
+caption DOM.
+
+**The DOM-event strategy** (locked at planning — see ADR-034 once
+Step S6 lands):
+
+- **Native-first** with manual drag state machine as the documented
+  fallback. Wins: browser draws the familiar blue highlight; selection
+  naturally spans `.ytp-caption-segment` boundaries; no custom
+  highlight CSS needed.
+- **CSS override**: re-enable `user-select: text !important` on
+  `.ytp-caption-window-container`, `.ytp-captions-container`,
+  `.ytp-caption-segment`, and `.lx-sub-word`. YT applies `user-select:
+  none` to the entire `.html5-video-container` subtree; our spans
+  inherit it and the browser refuses to extend a range. Both
+  `user-select` and the `-webkit-` prefix are written because YT
+  serves different builds depending on UA.
+- **Event firewall**: capture-phase `mousedown` / `mousemove` /
+  `mouseup` listeners bound ONCE on the persistent
+  `.ytp-caption-window-container` (NOT on each `.lx-sub-word` — those
+  are replaced on every cue change). Each listener calls
+  `e.stopPropagation()` only when the target is `closest('.lx-sub-word')`
+  — and crucially does NOT call `preventDefault()` (which would kill
+  native selection). YT's player listeners live on the bubble phase,
+  so our capture-phase stop wins.
+- **Phrase capture** in the `mouseup` post-microtask callback:
+  `queueMicrotask` waits one tick so the browser finalises the
+  selection range, then `window.getSelection().toString()` is fed
+  through `_normalisePhrase` (trim → collapse whitespace → strip
+  outer punctuation; internal apostrophes / hyphens preserved). If
+  the result has ≥1 internal space, an `_lxSwallowNextClick` flag
+  suppresses the about-to-fire per-span `click` and
+  `_triggerPhraseOverlay(phrase)` runs through the existing M24
+  Quick Look pipeline.
+- **Click coexistence**: `_onWordClick` gains a one-line guard at the
+  top that drains the swallow flag if set. Single-word selections
+  (no internal space) skip the flag and the click handler takes over
+  unchanged — zero M24 regression risk for the simple case.
+- **Selection cleanup**: `window.getSelection().removeAllRanges()`
+  fires after the overlay opens so the blue highlight doesn't linger
+  while the user reads the card.
+
+**Why these decisions:**
+
+| Decision | Rationale |
+|---|---|
+| Native over manual drag | Browser owns cross-segment selection (e.g. captions split into two simultaneous lines); cursor I-beam is a familiar drag-affordance hint; zero custom highlight CSS. |
+| Event firewall on the PERSISTENT container | `.ytp-caption-segment` and inner `.lx-sub-word` are recycled on every cue change. Binding on `.ytp-caption-window-container` survives those swaps; one listener trio for the whole page lifetime. |
+| `stopPropagation` only, no `preventDefault` | `preventDefault` on `mousedown` would kill native selection. `stopPropagation` is sufficient — YT's player listeners are on the bubble phase. |
+| `_lxSwallowNextClick` flag | The browser's `mouseup → click` contract is hard. The click handler still owns the simple case; the flag is set only for confirmed multi-word phrases. |
+| Normalisation regex matches M2 / M27 / M34 | Lookup keys stay consistent across every extension feature that calls `lexora-define`. Internal apostrophes / hyphens preserved so `don't` and `mother-in-law` survive. |
+
+**Fallback (Strategy B) — manual drag state machine on spans:**
+`mousedown` on a span sets `_drag.anchor`; `mouseenter` on each
+subsequent span appends to `_drag.spans`; `mouseup` on document
+finalises and concatenates `_drag.spans.map(s => s.textContent).join(' ')`.
+Custom `.lx-sub-selected` highlight CSS. Documented in PLAN.md M35
+Strategy B; not wired in S1-S5; can be patched in a single commit if
+browser smoke shows native selection breaks on a specific YT player
+build (ambient mode / TV-mode shell / theatre mode).
+
+#### Sub-steps
+
+**Step M35-S1 — CSS override + event-firewall listener trio**
+
+- [ ] M35-S1-01 · Extend `_OVERLAY_CSS` in `extension/overlay.js`:
+  - `.ytp-caption-window-container, .ytp-captions-container,
+    .ytp-caption-segment { user-select: text !important;
+    -webkit-user-select: text !important; }`
+  - `.lx-sub-word { user-select: text !important;
+    -webkit-user-select: text !important; cursor: text !important; }`
+  - `.lx-sub-word:hover { cursor: pointer !important; }`
+    (specificity OK since `:hover` overrides plain class on user-actionable affordance)
+- [ ] M35-S1-02 · New module-level `_lxFirewallBound: WeakSet<Element>`
+  guard.
+- [ ] M35-S1-03 · `_bindCaptureFirewall(root)` function: for each of
+  `['mousedown','mousemove','mouseup']`, attach a capture-phase
+  listener that early-returns unless
+  `e.target.closest('.lx-sub-word')`, otherwise `stopPropagation`
+  only (NEVER `preventDefault`).
+- [ ] M35-S1-04 · Call `_bindCaptureFirewall(_getContainer())` from
+  inside `_init()` and from the `yt-navigate-finish` handler. The
+  WeakSet guard makes this idempotent — re-binding on the same root
+  is a no-op.
+
+**Step M35-S2 — `_normalisePhrase` + `_lxSwallowNextClick` flag**
+
+- [ ] M35-S2-01 · Module-level `let _lxSwallowNextClick = false;`.
+- [ ] M35-S2-02 · `_normalisePhrase(s)` helper —
+  ```js
+  return (s || '').replace(/\s+/g, ' ').trim()
+                  .replace(/^[.,!?;:'"()\[\]{}\-–—]+|[.,!?;:'"()\[\]{}\-–—]+$/g, '')
+                  .trim();
+  ```
+  Internal apostrophes and hyphens deliberately NOT in the strip-class
+  so `don't`, `mother-in-law`, `il a dû` survive.
+- [ ] M35-S2-03 · `_onWordClick` (existing) gains a 3-line guard at
+  the top:
+  ```js
+  if (_lxSwallowNextClick) {
+    _lxSwallowNextClick = false;
+    e.stopPropagation(); e.preventDefault();
+    return;
+  }
+  ```
+
+**Step M35-S3 — `mouseup` → phrase capture → overlay trigger**
+
+- [ ] M35-S3-01 · Extend the `mouseup` capture-phase listener
+  registered in S1: after the `stopPropagation`, schedule a
+  `queueMicrotask` (so the browser's selection-extension logic
+  finishes) that reads `window.getSelection().toString()`.
+- [ ] M35-S3-02 · Run through `_normalisePhrase`. If empty → return.
+  If `!/\s/.test(phrase)` → return (single-token path; click handler
+  owns it).
+- [ ] M35-S3-03 · Otherwise: `_lxSwallowNextClick = true;` →
+  `_triggerPhraseOverlay(phrase, e.target.closest('.lx-sub-word'))`
+  → `window.getSelection().removeAllRanges();`.
+- [ ] M35-S3-04 · `_triggerPhraseOverlay(phrase, anchorSpan)` is a
+  re-wrap of `_onWordClick`'s body without the per-span DOM read.
+  Pauses the video (`video.pause()` if not paused), gets the
+  subtitle language (`_getSubtitleLanguage()`), shows the loading
+  state via `_showOverlay(phrase, wasPaused, timestamp, lang, video,
+  null)`, fires `_sendMessage({action:'lexora-define', word: phrase,
+  lang}, ...)` with the same 5-s fallback timer and response
+  pipeline. Anchor span is used only to compute the on-screen
+  position; the existing `_showOverlay` positioning already centres
+  bottom of viewport so anchor is optional.
+
+**Step M35-S4 — Downstream-feature verification**
+
+- [ ] M35-S4-01 · Confirm Quick Look's three downstream buttons
+  (Explain Grammar M28, Explain Slang/Idiom M32, Practice
+  Pronunciation M33) work when the card's `_currentWord` is a
+  multi-word phrase. All three buttons read from card-internal
+  state, not from the caption DOM — so this should be a zero-effort
+  inheritance.
+- [ ] M35-S4-02 · The `/define` route already supports phrases
+  (it dedupes against `language.entry.normalized_text` which can
+  carry spaces, and `_live_translate` calls the translation service
+  with the full string). Server-side: no change needed.
+
+**Step M35-S5 — Edge-case browser smoke**
+
+- [ ] M35-S5-01 · Drag-select across two simultaneous cue lines (top
+  + bottom subtitle stack on dual-track videos). Expected: phrase
+  spans both — browser's cross-text-node selection handles it.
+- [ ] M35-S5-02 · Drag-select while a cue change happens mid-drag.
+  Expected: selection lost (known limitation). Documented in ADR-034
+  revisit triggers; user can re-drag.
+- [ ] M35-S5-03 · Double-click a word. Expected: native single-word
+  selection → `mouseup` sees no internal whitespace → click handler
+  takes over → identical UX to plain click.
+- [ ] M35-S5-04 · Triple-click a cue line. Expected: whole line
+  selected → phrase overlay opens with full sentence (useful for
+  grammar explanations).
+- [ ] M35-S5-05 · Plain single-word click. Expected: zero
+  behavioural change from M24.
+- [ ] M35-S5-06 · YT-controls regression: click OUTSIDE the
+  subtitle area (anywhere else on the player). Expected: video
+  plays/pauses normally; event firewall is scoped to
+  `closest('.lx-sub-word')` so non-caption clicks are untouched.
+- [ ] M35-S5-07 · Drag-select WHILE the M34 radar is paused on a
+  word (e.g. radar fired on "donkey", card is up, user drags
+  another phrase in the same cue). Expected: works — radar
+  overlay lives in its own top-level Shadow DOM host and doesn't
+  occlude the captions.
+
+**Step M35-S6 — ADR-034 + final docs flip**
+
+- [ ] M35-S6-01 · ADR-034 in `docs/DECISIONS.md` covering the six
+  sub-decisions (35a native-first / 35b firewall-on-persistent-
+  container / 35c stop-not-prevent / 35d swallow-flag for click
+  coexistence / 35e normalisation / 35f selection cleanup).
+- [ ] M35-S6-02 · PLAN.md v2.7 → v2.8; M35 row flipped ✅; status
+  header reads "M0–M25 complete; M26 postponed; M27–M35 complete".
+- [ ] M35-S6-03 · TASKS.md — archive the M35 block under Completed
+  Milestones with all commit SHAs.
+- [ ] M35-S6-04 · README.md — Browser Ecosystem (M22–M34) heading
+  → (M22–M35); new M35 subsection between M34 and the Backend
+  chapter; implementation status table row. No new endpoint /
+  service entries.
+- [ ] M35-S6-05 · Commit + push.
+
+#### Verification matrix
+
+- [ ] M35-V-01 · `node --check extension/overlay.js` → OK.
+- [ ] M35-V-02 · Strategy A native-selection happy path: drag across
+  "kick the bucket" on a video that contains it → Quick Look opens
+  for the full phrase.
+- [ ] M35-V-03 · Click each Quick Look footer button (Add /
+  Grammar / Slang / Shadowing) on a multi-word phrase; verify all
+  four operate on the full phrase.
+- [ ] M35-V-04 · Negative regression: M24 single-word click on a
+  word identical to past smoke video; expected → identical UX.
+- [ ] M35-V-05 · Player UX regression: click on the video surface
+  outside captions → toggles play/pause as before.
+- [ ] M35-V-06 · M34 radar coexistence: with the radar enabled,
+  drag-select inside captions while radar is dormant — no false
+  pause from radar; radar still fires normally on its own track.
+
+#### Blockers
+
+(none yet — primary risk is YT actively overriding our `user-select:
+text !important` via JS-applied `style.userSelect = 'none'` on the
+caption container. Mitigation: if smoke shows this, switch to
+Strategy B fallback within a single commit — the manual drag state
+machine is sketched in PLAN.md M35.)
+
+---
 
 ---
 
