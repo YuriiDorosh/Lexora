@@ -90,71 +90,116 @@ build (ambient mode / TV-mode shell / theatre mode).
 
 #### Sub-steps
 
-**Step M35-S1 — CSS override + event-firewall listener trio**
+**Step M35-S1 — CSS override + event-firewall listener trio** ✅
 
-- [ ] M35-S1-01 · Extend `_OVERLAY_CSS` in `extension/overlay.js`:
-  - `.ytp-caption-window-container, .ytp-captions-container,
-    .ytp-caption-segment { user-select: text !important;
-    -webkit-user-select: text !important; }`
-  - `.lx-sub-word { user-select: text !important;
-    -webkit-user-select: text !important; cursor: text !important; }`
-  - `.lx-sub-word:hover { cursor: pointer !important; }`
-    (specificity OK since `:hover` overrides plain class on user-actionable affordance)
-- [ ] M35-S1-02 · New module-level `_lxFirewallBound: WeakSet<Element>`
-  guard.
-- [ ] M35-S1-03 · `_bindCaptureFirewall(root)` function: for each of
-  `['mousedown','mousemove','mouseup']`, attach a capture-phase
-  listener that early-returns unless
-  `e.target.closest('.lx-sub-word')`, otherwise `stopPropagation`
-  only (NEVER `preventDefault`).
-- [ ] M35-S1-04 · Call `_bindCaptureFirewall(_getContainer())` from
-  inside `_init()` and from the `yt-navigate-finish` handler. The
-  WeakSet guard makes this idempotent — re-binding on the same root
-  is a no-op.
+- [x] M35-S1-01 · `_OVERLAY_CSS` extended in `extension/overlay.js`
+  (lines 38-77). Three rule blocks updated:
+  - The existing `.ytp-caption-window-container, ...` group now
+    adds `user-select: text !important` + `-webkit-user-select:
+    text !important` alongside the pre-existing
+    `pointer-events: auto`. Comment block explains the M35 intent
+    and why we scope to the caption subtree only (rest of the
+    player surface keeps YT's `user-select: none`).
+  - `.lx-sub-word` default changed `cursor: pointer` → `cursor:
+    text` (drag-affordance) + adds `user-select: text` + `-webkit-`
+    prefix.
+  - `.lx-sub-word:hover` adds `cursor: pointer` so stationary
+    hover still signals click-affordance. During an active drag
+    the browser shows the native I-beam regardless of CSS, so
+    both UX modes are covered.
+- [x] M35-S1-02 · Module-level state added at lines 22-39
+  (alongside `_OVERLAY_ID` / `_WORD_CLASS` / `_STYLES_ID`):
+  - `let _lxSwallowNextClick = false;`
+  - `const _lxFirewallBound = new WeakSet();`
+  Both carry block comments explaining the contract (browser's
+  mouseup→click hard rule for the swallow flag; idempotent
+  re-attach handling for the WeakSet).
+- [x] M35-S1-03 · `_bindCaptureFirewall(root)` lives at line 916.
+  Three capture-phase listeners on `root`:
+  - `mousedown` and `mousemove` share the same `_firewall`
+    handler — `stopPropagation` only when
+    `target.closest('.lx-sub-word')` matches.
+  - `mouseup` is its own listener (it also captures the phrase —
+    see S3-01 below). All three guard `typeof target.closest !==
+    'function'` first for defensive resilience against synthetic
+    events with non-Element targets.
+  - WeakSet `has()` check at function entry makes it idempotent;
+    `add()` at the end so re-calls against the same element are
+    a quick no-op.
+  - INTENTIONALLY no `preventDefault()` anywhere — that would kill
+    the browser's native selection-extension on `mousemove`.
+- [x] M35-S1-04 · Wired into `_attachCaptionObserver()` at line 1308
+  with a single `_bindCaptureFirewall(container)` call right after
+  the `MutationObserver.observe`. `_attachCaptionObserver` is
+  itself called from `_init()`, from the `yt-navigate-finish`
+  handler (after 900 ms delay), and from the `_docObserver` poke
+  path — so the firewall is bound through every legitimate code
+  path that acquires a container reference.
 
-**Step M35-S2 — `_normalisePhrase` + `_lxSwallowNextClick` flag**
+**Step M35-S2 — `_normalisePhrase` + `_lxSwallowNextClick` flag** ✅
 
-- [ ] M35-S2-01 · Module-level `let _lxSwallowNextClick = false;`.
-- [ ] M35-S2-02 · `_normalisePhrase(s)` helper —
-  ```js
-  return (s || '').replace(/\s+/g, ' ').trim()
-                  .replace(/^[.,!?;:'"()\[\]{}\-–—]+|[.,!?;:'"()\[\]{}\-–—]+$/g, '')
-                  .trim();
-  ```
-  Internal apostrophes and hyphens deliberately NOT in the strip-class
-  so `don't`, `mother-in-law`, `il a dû` survive.
-- [ ] M35-S2-03 · `_onWordClick` (existing) gains a 3-line guard at
-  the top:
-  ```js
-  if (_lxSwallowNextClick) {
-    _lxSwallowNextClick = false;
-    e.stopPropagation(); e.preventDefault();
-    return;
-  }
-  ```
+- [x] M35-S2-01 · `let _lxSwallowNextClick = false;` declared at
+  line 29 with a multi-line comment documenting the browser's
+  mouseup→click contract that the flag works around.
+- [x] M35-S2-02 · `_normalisePhrase(s)` at line 895 — collapses
+  internal whitespace via `replace(/\s+/g, ' ')`, trims, then
+  strips outer punctuation. Internal apostrophes and hyphens
+  deliberately omitted from the strip-class so `don't` /
+  `mother-in-law` / `il a dû` survive the round-trip.
+  Offline sandbox confirms 19/19 cases pass including all four
+  supported languages + curly quotes + em-dashes + multi-line
+  collapse.
+- [x] M35-S2-03 · `_onWordClick` (line 1020) gains a 7-line guard
+  at the top that drains the flag and `stopPropagation` +
+  `preventDefault` + returns early. The drain happens BEFORE any
+  text reading so a swallowed click never even reaches the
+  punctuation-strip regex.
 
-**Step M35-S3 — `mouseup` → phrase capture → overlay trigger**
+**Step M35-S3 — `mouseup` → phrase capture → overlay trigger** ✅
 
-- [ ] M35-S3-01 · Extend the `mouseup` capture-phase listener
-  registered in S1: after the `stopPropagation`, schedule a
-  `queueMicrotask` (so the browser's selection-extension logic
-  finishes) that reads `window.getSelection().toString()`.
-- [ ] M35-S3-02 · Run through `_normalisePhrase`. If empty → return.
-  If `!/\s/.test(phrase)` → return (single-token path; click handler
-  owns it).
-- [ ] M35-S3-03 · Otherwise: `_lxSwallowNextClick = true;` →
-  `_triggerPhraseOverlay(phrase, e.target.closest('.lx-sub-word'))`
-  → `window.getSelection().removeAllRanges();`.
-- [ ] M35-S3-04 · `_triggerPhraseOverlay(phrase, anchorSpan)` is a
-  re-wrap of `_onWordClick`'s body without the per-span DOM read.
-  Pauses the video (`video.pause()` if not paused), gets the
-  subtitle language (`_getSubtitleLanguage()`), shows the loading
-  state via `_showOverlay(phrase, wasPaused, timestamp, lang, video,
-  null)`, fires `_sendMessage({action:'lexora-define', word: phrase,
-  lang}, ...)` with the same 5-s fallback timer and response
-  pipeline. Anchor span is used only to compute the on-screen
-  position; the existing `_showOverlay` positioning already centres
-  bottom of viewport so anchor is optional.
+- [x] M35-S3-01 · `_bindCaptureFirewall`'s `mouseup` listener
+  (line 940) does the `stopPropagation` synchronously, then
+  schedules a `queueMicrotask`. The microtask deferral is the
+  critical bit — without it, `window.getSelection().toString()`
+  occasionally returns empty because the browser hasn't finished
+  extending the range when the mouseup handler runs.
+- [x] M35-S3-02 · Inside the microtask, `_normalisePhrase(raw)` →
+  empty → return (click handler owns the no-selection case); no
+  internal `\s` → return (single-word click flow); ≥1 internal
+  space → falls through to the phrase trigger branch. Verified
+  against the 19-case sandbox: single-token results (`apparently`,
+  `mother-in-law`) correctly route to the click flow.
+- [x] M35-S3-03 · Phrase branch: `_lxSwallowNextClick = true;` →
+  `_triggerPhraseOverlay(phrase, anchor)` → `try {
+  window.getSelection().removeAllRanges() } catch {}` so the
+  blue highlight doesn't linger while the Quick Look card is up.
+- [x] M35-S3-04 · `_triggerPhraseOverlay(phrase, anchorSpan)` at
+  line 1015 logs the phrase (with the anchor word for debug
+  context) and delegates to `_openLookupOverlay(phrase, 'phrase')`.
+  `_openLookupOverlay(word, sourceLabel)` at line 972 is the
+  shared body extracted from the old `_onWordClick`: pauses the
+  video, fetches the subtitle language, shows the loading card,
+  fires the 5-s fallback timer, sends `lexora-define`, surfaces
+  the response. `sourceLabel` is injected into the diagnostic log
+  lines so a developer can tell at a glance whether a given
+  `[Lexora] define response (...) received:` came from a click or
+  a drag. M24 single-word path is now `_onWordClick →
+  _openLookupOverlay(word, 'word')` — same code path as before,
+  just hoisted into a shared helper.
+- [x] M35-S3-PRE · `node --check extension/overlay.js` passes.
+  19/19 offline sandbox cases on `_normalisePhrase` pass
+  (including the phrase-vs-click branch decision tree).
+- [ ] M35-S3-BROWSER · **User-side smoke** — reload the extension,
+  open a YouTube video, drag across `kick the bucket` (or any
+  phrasal verb / idiom that appears in your captions). Expected:
+  - Quick Look opens for the FULL phrase.
+  - No accidental video pause from YT's player listeners (the
+    capture-phase firewall keeps them silent).
+  - The blue selection highlight disappears the moment the card
+    opens.
+  - Single-word click on a plain word: identical UX to M24.
+  - Click anywhere outside the captions: video play/pause toggles
+    as before.
 
 **Step M35-S4 — Downstream-feature verification**
 
