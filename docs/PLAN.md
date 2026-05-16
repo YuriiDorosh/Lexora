@@ -62,7 +62,7 @@
 | M32 | Browser Extension — Slang & Idiom Explainer | ✅ Complete | New "💡 Explain Slang/Idiom" button alongside the M28 "Explain Grammar" button in both Quick Look and YouTube overlays. `POST /lexora_api/explain_slang` → LLM `POST /explain-slang`; returns kind enum (idiom / slang / phrasal_verb / literal / unknown), figurative + literal meaning in the user's native language, example in source language, confidence enum. UI handles the literal and low-confidence branches honestly (ADR-031) |
 | M33 | Browser Extension — Webpage Shadowing | ✅ Complete | Pronunciation practice on any webpage. "🎤 Practice Pronunciation" button in QL + YouTube overlays expands a Shadowing block with ▶ Play Original (Edge TTS via `POST /tts-sync`) and click-to-toggle Start/Stop Recording (mic on `chrome.offscreen` doc — granted once per extension). User audio runs through `/transcribe-sync` → `/evaluate-pronunciation`; deterministic Python word-diff is the source of truth for score + missed/mispronounced words; LLM contributes only the localised feedback string (ADR-032) |
 | M34 | Browser Extension — YouTube Vocab Radar | ✅ Complete | Passive vocabulary radar for YouTube. Background fetches the user's vocabulary via new `GET /lexora_api/my_vocab`; main-world inject patches `XMLHttpRequest.prototype` + `window.fetch` to sniff `/api/timedtext` (JSON3 primary, SRV3/SRV1 XML fallback, DOM-observer for live streams). Content script builds a longest-match sliding-window index over the cue track and pauses the video ~4 s before a known word. Glassmorphism Shadow-DOM card shows the word + all-language translations (🇺🇦/🇬🇷/🇵🇱/🇬🇧) + the surrounding cue with the word highlighted, plus ⏪ Rewind 5 s & Play / ▶ Continue / 🔕 Skip this word / ✖ Disable for this video. Cooldown timer (default 120 s) starts at overlay close, not at fire, so the user can read the alert at their pace. Three Options-page controls + per-tab skip set + per-video kill switch. No persistence by default (ADR-033) |
-| M35 | Browser Extension — Multi-word YouTube Subtitle Selection | 🟡 Planned | Drag across YouTube subtitle words to trigger Quick Look / Grammar / Slang overlays on multi-word phrases ("kick the bucket", "give up", "tener ganas de"). Native-selection-first strategy: re-enable `user-select: text !important` on the subtitle span tree which YT's player has clamped to `none`. Event firewall: `mousedown` / `mousemove` / `mouseup` capture-phase listeners on the persistent `.ytp-caption-window-container` call `e.stopPropagation()` so YT's player surface never sees the drag (no accidental pause / controls-toggle). On `mouseup`, `window.getSelection().toString()` is normalised (trim → collapse whitespace → strip outer punctuation, preserving apostrophes / hyphens); if the result has ≥1 internal space it's treated as a phrase, an `_lxSwallowNextClick` flag suppresses the per-span `click` handler that would otherwise fire, and `_showOverlay(phrase, ...)` runs through the existing Quick Look pipeline. Single-word selections fall through to the M24 click path unchanged. Manual drag state machine on the spans is documented as a fallback if native selection turns out to be too flaky on certain YT player builds (ADR-034) |
+| M35 | Browser Extension — Multi-word YouTube Subtitle Selection | 🟡 Planned (pivoted to Strategy C) | Multi-word phrase lookup on YouTube subtitles. **Strategy A (native browser selection via `user-select: text` override) and Strategy B (manual drag state machine) both DISCARDED** after browser smoke confirmed YT's player aggressively re-applies `user-select: none` via JS and intercepts the selection-extension machinery deep enough that no CSS / event combo we tried kept a drag-extended range alive. **Strategy C — Ctrl/⌘-Click multi-select (current):** the user adds words to a buffer by Ctrl-clicking each one in turn (`e.ctrlKey` on Windows/Linux, `e.metaKey` on macOS); Ctrl-click on an already-selected word toggles it out. Selected spans pick up a stronger-than-hover `.lx-multi-selected` highlight. The buffer is finalised when the user **releases the modifier key** (`keyup` on `Control`/`Meta` with the post-event modifier flag false → `_finaliseMultiSelection` builds the phrase and routes through the same `_openLookupOverlay` pipeline as M24's single-word click). Plain click anywhere aborts; Escape cancels; `yt-navigate-finish` clears stale spans. Visually robust, deterministic (always whole-word, never partial), immune to YT's selection-suppression (ADR-034) |
 
 ---
 
@@ -2970,7 +2970,22 @@ the LLM service nor the audio service.
 
 ## M35 — Multi-word YouTube Subtitle Selection (Extension)
 
-**Goal:** Let the user drag across multiple YouTube subtitle words to trigger
+> **🚨 STRATEGY PIVOT (2026-05-16):** Strategy A (native browser selection
+> via `user-select: text !important` override) was implemented end-to-end
+> in commit `ad92887` and **FAILED in browser smoke**. The user-reported
+> verdict: "щось воно ніфіга не тягнеться" — the selection range never
+> extends past the click anchor. YouTube's player aggressively re-applies
+> `user-select: none` via JS on every cue render and intercepts the
+> selection-extension machinery deep enough that no CSS / event-firewall
+> combination we tried kept a drag-extended range alive. **Strategy B**
+> (manual drag state machine on `mouseenter`) was considered too fragile
+> against YT's `.ytp-caption-segment` recycling and a poor UX (no native
+> selection feedback). M35 has pivoted to **Strategy C — Ctrl/⌘-Click
+> multi-select**, documented below the original Strategy A/B history.
+> The Strategy A/B writeup is preserved as an engineering record of what
+> we tried and why it didn't work.
+
+**Goal:** Let the user select multiple YouTube subtitle words to trigger
 the existing Quick Look / Grammar / Slang / Shadowing overlays on the entire
 phrase — "kick the bucket", "give up on yourself", "il est en train de" — not
 just the single word their cursor happens to land on. This closes the obvious
@@ -3165,6 +3180,172 @@ Strategy B is documented but **not implemented** in M35-S1..S5. It can be
 patched in within a single commit if browser smoke shows native selection
 breaks on (for example) YouTube's "ambient mode" or the new TV-mode player
 shell.
+
+### Strategy C — Ctrl/⌘-Click multi-select (CHOSEN, 2026-05-16)
+
+After Strategy A failed in browser smoke, the user proposed a radically
+simpler UX that completely sidesteps YT's selection-suppression: don't
+try to drag at all. Instead, **the user Ctrl-clicks each word they want
+to include in the phrase**; the buffer is finalised when they release
+the modifier key.
+
+**Why this works where A failed:**
+
+- **No selection range.** We never call `getSelection()`. YT's
+  `user-select: none` is irrelevant because we don't need the browser to
+  draw or extend a range.
+- **No new event types.** Each Ctrl-click is just a `click` event on a
+  `.lx-sub-word` span — exactly the event surface M24 already handles.
+  The `_onWordClick` listener that's been stable since M24 just gets a
+  modifier branch added at the top.
+- **No event firewall.** YT's bubble-phase listeners on
+  `.html5-video-player` never see anything different. M24's existing
+  `e.stopPropagation()` on the span's `click` listener already prevents
+  the play/pause toggle from firing.
+- **Deterministic.** Always whole-word, never partial. The user has
+  100 % control over which spans land in the buffer.
+- **Forgiving.** Toggle semantics: Ctrl-click on an already-selected
+  span removes it from the buffer, so a misclick is one Ctrl-click away
+  from being undone. No need to start over.
+
+**State machine (4 transitions):**
+
+```
+        [idle, buffer empty]
+              │
+   Ctrl-click on .lx-sub-word
+              │
+              ▼
+        [selecting, buffer ≥ 1]   ← Ctrl-click another span: append
+              │                     Ctrl-click selected span:  toggle-out
+              │                     Esc:                       _clearMultiSelection
+              │                     plain click anywhere:      _clearMultiSelection
+              │                     yt-navigate-finish:        _clearMultiSelection
+              │
+   release Ctrl/⌘ (keyup; ctrlKey && metaKey both false)
+              │
+              ▼
+       _finaliseMultiSelection()
+              │
+              ▼
+       _normalisePhrase(words.join(' '))
+              │
+              ▼
+       _openLookupOverlay(phrase, 'phrase')
+              │
+              ▼
+        [idle, buffer empty]
+```
+
+**Module state added:**
+
+```js
+let _multiWordSelection = [];               // ordered list of span elements
+const _MULTI_SELECTED_CLASS = 'lx-multi-selected';
+```
+
+**`_onWordClick` modifier branch (added at the top):**
+
+```js
+if (e.ctrlKey || e.metaKey) {
+  e.stopPropagation();
+  e.preventDefault();
+  const span = e.target;
+  if (!span?.classList?.contains(_WORD_CLASS)) return;
+  const existing = _multiWordSelection.indexOf(span);
+  if (existing >= 0) {
+    _multiWordSelection.splice(existing, 1);
+    span.classList.remove(_MULTI_SELECTED_CLASS);
+  } else {
+    _multiWordSelection.push(span);
+    span.classList.add(_MULTI_SELECTED_CLASS);
+  }
+  return;
+}
+// no modifier → fall through to existing single-word click flow
+```
+
+**Helpers (module-level):**
+
+```js
+function _clearMultiSelection() {
+  for (const span of _multiWordSelection) {
+    try { span.classList.remove(_MULTI_SELECTED_CLASS); } catch (_) {}
+  }
+  _multiWordSelection = [];
+}
+
+function _finaliseMultiSelection() {
+  if (!_multiWordSelection.length) return;
+  const words = _multiWordSelection.map((s) => (s.textContent || '').trim());
+  const phrase = _normalisePhrase(words.join(' '));
+  _clearMultiSelection();
+  if (!phrase) return;
+  _triggerPhraseOverlay(phrase, null);
+}
+```
+
+**Document-level listeners (3 added; 2 extended):**
+
+```js
+// NEW: finalise on Ctrl/⌘ release. Multi-key handling: if the OTHER
+// side of Ctrl/Meta is still held (e.ctrlKey / e.metaKey after the
+// event), don't finalise — only the LAST release counts.
+window.addEventListener('keyup', (e) => {
+  if (e.key !== 'Control' && e.key !== 'Meta') return;
+  if (e.ctrlKey || e.metaKey) return;
+  if (!_multiWordSelection.length) return;
+  _finaliseMultiSelection();
+}, true);
+
+// EXTENDED: plain click without modifier aborts an in-progress selection.
+document.addEventListener('click', (e) => {
+  if (_multiWordSelection.length && !(e.ctrlKey || e.metaKey)) {
+    _clearMultiSelection();
+  }
+  /* ...existing overlay-close logic unchanged... */
+}, true);
+
+// EXTENDED: Escape clears the multi-select buffer (mirrors overlay close).
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') {
+    _removeOverlay();
+    if (_multiWordSelection.length) _clearMultiSelection();
+  }
+}, true);
+
+// EXTENDED: SPA nav clears stale span references before the caption
+// container is recycled.
+window.addEventListener('yt-navigate-finish', () => {
+  /* ...existing observer reconnect... */
+  _clearMultiSelection();
+});
+```
+
+**Highlight CSS:**
+
+```css
+.lx-multi-selected,
+.lx-multi-selected:hover {
+  background: rgba(129, 140, 248, 0.5) !important;
+  color: #ffffff !important;
+  outline: 1px solid rgba(129, 140, 248, 1) !important;
+  border-bottom-color: rgba(129, 140, 248, 1) !important;
+}
+```
+
+Stronger alpha (0.5) than the regular `:hover` state (0.25), full-opacity
+outline so the selected spans remain visually distinct from any
+incidentally-hovered span. The paired `:hover` selector prevents the
+highlight from washing out when the cursor sits over an already-selected
+span.
+
+**Sandbox verification:** 16 / 16 state-machine cases pass in a Node
+sandbox (recorded in the S1-S3 commit). Covers the happy path, toggle-
+in-toggle-out, out-of-order Ctrl-clicks (order is preserved!),
+deselect-in-middle, abort via `_clearMultiSelection`, single-Ctrl-click +
+release (degenerates cleanly to the single-word case), and Polish /
+Greek / Ukrainian token preservation.
 
 ### Sub-decision sketch (formalised in ADR-034)
 
