@@ -1,8 +1,8 @@
 # Lexora — Implementation Plan (MVP)
 
-> Version: 2.8 (M35 — Multi-word YouTube Subtitle Selection — Complete)
-> Last updated: 2026-05-16
-> Status: M0–M25 complete; M26 postponed (resource constraints); M27–M35 complete
+> Version: 2.9 (M36 — Mobile PWA & Offline Sync — Planned)
+> Last updated: 2026-05-17
+> Status: M0–M25 complete; M26 postponed (resource constraints); M27–M35 complete; M36 planned
 
 ---
 
@@ -63,6 +63,7 @@
 | M33 | Browser Extension — Webpage Shadowing | ✅ Complete | Pronunciation practice on any webpage. "🎤 Practice Pronunciation" button in QL + YouTube overlays expands a Shadowing block with ▶ Play Original (Edge TTS via `POST /tts-sync`) and click-to-toggle Start/Stop Recording (mic on `chrome.offscreen` doc — granted once per extension). User audio runs through `/transcribe-sync` → `/evaluate-pronunciation`; deterministic Python word-diff is the source of truth for score + missed/mispronounced words; LLM contributes only the localised feedback string (ADR-032) |
 | M34 | Browser Extension — YouTube Vocab Radar | ✅ Complete | Passive vocabulary radar for YouTube. Background fetches the user's vocabulary via new `GET /lexora_api/my_vocab`; main-world inject patches `XMLHttpRequest.prototype` + `window.fetch` to sniff `/api/timedtext` (JSON3 primary, SRV3/SRV1 XML fallback, DOM-observer for live streams). Content script builds a longest-match sliding-window index over the cue track and pauses the video ~4 s before a known word. Glassmorphism Shadow-DOM card shows the word + all-language translations (🇺🇦/🇬🇷/🇵🇱/🇬🇧) + the surrounding cue with the word highlighted, plus ⏪ Rewind 5 s & Play / ▶ Continue / 🔕 Skip this word / ✖ Disable for this video. Cooldown timer (default 120 s) starts at overlay close, not at fire, so the user can read the alert at their pace. Three Options-page controls + per-tab skip set + per-video kill switch. No persistence by default (ADR-033) |
 | M35 | Browser Extension — Multi-word YouTube Subtitle Selection | ✅ Complete | Multi-word phrase lookup on YouTube subtitles via **Ctrl/⌘-Click multi-select** (Strategy C). Native browser selection (Strategy A) was implemented end-to-end and failed in browser smoke — YT's player aggressively re-applies `user-select: none` via JS on every cue render and the `selectstart` interception runs below event listeners. Strategy B (manual drag state machine) was rejected without smoke for the same cue-segment-volatility reason. Strategy C wins: the user Ctrl-clicks each word in the phrase (toggle semantics on re-click); the buffer is finalised on the LAST `Control`/`Meta` keyup (multi-key safe via post-event `e.ctrlKey \|\| e.metaKey` check); the concatenated phrase routes through the same `_openLookupOverlay` pipeline as M24's single-word click. Plain-click anywhere / Escape / `yt-navigate-finish` clear the buffer. Click order preserved (NOT spatial). Every downstream Quick Look feature (Add to Vocabulary, Explain Grammar M28, Explain Slang/Idiom M32, Practice Pronunciation M33) inherits phrase support unchanged. Visually robust, deterministic (always whole-word), immune to YT's selection-suppression. 16/16 sandbox cases pass; browser smoke confirmed (ADR-034) |
+| M36 | Mobile PWA & Offline Sync | 🟡 Planned | Add Lexora to the iPhone / Android home screen and review SRS cards in airplane mode. Web App Manifest served at `/lexora.webmanifest` + Service Worker served from a controller at `/sw.js` (root scope so we can intercept `/my/practice/mobile/*`). IndexedDB layer (`idb` wrapper, vendored ~1 KB) with two stores: `cards_to_review` (prefetched from `GET /lexora_api/offline_batch`, capped 200 cards / 7 days) and `sync_queue` (offline review results pending push, keyed by client-generated UUID for idempotency). New mobile route `/my/practice/mobile` with a touch-first card UI (huge **Forgot / Remembered** tap targets — simplified from desktop's 4-grade UI per ADR-035 § 35e). `POST /lexora_api/sync_offline` accepts batches of review UUIDs, dedupes via a small log table (`language.review.offline.log`), and routes each to the existing `language.review.action_register_review(grade)` SM-2 pipeline. SW update strategy: user-controlled refresh via in-page "new version available" banner (NOT `skipWaiting + clients.claim` — would swap the SW out from under a mid-review user). Cache scope strictly limited to the mobile-practice subtree; every other Odoo URL goes straight to network. Auth: session-cookie required for initial load; offline reviews queue locally until the next 200 on `/sync_offline`. Zero new services, zero new permissions, zero new RabbitMQ queues (ADR-035) |
 
 ---
 
@@ -3480,3 +3481,491 @@ Look downstream buttons that automatically inherit phrase support once
 `_showOverlay(phrase, ...)` is callable with multi-word input). No backend
 dependency at all — M35 is the second extension milestone (after M34) to ship
 without touching any FastAPI service or RabbitMQ queue.
+
+---
+
+## M36 — Mobile PWA & Offline Sync
+
+**Goal:** Bypass the App Store entirely. A user adds Lexora to their iPhone or
+Android home screen, taps the icon while standing on the metro with no signal,
+gets a touch-first SRS review session (huge **Forgot** / **Remembered**
+buttons), and when their phone next sees Wi-Fi the offline reviews are pushed
+to the server and the SM-2 state advances exactly as if they had used the
+desktop `/my/practice` page.
+
+Pure UX milestone in shape — zero new services, zero new RabbitMQ queues, no
+LLM endpoints — but architecturally substantial because it introduces three
+patterns the codebase hasn't carried before: a Service Worker, an IndexedDB
+data plane, and an explicit offline-first sync protocol.
+
+This section is the architectural analysis the user asked for before any
+code lands. The decisions captured here will be formalised in ADR-035 once
+the milestone closes.
+
+### The integration problem (architectural analysis)
+
+Three concrete obstructions for "bolt a PWA onto an Odoo portal":
+
+1. **Service Worker scope.** A SW can only intercept requests whose URLs are
+   within its own path or shallower. Odoo's static-asset convention puts
+   files at `/web/static/<module>/static/src/js/sw.js` — scope limited to
+   that path. Useless for caching `/my/practice/mobile/*` which lives at a
+   completely different prefix.
+
+2. **No native `static/` directory in `language_learning`.** The module has
+   `controllers/`, `models/`, `views/`, `tests/` — but no `static/`. We
+   need to create one for the SW source + IndexedDB wrapper + mobile JS,
+   and wire it through `__manifest__.py` so Odoo's asset bundler can serve
+   it.
+
+3. **Odoo's asset bundling can hash file URLs.** Odoo 18 prefixes
+   bundled-asset URLs with a content hash for cache-busting. The SW
+   precache list must use the actual served URLs, not the source paths.
+   Either we precache by absolute URL (queried at SW install time) or we
+   route the SW assets outside the bundling pipeline.
+
+### The four anchor design choices
+
+#### Design choice 1: SW served from a controller route at `/sw.js` (root scope)
+
+**Decision:** new Odoo route `@http.route('/sw.js', type='http',
+auth='public', methods=['GET'])` that reads the source file from disk and
+returns it with `Content-Type: application/javascript;
+Service-Worker-Allowed: /`. Same controller serves `/lexora.webmanifest`
+with `Content-Type: application/manifest+json`.
+
+**Rationale:**
+- Root-level scope (`/`) means the SW can register controllers for
+  `/my/practice/mobile/*` and any future PWA-enabled routes without a
+  second SW.
+- The alternative — `Service-Worker-Allowed: <path>` header to broaden
+  scope from a deeper file — works but ties future feature surfaces to
+  remembering to add the header.
+- The controller can resolve the source file via
+  `odoo.tools.misc.file_open()` (Odoo's safe file reader) and stream the
+  bytes. Hot-reload during development: bump a version constant inside
+  `sw.js` source and Odoo re-reads the file on each request (small cache
+  TTL).
+- Public auth so the SW file is reachable on the very first visit before
+  the user signs in.
+
+#### Design choice 2: `idb` wrapper, vendored locally (no CDN)
+
+**Decision:** vendor Jake Archibald's `idb` library (≈1.1 KB minified,
+~600 LOC source, MIT licence) into
+`language_learning/static/src/js/vendor/idb.umd.js`. Reference it from
+`mobile_practice.js` via a `<script>` tag in the QWeb template.
+
+**Rationale:**
+- Raw `IndexedDB` API is callback-based, verbose, and error-prone. `idb`
+  turns it into Promises (`await db.put(...)`, `await db.getAll(...)`).
+- The library is mature (~10 years), single-file, zero dependencies, and
+  small enough that vendoring beats CDN for offline-first reasons (a PWA
+  that depends on a CDN to bootstrap its offline mode is contradictory).
+- Pinning a specific version (latest stable, e.g. `7.1.1`) into source
+  control means no surprise breakage on upstream patch releases.
+
+#### Design choice 3: Two object stores; UUID-keyed sync_queue for idempotency
+
+**Decision:** IndexedDB schema v1:
+
+```
+db: lexora_offline
+├── cards_to_review (keyPath: 'id')
+│   { id, word, lang, normalized,
+│     translations: {uk, el, pl, en},
+│     srs_state, ease_factor, interval, repetitions,
+│     next_review_date_iso,
+│     fetched_at_iso }
+│
+└── sync_queue (keyPath: 'client_uuid')
+    { client_uuid,         // crypto.randomUUID()
+      card_id,
+      grade,               // 0 (Forgot) | 2 (Remembered)
+      reviewed_at_iso,
+      enqueued_at_iso }
+```
+
+**Rationale:**
+- `cards_to_review` keyed by Odoo card id → simple sync semantics (replace
+  on next prefetch).
+- `sync_queue` keyed by **client-generated UUID** → idempotent server-side
+  dedupe. The same queue can be re-uploaded after a mid-flight network
+  drop and the server's `language.review.offline.log` table treats
+  duplicates as no-ops.
+- A small log table beats stashing UUIDs in a Text/JSON field on
+  `language.review` for three reasons: (a) cleanly indexable for the
+  duplicate check, (b) survives card deletion without orphan-record
+  cleanup logic, (c) supports analytics queries like "how many of this
+  user's reviews came in via offline sync."
+
+#### Design choice 4: User-controlled SW update — NOT `skipWaiting`
+
+**Decision:** when a new SW version is detected (manifest change → SW
+install → `controllerchange` fires), show an in-page banner ("Lexora was
+updated — refresh to load the new version") with an explicit
+**Refresh** button. The new SW waits for the user's action; the active
+session is undisturbed.
+
+**Rationale:**
+- A user mid-review (or with a non-empty `sync_queue`!) should NOT have
+  the SW swapped out from under them. `self.skipWaiting()` +
+  `clients.claim()` would do exactly that, and risk losing
+  pending-but-not-yet-IDB-flushed state.
+- The "refresh to update" pattern is the standard Workbox / Vite PWA
+  default for the same reason.
+- Detection is a 5-line listener on `navigator.serviceWorker`:
+  `controllerchange` fires when a new SW takes control; we show the
+  banner via the page's existing notification slot.
+
+### IndexedDB module API (locked surface)
+
+`mobile_practice.js` exports four public functions through the `lexora.db`
+module:
+
+```js
+// On page load: opens DB, runs upgrades, returns ready promise
+await lexora.db.init();
+
+// After successful network fetch from /lexora_api/offline_batch
+await lexora.db.replaceCardsToReview(cardsArray);
+
+// User taps Forgot / Remembered
+await lexora.db.enqueueReview({card_id, grade, reviewed_at_iso});
+
+// Pull all queued reviews for upload
+const queue = await lexora.db.drainQueue();
+// (does NOT delete — only deletes after server returns 200)
+await lexora.db.removeFromQueue(processedUuids);
+
+// Cards to display in the current session
+const cards = await lexora.db.getDueCards({asOf: new Date()});
+
+// Diagnostic
+const {cards, queued} = await lexora.db.stats();
+```
+
+`enqueueReview` is the only function that can be called while offline.
+`replaceCardsToReview` and the upload path require network. The mobile UI
+attempts a fresh prefetch on every successful sign-in / page load when
+`navigator.onLine` is true.
+
+### Odoo sync API (two new routes)
+
+**`GET /lexora_api/offline_batch?days=7&limit=200`** — fetch due cards.
+
+- Auth: `_require_session()` (same pattern as M22-M35 routes).
+- Query: `language.review.search([('user_id','=',uid),
+  ('next_review_date','<=', today + days)], limit=limit, order='state desc,
+  next_review_date asc')`. Same order as the existing `get_due_cards`
+  helper so the offline session feels identical to the desktop one.
+- Projection: per card → `{id, word, lang, normalized, translations:
+  {lang_code: text}, srs_state, ease_factor, interval, repetitions,
+  next_review_date_iso}`.
+- Response: `{status: 'ok', cards: [...], generated_at: <unix>}`.
+- Cap defaults `days=7, limit=200`. Env-overridable via
+  `LEXORA_OFFLINE_BATCH_DEFAULT_DAYS` / `_LIMIT`.
+
+**`POST /lexora_api/sync_offline`** — push reviewed cards.
+
+- Auth: `_require_session()`.
+- Body: `{reviews: [{client_uuid, card_id, grade, reviewed_at_iso}, ...]}`.
+- For each review:
+  1. `language.review.offline.log` UNIQUE check on `(user_id, client_uuid)`.
+     Duplicate → skip, count in `skipped` response field.
+  2. Find the card; if not owned by this user → skip, log warning.
+  3. Call `card.action_register_review(grade)` — existing SM-2 advance.
+  4. Insert `(user_id, client_uuid, card_id, applied_at)` into
+     `offline.log`.
+- Response: `{status: 'ok', processed: N, skipped_duplicate: M,
+  not_found: K, errors: [...]}`.
+- All-or-nothing transaction NOT used — partial success is fine; the
+  client removes only UUIDs the server confirms processed.
+
+**`language.review.offline.log` model** (~25 lines, lives in
+`language_learning/models/language_review_offline_log.py`):
+
+```python
+class LanguageReviewOfflineLog(models.Model):
+    _name = 'language.review.offline.log'
+    _description = 'Offline-sync idempotency log for SRS reviews'
+
+    user_id      = fields.Many2one('res.users', required=True, index=True)
+    client_uuid  = fields.Char(required=True, index=True)
+    card_id      = fields.Many2one('language.review', ondelete='set null')
+    grade        = fields.Integer()
+    reviewed_at  = fields.Datetime()
+    applied_at   = fields.Datetime(default=fields.Datetime.now)
+
+    _sql_constraints = [
+        ('uuid_unique_per_user',
+         'UNIQUE(user_id, client_uuid)',
+         'Offline review UUID already processed for this user.'),
+    ]
+```
+
+The card_id is `set null` on delete so deleting a card doesn't cascade and
+break the idempotency record.
+
+### Mobile UI sub-design
+
+**Route:** `/my/practice/mobile` — distinct from `/my/practice` so the
+desktop UX is left alone.
+
+**Template:** `language_learning/views/portal_practice_mobile.xml`,
+inheriting only `portal.frontend_layout` (NOT `portal.portal_layout`
+which adds desktop chrome). The page renders a single full-viewport
+card stack with bottom-anchored action buttons.
+
+**Touch UX:**
+- Card front shows the source word; tap anywhere on the card flips to
+  reveal translations.
+- Bottom row: two huge buttons — **Forgot** (red, left) and
+  **Remembered** (green, right). Each is ~46% viewport width, ~80px tall.
+- Swipe-right shorthand for Remembered, swipe-left for Forgot
+  (`touchstart` / `touchend` with a 60-px threshold).
+- Top bar shows session progress (`X / Y cards`) + a tiny
+  online/offline indicator (green dot / amber cloud-off icon).
+- "Sync now" button in the top right shows the pending queue count;
+  tapping triggers `_syncPending()` if `navigator.onLine`.
+
+**Simplification: 2 grades, not 4.** Desktop `/my/practice` exposes 4
+grades (Again / Hard / Good / Easy). Mobile exposes 2 (Forgot →
+grade 0 / Remembered → grade 2). Rationale: ① reduced cognitive load
+in the "review while commuting" use case; ② two huge thumb-friendly
+buttons beat four small ones; ③ SM-2 still progresses meaningfully —
+grade 0 resets the interval; grade 2 advances at the standard
+ease-factor multiplier. Power users get the full 4-grade UI on
+desktop. Recorded as ADR-035 § 35e.
+
+**Online / offline detection:**
+- `window.addEventListener('online', _onReconnect)` triggers an auto-sync
+  attempt.
+- `window.addEventListener('offline', _onDisconnect)` flips the indicator.
+- `navigator.onLine` is the source of truth; spotty cellular still
+  reports `true` so all sync calls are wrapped in `try/catch` with the
+  queue preserved on failure.
+
+### Service Worker behaviour (locked)
+
+**Precache on install:** the shell — `/my/practice/mobile` HTML response,
+`/web/static/.../mobile_practice.js`, `/web/static/.../mobile_practice.css`,
+`/web/static/.../vendor/idb.umd.js`, `/web/static/.../icons/icon-192.png`,
+`/web/static/.../icons/icon-512.png`, `/lexora.webmanifest`. About 12-15
+URLs total, ~80 KB.
+
+**Fetch handler — strict scope:**
+- URL matches `^/my/practice/mobile(/|$)` OR is in the precache list →
+  cache-first with network fallback (for the HTML, network-first to
+  catch new revisions).
+- URL matches `^/lexora_api/(offline_batch|sync_offline)$` → always
+  network. The SW does NOT cache API responses (avoids stale data; the
+  IndexedDB layer owns offline data).
+- Any other URL → passes through to network untouched. We do NOT
+  intercept anything outside the mobile-practice subtree.
+
+**Activate:** delete old caches whose name doesn't match the current
+version constant. Single-line `caches.delete` loop.
+
+**Update flow:** new `sw.js` published → browser detects byte diff on
+next page load → installs as the "waiting" SW → fires
+`controllerchange` once it activates after all clients close. We
+shorten this loop with a `controllerchange` listener that shows the
+update banner immediately when a new SW is **installed** (not yet
+activated). User taps Refresh → `location.reload()` → new SW takes
+control.
+
+### Sub-decision sketch (formalised in ADR-035)
+
+| # | Decision | Why |
+|---|---|---|
+| 35a | SW served at root `/sw.js` via Odoo controller | Root scope = future PWA features don't need scope juggling |
+| 35b | `idb` vendored locally (no CDN) | Offline-first contradicts CDN-bootstrapped |
+| 35c | UUID-keyed `sync_queue` + small log table | Idempotent re-upload; clean RDBMS dedupe |
+| 35d | User-controlled SW update (no `skipWaiting`) | Don't swap the SW under a mid-review user |
+| 35e | Mobile = 2 grades (Forgot / Remembered) | Touch UX + reduced cognitive load; desktop keeps 4 |
+| 35f | Strictly scoped cache (mobile subtree only) | The rest of Odoo must never be served stale by our SW |
+| 35g | Auth via existing session cookie; no token | First-load requires sign-in; offline reviews queue until 200 |
+
+### Step-by-step work plan
+
+**Step M36-S1 — PWA fundamentals (manifest + SW skeleton + controller routes)**
+
+- New file `language_learning/static/src/manifest.json` — name, short_name,
+  start_url `/my/practice/mobile`, display `standalone`, theme_color, icons.
+- New file `language_learning/static/src/js/sw.js` — empty skeleton with
+  `install` / `activate` / `fetch` listeners that pass through to network
+  initially. Version constant at top.
+- New file `language_learning/controllers/portal_pwa.py` — two routes:
+  - `GET /sw.js` — reads `static/src/js/sw.js` from disk, returns with
+    `Content-Type: application/javascript; Service-Worker-Allowed: /`.
+  - `GET /lexora.webmanifest` — reads `static/src/manifest.json`, returns
+    with `Content-Type: application/manifest+json`.
+- Wire `<link rel="manifest" href="/lexora.webmanifest">` into the portal
+  layout via QWeb template inheritance (separate inherits — non-mobile
+  pages don't need the manifest but it's cheap to include).
+- Icons: copy + resize the existing `extension/icons/icon-128.png` to
+  192×192 and 512×512, place in `static/src/icons/`.
+
+**Step M36-S2 — IndexedDB data layer**
+
+- Vendor `idb.umd.js` (latest stable, MIT) into
+  `static/src/js/vendor/idb.umd.js`.
+- New file `static/src/js/lexora_db.js` — module exposing
+  `lexora.db.init / replaceCardsToReview / enqueueReview / drainQueue /
+  removeFromQueue / getDueCards / stats`.
+- Schema v1: two stores as defined above. `init()` opens with
+  `upgradeNeeded` handler that creates both stores on v1.
+- All write methods wrap their IDB transaction in try/catch and return
+  `{ok, error?}`. The mobile UI surfaces "Could not save offline" errors
+  via a toast if storage quota is hit.
+
+**Step M36-S3 — Odoo sync API + idempotency log model**
+
+- New model `language.review.offline.log` (file
+  `language_learning/models/language_review_offline_log.py`) with the
+  UNIQUE constraint on `(user_id, client_uuid)`.
+- `language_learning/security/ir.model.access.csv` row — Language Users
+  read-own only (no write from portal; only the sync controller writes
+  via sudo).
+- `language_learning/security/record_rules.xml` — owner-only read rule.
+- `portal_pwa.py` extended:
+  - `GET /lexora_api/offline_batch?days=N&limit=M` — projection over
+    `language.review` joined with `language.entry` translations.
+  - `POST /lexora_api/sync_offline` — per-UUID dedupe; call
+    `card.action_register_review(grade)` for each new one; insert log row.
+- Module manifest registers the new model + ACL + routes.
+- Add ~6 tests to `tests/test_offline_sync.py`:
+  - Idempotent re-upload (same UUID twice → second is no-op).
+  - Foreign-user card → not_found.
+  - Bad grade → defensive clamp to 0/1/2/3.
+  - Mixed batch (one new, one duplicate, one not-found) → correct counts.
+
+**Step M36-S4 — Mobile UI route + template + JS controller**
+
+- `portal.py` extended (or new `portal_mobile.py`): `GET /my/practice/mobile`
+  → renders `portal_practice_mobile`. Auth required; on first visit,
+  ensures a fresh batch is in IndexedDB (server-side: pass an initial
+  payload via QWeb so the page is functional even before JS boots).
+- `views/portal_practice_mobile.xml` — full-viewport layout. Includes
+  `<script>` tags for `idb.umd.js`, `lexora_db.js`, `mobile_practice.js`.
+  CSS link to `mobile_practice.css`.
+- `static/src/js/mobile_practice.js` — module exposing
+  `lexora.mobile.boot()`:
+  - Register SW (`navigator.serviceWorker.register('/sw.js')`).
+  - `lexora.db.init()`.
+  - Prefetch a fresh batch if online.
+  - Bind touch + click handlers on the card surface.
+  - Set up `online` / `offline` listeners + sync trigger.
+- `static/src/css/mobile_practice.css` — large card, gradient header,
+  fixed-bottom action row, swipe animation. Mobile-Safari-safe (no
+  `100vh` — use `100dvh` with fallback).
+
+**Step M36-S5 — Service Worker caching + update banner**
+
+- Flesh out `sw.js`:
+  - `PRECACHE_NAME = 'lexora-pwa-v1'`.
+  - `install` handler: open cache, addAll precache list.
+  - `activate` handler: delete caches whose name ≠ `PRECACHE_NAME`.
+  - `fetch` handler: scoped routing as documented above.
+- `mobile_practice.js` adds the update banner:
+  - `navigator.serviceWorker.addEventListener('controllerchange', ...)` →
+    show banner.
+  - "Refresh" button → `location.reload()`.
+
+**Step M36-S6 — Edge-case verification + ADR-035 + final docs flip**
+
+- Verification matrix (full smoke checklist below).
+- ADR-035 in `docs/DECISIONS.md` covering 35a-g.
+- PLAN.md v2.9 → v3.0; M36 row flipped ✅; status header updated.
+- TASKS.md M36 block archived.
+- README.md gains an "M36 — Mobile PWA" subsection under a new section
+  (Mobile Ecosystem? or stretch §3 to include it?). Roadmap renumbered.
+
+### Verification matrix (browser + Odoo)
+
+```bash
+# Static checks
+node --check src/addons/language_learning/static/src/js/sw.js
+node --check src/addons/language_learning/static/src/js/lexora_db.js
+node --check src/addons/language_learning/static/src/js/mobile_practice.js
+
+# Odoo install + tests
+docker exec odoo odoo -d lexora --update language_learning \
+  --stop-after-init --no-http
+docker exec odoo odoo -d lexora --test-enable -u language_learning \
+  --stop-after-init --no-http
+# expect: 6 new offline-sync tests pass; existing 24+ gamification tests stay green
+
+# Manifest + SW reachable
+curl -s -I http://localhost:5433/lexora.webmanifest | grep Content-Type
+# → application/manifest+json
+curl -s -I http://localhost:5433/sw.js | grep -E "Content-Type|Service-Worker-Allowed"
+# → application/javascript
+# → Service-Worker-Allowed: /
+
+# Offline-batch shape (authenticated)
+curl -s -H "X-Lexora-Session-Id: <sid>" \
+  http://localhost:5433/lexora_api/offline_batch?days=7
+# → {status:"ok", cards:[...], generated_at:...}
+
+# Idempotent sync_offline
+curl -s -H "X-Lexora-Session-Id: <sid>" -H 'Content-Type: application/json' \
+  -X POST http://localhost:5433/lexora_api/sync_offline \
+  -d '{"reviews":[{"client_uuid":"00000000-0000-0000-0000-000000000001",
+                   "card_id":1,"grade":2,"reviewed_at_iso":"2026-05-17T10:00:00Z"}]}'
+# → {status:"ok", processed:1, skipped_duplicate:0, not_found:0}
+# Re-run the same curl → {processed:0, skipped_duplicate:1, ...}
+```
+
+**Browser smoke (user-side):**
+
+1. Open `/my/practice/mobile` on a phone or in Chrome DevTools
+   device-emulation mode.
+2. DevTools Application tab → Service Workers: confirm `sw.js` is
+   registered, status "activated and running."
+3. Application → Manifest: confirm name / icons / start_url load.
+4. DevTools Network tab → check "Offline" → reload the page → page
+   loads from cache, cards render from IndexedDB.
+5. Tap **Remembered** on 3 cards while offline → DevTools Application
+   → IndexedDB → `sync_queue` should show 3 rows.
+6. Uncheck "Offline" → within seconds, the sync auto-fires (online
+   event) → `sync_queue` empties → server-side `language.review`
+   advances for those 3 cards (verify via `/my/practice` desktop page).
+7. Republish the SW (bump version constant) → reload → banner appears
+   → tap Refresh → new SW takes control without losing queue contents.
+8. "Add to Home Screen" on iOS / Android → tap home icon → app
+   opens full-screen (no browser chrome).
+
+**Acceptance:** a user can complete a 10-card review session in
+airplane mode, fly home, and on opening the app on Wi-Fi see their
+SM-2 state advanced on the desktop site within seconds.
+
+### Out of scope (explicit non-goals)
+
+- **Push notifications.** Apple still requires PWAs to be installed
+  before push permission can be requested, and the prompt UX is
+  awkward. Defer to M37.
+- **Background Sync API.** Chrome-only; iOS Safari has no equivalent.
+  We rely on the `online` event + the user manually opening the app.
+- **Offline-first translation.** The user can review cards offline
+  but can't add new entries offline. That requires extending the
+  vocabulary-add flow with IndexedDB persistence + a separate sync
+  queue. Future milestone.
+- **iOS share-target API.** Adding an iOS Share Sheet entry that
+  pushes selected text into Lexora is a separate iOS PWA feature
+  (`manifest.share_target`); not in M36 scope.
+
+### Out-of-scope risks worth recording
+
+- **iOS PWA storage eviction.** Safari evicts PWA storage after ~7
+  days of non-use. A user who installs Lexora, doesn't open it for
+  two weeks, comes back to an empty `cards_to_review` (which
+  silently re-prefetches on first online load — degraded but not
+  broken UX). Documented in ADR-035 revisit triggers.
+- **iOS service worker quirks.** SW lifecycle on iOS Safari has
+  historically been buggier than on Android Chrome. The minimum
+  iOS version we'll commit to supporting is iOS 16.4 (the version
+  that finally added Web Push and stabilised most SW behaviour).
+  Older iOS gets the offline-disabled fallback experience: page
+  loads online, no SW registration.
