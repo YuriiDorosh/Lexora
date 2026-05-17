@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- ============================================================ -->
+    <!-- M36 — PWA <head> tags                                        -->
+    <!-- ============================================================ -->
+    <!-- Injects the Web App Manifest link + the iOS/Android theme    -->
+    <!-- colour into every frontend page's <head>. We include them    -->
+    <!-- on every page (not just /my/practice/mobile) because:        -->
+    <!--                                                              -->
+    <!--   1. The browser's "Add to Home Screen" PWA criteria require -->
+    <!--      the manifest to be present on the page that triggered   -->
+    <!--      the install. A user might tap Install from the desktop  -->
+    <!--      home page; we want that path to work too.               -->
+    <!--                                                              -->
+    <!--   2. theme-color is a CSS-cheap meta tag with no runtime     -->
+    <!--      cost; tinting the iOS Safari status bar on every page   -->
+    <!--      gives the site a consistent identity once it has been   -->
+    <!--      saved to the home screen.                               -->
+    <!--                                                              -->
+    <!-- Sibling of language_portal/views/branding.xml's              -->
+    <!-- lexora_google_fonts template — same xpath target, same       -->
+    <!-- inheritance pattern.                                         -->
+    <!-- ============================================================ -->
+
+    <template id="lexora_pwa_head_tags"
+              inherit_id="web.frontend_layout"
+              name="Lexora · PWA manifest + theme-color">
+        <xpath expr="//head/meta[last()]" position="after">
+            <link rel="manifest" href="/lexora.webmanifest"/>
+            <meta name="theme-color" content="#0f172a"/>
+            <!-- iOS-specific PWA hints: tells Safari the site can be -->
+            <!-- launched in standalone mode (no browser chrome) and  -->
+            <!-- defines the iOS-side icon when the user adds it to   -->
+            <!-- their home screen.                                   -->
+            <meta name="apple-mobile-web-app-capable" content="yes"/>
+            <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+            <meta name="apple-mobile-web-app-title" content="Lexora"/>
+            <link rel="apple-touch-icon"
+                  href="/language_learning/static/src/icons/icon-192.png"/>
+        </xpath>
+    </template>
+</odoo>

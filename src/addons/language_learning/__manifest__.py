@@ -17,6 +17,8 @@
         'views/portal_leaderboard.xml',
         'views/portal_dashboard.xml',
         'views/portal_shop.xml',
+        # M36 — Mobile PWA <head> tags (manifest link + theme-color)
+        'views/pwa_head_tags.xml',
     ],
     'post_init_hook': 'post_init_hook',
     'post_update_hook': 'post_update_hook',
