@@ -122,36 +122,89 @@ language_learning/
   `<meta name="theme-color">` into `<head>` for iOS Safari status-bar
   theming.
 
-**Step M36-S2 — IndexedDB data layer**
+**Step M36-S2 — IndexedDB data layer** ✅
 
-- [ ] M36-S2-01 · Vendor `idb` — download `idb-7.1.1.umd.js` from npm /
-  unpkg, save to `static/src/js/vendor/idb.umd.js`. Add a `LICENSE`
-  comment at the top noting the MIT licence + upstream URL.
-  Single-file, no transitive deps.
-- [ ] M36-S2-02 · `static/src/js/lexora_db.js` — module exposing
-  `window.lexora.db` with seven methods:
-  - `init()` — opens DB `lexora_offline` at version 1; `upgrade`
-    callback creates `cards_to_review` (keyPath `id`) and
-    `sync_queue` (keyPath `client_uuid`).
-  - `replaceCardsToReview(cards)` — transactional clear + bulk-put.
-  - `enqueueReview({card_id, grade, reviewed_at_iso})` —
-    auto-generates `client_uuid` via `crypto.randomUUID()`, stamps
-    `enqueued_at_iso`, `put` into `sync_queue`.
-  - `drainQueue()` — `getAll` from `sync_queue` (does NOT delete).
-  - `removeFromQueue(uuidArray)` — bulk delete after server confirms.
-  - `getDueCards({asOf, limit})` — filter `cards_to_review` by
-    `next_review_date_iso <= asOf`, sort by `srs_state desc,
-    next_review_date_iso asc` (matches `language.review.get_due_cards`
-    order).
-  - `stats()` — diagnostic `{cardCount, queuedCount, dbVersion}`.
-- [ ] M36-S2-03 · All write methods wrap their IDB transaction in
-  try/catch; on `QuotaExceededError` return `{ok:false, error:'quota'}`
-  so the mobile UI can show "Storage full — please clear some space"
-  toast.
-- [ ] M36-S2-04 · Sandbox smoke (Node + fake-indexeddb): exercise
-  `init → replaceCardsToReview → getDueCards → enqueueReview ×3 →
-  drainQueue (length 3) → removeFromQueue (2 of 3) → drainQueue
-  (length 1)`. Recorded inline in the S2 commit message.
+- [x] M36-S2-01 · Vendored `idb` 7.1.1 from
+  `https://unpkg.com/idb@7.1.1/build/umd.js` into
+  `static/src/js/vendor/idb.umd.js`. **Licence correction**: the
+  upstream is **ISC** (not MIT as the M36 plan assumed). Equivalent
+  for redistribution, but the docstring and ADR-035 must record
+  ISC. Header comment block embeds the full ISC licence text +
+  copyright (Jake Archibald 2016) per the licence's "appear in all
+  copies" clause. 37 lines (36 of header + 1 of minified UMD body),
+  ~5.8 KB total. `node --check` passes.
+- [x] M36-S2-02 · `static/src/js/lexora_db.js` shipped — single
+  IIFE exposing `window.lexora.db` (+ `globalThis.lexora.db` for
+  Node tests + `module.exports` for direct `require()`). Seven
+  public methods + `_internals` diagnostic export:
+  - `init()` — opens `lexora_offline` v1; `upgrade` callback creates
+    both stores. Idempotent via cached `_dbPromise`; second call
+    returns `{ok:true, reused:true}`. Handles `blocked` (logs warn,
+    waits) and `terminated` (drops cached promise so next call
+    re-opens) lifecycle events.
+  - `replaceCardsToReview(cards)` — single transaction, `clear()`
+    then `put` each row. Returns `{ok:true, count:N}`.
+  - `enqueueReview({card_id, grade, reviewed_at_iso?})` — generates
+    `client_uuid` via `crypto.randomUUID()` with a built-in RFC 4122
+    v4 fallback for environments without webcrypto, stamps
+    `enqueued_at_iso`, defaults `reviewed_at_iso` to `new Date()
+    .toISOString()` if omitted. Validates `card_id` and numeric
+    `grade` upfront.
+  - `drainQueue()` — `getAll` only; **does NOT delete** (the
+    network round-trip might fail; the buffer must survive).
+  - `removeFromQueue(uuids)` — bulk delete in a single transaction.
+    Filters out falsy/non-string UUIDs defensively. Returns
+    `{ok:true, removed:N}`.
+  - `getDueCards({asOf?, limit?})` — filters by
+    `next_review_date_iso <= asOf` (defaults to now), then sorts
+    `state desc (learning → new → review)` then
+    `next_review_date_iso asc`. Returns `{ok:true, cards, total}`
+    where `total` is the unlimited count (the UI uses it for the
+    "X / Y" progress header).
+  - `stats()` — `{cardCount, queuedCount, dbVersion, dbName}`.
+- [x] M36-S2-03 · Error envelope locked: every method returns
+  `{ok:true, ...payload}` OR `{ok:false, error:<kind>, message}`.
+  `_classifyError(err)` maps DOMException `.name` to four stable
+  kinds: `quota` / `aborted` / `security` / `unknown`. The mobile
+  UI's toast logic branches on `error==='quota'` for the "Storage
+  full — please clear some space" path; other kinds get a console
+  warn + generic toast. NOTE: the QuotaExceededError path is correct
+  by inspection but cannot be exercised in the Node sandbox because
+  `fake-indexeddb` has no quota; the mapping itself is verified by
+  the unit branches around it.
+- [x] M36-S2-04 · Sandbox smoke (Node + `fake-indexeddb@5` + `idb@7.1.1`)
+  — `35/35 assertions pass`. The test exercises the full state
+  machine + the input-validation + error branches:
+  - A. `init()` ok + second call reuses connection.
+  - B. `stats()` on empty DB returns `{cardCount:0, queuedCount:0,
+    dbName:'lexora_offline', dbVersion:1}`.
+  - C. `replaceCardsToReview` of 5 cards (mix of new/learning/review
+    states; multi-language translations including Polish & Greek).
+  - D. Second `replace` with a smaller set — cardCount drops to 2,
+    confirming wholesale-replace semantics.
+  - E. `getDueCards` filters out the future-dated `donkey` (2026-05-18
+    vs asOf=2026-05-17), and the resulting 4 cards sort
+    `[learning-12, learning-13, new-11, review-15]` — exactly the
+    server-side `language.review.get_due_cards` order.
+  - F. `getDueCards({limit:2})` returns 2 cards but `total` still
+    reports 4.
+  - G. `enqueueReview` generates an RFC 4122 v4 UUID (regex-validated
+    against `/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]
+    {3}-[0-9a-f]{12}$/i`), an ISO 8601 `enqueued_at_iso`, and
+    defaults `reviewed_at_iso` when omitted.
+  - H. Input validation: missing `card_id` → `error:'unknown'`,
+    non-numeric `grade` → `error:'unknown'`.
+  - I. After 3 enqueues, `drainQueue` returns 3 rows; calling
+    `drainQueue` AGAIN still returns 3 rows (non-destructive
+    contract verified).
+  - J. `removeFromQueue([uuid1, uuid3])` deletes the chosen rows;
+    the remaining row is exactly the un-removed one (card_id 12).
+  - K. `removeFromQueue([])` → `{ok:true, removed:0}`;
+    non-array input → `{ok:false}`; array of falsy values →
+    `{ok:true}` (filtered before delete) and the queue is
+    untouched.
+  - L. Final `stats` reads `cardCount=5, queuedCount=1` — every
+    transition accounted for.
 
 **Step M36-S3 — Odoo sync API + idempotency log model**
 
