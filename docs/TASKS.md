@@ -206,40 +206,121 @@ language_learning/
   - L. Final `stats` reads `cardCount=5, queuedCount=1` — every
     transition accounted for.
 
-**Step M36-S3 — Odoo sync API + idempotency log model**
+**Step M36-S3 — Odoo sync API + idempotency log model** ✅
 
-- [ ] M36-S3-01 · `models/language_review_offline_log.py` with the
-  UNIQUE constraint on `(user_id, client_uuid)` (sub-decision 35c).
-  Fields: `user_id`, `client_uuid`, `card_id` (Many2one →
-  `language.review`, `ondelete='set null'`), `grade`, `reviewed_at`,
-  `applied_at` (default now).
-- [ ] M36-S3-02 · `security/ir.model.access.csv` — Language Users
-  read-own; portal write blocked (only the sync controller writes via
-  sudo). `security/record_rules.xml` — owner-only read rule.
-- [ ] M36-S3-03 · `portal_pwa.py` — `GET /lexora_api/offline_batch`:
-  - Query params `days` (default 7, min 1, max 30) and `limit` (default
-    200, min 1, max 1000). Clamped server-side.
-  - Joins `language.review` ↔ `language.entry` ↔
-    `language.translation`. Same ordering as `get_due_cards`.
-  - Returns `{status:'ok', cards:[...], generated_at:<unix>}` via
-    `_json_response`.
-- [ ] M36-S3-04 · `portal_pwa.py` — `POST /lexora_api/sync_offline`:
-  - JSON body parser (mirrors M31 / M33 manual parse pattern).
-  - Per review: UUID dedupe → not_found check → grade clamp →
-    `card.action_register_review(grade)` → log row insert.
-  - Bulk response: `{status:'ok', processed, skipped_duplicate,
+- [x] M36-S3-01 · `models/language_review_offline_log.py` lands the
+  new model with the UNIQUE`(user_id, client_uuid)` constraint as the
+  database-level idempotency floor (sub-decision 35c). Fields shipped:
+  - `user_id` (Many2one → res.users, required, indexed,
+    `ondelete='cascade'` — log rows die with the account)
+  - `client_uuid` (Char, required, indexed)
+  - `card_id` (Many2one → `language.review`, `ondelete='set null'`
+    so cards can be deleted without orphan log cleanup)
+  - `grade` (Integer, post-clamp to [0, 3])
+  - `reviewed_at` (Datetime, client clock — informational only)
+  - `applied_at` (Datetime, server clock, default `fields.Datetime.now`)
+  - `_order = 'applied_at desc, id desc'` so the most recent entries
+    surface first in any future admin view.
+  - Module-level `_clamp_grade(raw)` helper folds non-numeric, negative,
+    and out-of-range grades to the [0, 3] endpoints — defensively
+    routes a tampered or future-UI grade to a safe SM-2 value rather
+    than rejecting the row.
+- [x] M36-S3-02 · Security:
+  - `ir.model.access.csv` — two new rows:
+    `model_language_review_offline_log` × `group_language_user`
+    (read-only `1,0,0,0`) and × `group_language_admin` (full
+    `1,1,1,1`). Portal users can NEVER write directly; the controller
+    writes via sudo.
+  - `record_rules.xml` — new `rule_language_review_offline_log_owner`
+    rule scopes Language Users to `user_id = user.id`. Combined with
+    the read-only ACL above, a user sees only their own log rows and
+    cannot modify any.
+- [x] M36-S3-03 · `portal_pwa.py` extended with
+  `GET /lexora_api/offline_batch` (`auth='user'`, `type='http'`):
+  - Query params `days` (default `LEXORA_OFFLINE_BATCH_DEFAULT_DAYS=7`,
+    env-overridable) and `limit` (default
+    `LEXORA_OFFLINE_BATCH_DEFAULT_LIMIT=200`, env-overridable). Both
+    clamped via `max(1, min(MAX, n))` — `MAX_DAYS=30`, `MAX_LIMIT=1000`.
+  - `language.review.search` filter: `user_id = caller`, due
+    today-or-earlier OR `next_review_date IS NULL`. Order
+    `state desc, next_review_date asc` matches the M7
+    `language.review.get_due_cards` order — offline session feels
+    identical to the desktop one.
+  - Bulk-fetches `language.translation` for all entry ids in one
+    sudo query; first-write-wins per `(entry, lang)` so the projection
+    `{lang_code: text}` carries the canonical translation.
+  - Response `{status:'ok', cards:[...], generated_at:<unix>}` with
+    `Content-Type: application/json` + `Cache-Control: no-store` (never
+    cache user vocab data).
+- [x] M36-S3-04 · `portal_pwa.py` extended with
+  `POST /lexora_api/sync_offline` (`auth='user'`, `type='http'`):
+  - `_json_body(req)` helper parses the JSON body defensively
+    (matches the M31 / M33 controller pattern).
+  - Validates `{reviews: [...]}` shape; malformed body → HTTP 400
+    with `{status:'error', message, processed:0, ...}`.
+  - Delegates to `language.review.offline.log.sudo()
+    .apply_offline_batch(request.env.user, reviews)` — the
+    business logic lives on the model so it's exercisable by
+    `TransactionCase` tests without HTTP plumbing.
+  - The model method runs per-row: dedup check against the log
+    (skipped_duplicate), card-ownership check via
+    `search([('id','=',card_id), ('user_id','=',user.id)])`
+    (not_found if absent), grade clamp via `_clamp_grade`, then
+    `card.action_register_review(grade)` followed by a `Log.create`
+    of the UUID. Partial-success-friendly — every row is processed
+    independently inside a per-row savepoint contract (Odoo's
+    default transaction model handles this cleanly since each
+    iteration of the loop is its own implicit SAVEPOINT under the
+    request's main TX).
+  - Response: `{status:'ok', processed, skipped_duplicate,
     not_found, errors}`.
-  - All-or-nothing transaction NOT used; partial success is fine.
-- [ ] M36-S3-05 · `tests/test_offline_sync.py` — 6 tests minimum:
-  1. Idempotent re-upload (same UUID twice → second is no-op).
-  2. Foreign-user card → not_found.
-  3. Bad grade (-1, 99) → clamped to 0/3.
-  4. Mixed batch (one new, one duplicate, one not_found) → counts.
-  5. `/offline_batch` respects `days`/`limit` clamping.
-  6. `/offline_batch` returns translations dict per card.
-- [ ] M36-S3-06 · `--update language_learning --test-enable -u
-  language_learning --stop-after-init --no-http` → all new tests pass,
-  existing 24+ gamification tests stay green.
+- [x] M36-S3-05 · `tests/test_offline_sync.py` shipped — 6 tests
+  cover the full sync surface:
+  1. **`test_01_idempotent_replay_same_uuid`** — first call
+     `processed=1`; replay of same payload `skipped_duplicate=1`;
+     exactly one `language.review.offline.log` row total. Proves
+     the DB UNIQUE constraint + the model's pre-check both work.
+  2. **`test_02_foreign_user_card_is_not_found`** — user A submits a
+     batch containing user B's card_id. Result: `not_found=1`,
+     `processed=0`. User B's card state + repetitions unchanged.
+     No log row leaked for user A under the foreign UUID.
+  3. **`test_03_grade_clamping_low_and_high`** — three sub-cases:
+     grade `-1` → clamped to 0 (log row reads grade=0); grade `99`
+     → clamped to 3; non-numeric `'oops'` → clamped to 0
+     (defensive fallback, NOT rejection).
+  4. **`test_04_mixed_batch_partial_success`** — pre-seeded one
+     UUID, then submitted a 3-row batch (one fresh, one duplicate
+     of the seed, one foreign card). Result: counts come back
+     `{processed:1, skipped_duplicate:1, not_found:1}` exactly.
+  5. **`test_05_offline_batch_clamping_logic`** — imports the
+     `_OFFLINE_BATCH_*` constants from `portal_pwa` and exercises
+     the clamping idiom directly: `clamp_d(-5)=1`, `clamp_d(99999)=30`,
+     `clamp_n(0)=1`, `clamp_n(999999)=1000`. In-range values
+     round-trip unchanged.
+  6. **`test_06_translations_join_in_projection`** — reproduces the
+     `/offline_batch` translation-join query and asserts the dict
+     shape: `{'uk': '...', 'el': '...', 'pl': '...'}` for
+     entry_a1; `'en'` absent because the M29 auto-translate hook
+     creates en in `pending` status (the projection filter is
+     `status='completed'`).
+  - **One issue caught during the first run**: the M29 ADR-029 § 29c
+    auto-translate hook pre-creates `language.translation` rows on
+    every `language.entry` create. The UNIQUE`(entry_id,
+    target_language)` constraint then rejects a fresh
+    `Trans.create({...})` in test setUp. Fixed by upserting —
+    search for the existing pending row and `write({'status':
+    'completed', 'translated_text': ...})` instead. Documented
+    in-comment so future test authors don't fall in the same hole.
+- [x] M36-S3-06 · Test run:
+  `docker exec odoo odoo -d lexora --test-enable -u language_learning
+   --stop-after-init --no-http` — **79 test methods executed, 0
+  failures**. Per-file breakdown:
+  - 20 `test_language_review`     (M7 SM-2)
+  - 10 `test_gamification`/Helpers + 14 `test_gamification`/Model
+       (M10 XP + streaks)
+  - 16 `test_vocabulary_search`   (M8 search)
+  - 13 `test_xp_shop`             (M11 shop)
+  - **6 `test_offline_sync`       (M36-S3, NEW)**
 
 **Step M36-S4 — Mobile UI route + template + JS controller**
 

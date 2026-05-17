@@ -1,6 +1,6 @@
 """M36 — Mobile PWA controller.
 
-Two stable PUBLIC routes:
+Public routes (S1):
 
   GET /sw.js               → serves the Service Worker source from
                              language_learning/static/src/js/sw.js with
@@ -12,24 +12,72 @@ Two stable PUBLIC routes:
                              with the correct application/manifest+json
                              content type.
 
-Both routes are auth='public' (sub-decision 35a + 35g): the SW and the
-manifest must be reachable on the very first visit, BEFORE the user
-signs in. Authentication-bearing routes (/lexora_api/offline_batch and
-/lexora_api/sync_offline) land in S3.
+Authenticated sync API (S3):
 
-The serving uses odoo.tools.misc.file_open for path-traversal-safe
-file access — no string concatenation against user input, no escape
-from the addon directory.
+  GET /lexora_api/offline_batch   → prefetch the next N days of due cards
+                                    for the caller, with all translations
+                                    joined in. Capped at 200 cards / 30
+                                    days. JSON envelope.
+
+  POST /lexora_api/sync_offline   → accept a batch of reviews from the
+                                    client's offline sync_queue. Idempotent
+                                    via language.review.offline.log on
+                                    (user_id, client_uuid). All-or-nothing
+                                    NOT used — processes everything it can
+                                    and reports per-row outcomes.
+
+Public routes are auth='public' (sub-decisions 35a + 35g): the SW and
+manifest must be reachable on the very first visit, BEFORE the user
+signs in. The sync API uses Odoo's stock auth='user' (sub-decision 35g):
+the PWA is served on the same origin as Odoo so the session cookie
+travels naturally with every fetch — no X-Lexora-Session-Id bridge
+needed.
+
+File serving uses odoo.tools.misc.file_open for path-traversal-safe
+access — no string concatenation against user input, no escape from
+the addon directory.
 """
 
+import json
 import logging
 import os
+import time
 
-from odoo import http
+from odoo import fields as odoo_fields, http
 from odoo.http import request
 from odoo.tools import misc as odoo_misc
 
 _logger = logging.getLogger(__name__)
+
+# Tunable defaults for /offline_batch — env-overridable so an operator
+# can crank them up on a tablet PWA (more cards per prefetch) without a
+# code change. Clamped per-request to safe ranges below.
+_OFFLINE_BATCH_DEFAULT_DAYS = int(
+    os.environ.get('LEXORA_OFFLINE_BATCH_DEFAULT_DAYS', '7')
+)
+_OFFLINE_BATCH_DEFAULT_LIMIT = int(
+    os.environ.get('LEXORA_OFFLINE_BATCH_DEFAULT_LIMIT', '200')
+)
+_OFFLINE_BATCH_MAX_DAYS = 30
+_OFFLINE_BATCH_MAX_LIMIT = 1000
+
+
+def _json_body(req):
+    """Parse the JSON body of an http-type request defensively.
+
+    Returns ({...}, None) on success or ({}, err_message) on failure.
+    Mirrors the parse pattern used by language_portal's M22-M35 routes.
+    """
+    try:
+        raw = req.httprequest.get_data(as_text=True) or ''
+        if not raw.strip():
+            return {}, None
+        data = json.loads(raw)
+        if not isinstance(data, dict):
+            return {}, 'JSON body must be an object'
+        return data, None
+    except json.JSONDecodeError as exc:
+        return {}, 'Malformed JSON: %s' % exc
 
 # Resolve via __file__ so the path is stable across module install
 # locations (development tree vs. /mnt/extra-addons in container).
@@ -108,3 +156,181 @@ class LexoraPwaController(http.Controller):
             ('Content-Length', str(len(body))),
         ]
         return request.make_response(body, headers=headers)
+
+    # ------------------------------------------------------------------
+    # GET /lexora_api/offline_batch  — prefetch the next N days of cards
+    # ------------------------------------------------------------------
+    @http.route('/lexora_api/offline_batch', type='http', auth='user',
+                methods=['GET'], csrf=False)
+    def offline_batch(self, days=None, limit=None, **kw):
+        """Return due cards + translations for offline review.
+
+        Query params:
+            days   — look-ahead window in days. Default
+                     LEXORA_OFFLINE_BATCH_DEFAULT_DAYS (7).
+                     Clamped to 1..30.
+            limit  — max rows. Default
+                     LEXORA_OFFLINE_BATCH_DEFAULT_LIMIT (200).
+                     Clamped to 1..1000.
+
+        Response shape (see ADR-035 § sub-decision 35c):
+            {
+              "status": "ok",
+              "cards": [
+                {
+                  "id": <int>,                   # language.review.id
+                  "entry_id": <int>,
+                  "word": <str>,
+                  "lang": <2-letter code>,
+                  "normalized": <str>,
+                  "translations": {              # lang_code -> str
+                    "en": "...", "uk": "...", "el": "...", "pl": "..."
+                  },
+                  "srs_state": "new" | "learning" | "review",
+                  "ease_factor": <float>,
+                  "interval": <int>,
+                  "repetitions": <int>,
+                  "next_review_date_iso": "YYYY-MM-DD" | null
+                }
+              ],
+              "generated_at": <unix int>
+            }
+        """
+        # ── Clamp query params ───────────────────────────────────────
+        try:
+            d = int(days) if days is not None else _OFFLINE_BATCH_DEFAULT_DAYS
+        except (TypeError, ValueError):
+            d = _OFFLINE_BATCH_DEFAULT_DAYS
+        d = max(1, min(_OFFLINE_BATCH_MAX_DAYS, d))
+
+        try:
+            n = int(limit) if limit is not None else _OFFLINE_BATCH_DEFAULT_LIMIT
+        except (TypeError, ValueError):
+            n = _OFFLINE_BATCH_DEFAULT_LIMIT
+        n = max(1, min(_OFFLINE_BATCH_MAX_LIMIT, n))
+
+        Review = request.env['language.review']
+        today = odoo_fields.Date.context_today(Review)
+        # Same ordering as language.review.get_due_cards (M7-01): state
+        # desc puts learning + new before review.
+        cards = Review.search([
+            ('user_id', '=', request.env.user.id),
+            '|',
+                ('next_review_date', '=', False),
+                ('next_review_date', '<=',
+                 odoo_fields.Date.to_string(odoo_fields.Date.add(today, days=d))),
+        ], limit=n, order='state desc, next_review_date asc')
+
+        # Bulk-fetch translations for all entry ids in one query.
+        # language.translation exists in the language_translation addon
+        # (declared as a dependency in __manifest__).
+        entry_ids = [c.entry_id.id for c in cards if c.entry_id]
+        trans_by_entry = {}
+        if entry_ids and 'language.translation' in request.env.registry:
+            Trans = request.env['language.translation'].sudo()
+            for t in Trans.search([
+                ('entry_id', 'in', entry_ids),
+                ('status', '=', 'completed'),
+            ], order='id asc'):
+                bucket = trans_by_entry.setdefault(t.entry_id.id, {})
+                # First-write wins per (entry, lang) — id-asc order
+                # means the earliest job's translation is canonical.
+                if t.target_language and t.translated_text and \
+                   t.target_language not in bucket:
+                    bucket[t.target_language] = t.translated_text
+
+        rows = []
+        for c in cards:
+            entry = c.entry_id
+            if not entry:
+                continue
+            rows.append({
+                'id': c.id,
+                'entry_id': entry.id,
+                'word': entry.source_text or '',
+                'lang': entry.source_language or '',
+                'normalized': entry.normalized_text or (entry.source_text or '').lower(),
+                'translations': trans_by_entry.get(entry.id) or {},
+                'srs_state': c.state,
+                'ease_factor': float(c.ease_factor or 0.0),
+                'interval': int(c.interval or 0),
+                'repetitions': int(c.repetitions or 0),
+                'next_review_date_iso': (
+                    odoo_fields.Date.to_string(c.next_review_date)
+                    if c.next_review_date else None
+                ),
+            })
+
+        body = json.dumps({
+            'status': 'ok',
+            'cards': rows,
+            'generated_at': int(time.time()),
+        })
+        return request.make_response(body, headers=[
+            ('Content-Type', 'application/json; charset=utf-8'),
+            ('Cache-Control', 'no-store'),     # NEVER cache user data
+            ('Content-Length', str(len(body.encode('utf-8')))),
+        ])
+
+    # ------------------------------------------------------------------
+    # POST /lexora_api/sync_offline  — push queued reviews
+    # ------------------------------------------------------------------
+    @http.route('/lexora_api/sync_offline', type='http', auth='user',
+                methods=['POST'], csrf=False)
+    def sync_offline(self, **kw):
+        """Process a batch of offline reviews from the client's
+        IndexedDB sync_queue.
+
+        Body shape:
+            {"reviews": [
+                {"client_uuid": "...", "card_id": N,
+                 "grade": 0..3, "reviewed_at_iso": "..."}, ...
+            ]}
+
+        Response shape:
+            {
+              "status": "ok",
+              "processed":         <int>,
+              "skipped_duplicate": <int>,
+              "not_found":         <int>,
+              "errors":            [{"client_uuid": "...",
+                                     "message": "..."}, ...]
+            }
+
+        Idempotency: per-row dedup against language.review.offline.log
+        on (user_id, client_uuid). The client safely re-uploads the
+        same batch after a mid-flight network drop; every UUID already
+        in the log is silently counted in skipped_duplicate. The
+        delegated apply_offline_batch() method does the heavy lifting
+        — the controller is just an HTTP envelope.
+        """
+        data, err = _json_body(request)
+        if err:
+            payload = {'status': 'error', 'message': err,
+                       'processed': 0, 'skipped_duplicate': 0,
+                       'not_found': 0, 'errors': []}
+            return _json_http_response(payload, status=400)
+
+        reviews = data.get('reviews')
+        if not isinstance(reviews, list):
+            payload = {'status': 'error',
+                       'message': 'reviews must be a list',
+                       'processed': 0, 'skipped_duplicate': 0,
+                       'not_found': 0, 'errors': []}
+            return _json_http_response(payload, status=400)
+
+        Log = request.env['language.review.offline.log'].sudo()
+        result = Log.apply_offline_batch(request.env.user, reviews)
+        result['status'] = 'ok'
+        return _json_http_response(result)
+
+
+# Helper kept module-level so both routes (and any future ones)
+# share the same response shape.
+def _json_http_response(payload, status=200):
+    body = json.dumps(payload)
+    return request.make_response(body, headers=[
+        ('Content-Type', 'application/json; charset=utf-8'),
+        ('Cache-Control', 'no-store'),
+        ('Content-Length', str(len(body.encode('utf-8')))),
+    ], status=status)
