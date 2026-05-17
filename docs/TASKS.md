@@ -461,34 +461,130 @@ language_learning/
   update: **79 test methods executed, 0 failures**. Same per-file
   breakdown as M36-S3 (20 + 10 + 14 + 16 + 13 + 6).
 
-**Step M36-S5 — Service Worker caching + update banner**
+**Step M36-S5 — Service Worker caching + update banner** ✅
 
-- [ ] M36-S5-01 · `sw.js` precache list — install handler opens
-  `caches.open(VERSION)` and `cache.addAll([...])` with ~12-15 URLs:
-  the mobile-practice HTML, the three JS files, the CSS, the
-  manifest, the two icons. Generate the list at SW load by reading
-  injected constants — Odoo's hashed asset URLs are passed via a
-  `<meta name="lx-sw-precache" content="...">` tag rendered by the
-  Mobile UI route.
-- [ ] M36-S5-02 · `activate` handler — `caches.keys()` →
-  `caches.delete(name)` for any cache name ≠ `VERSION`. Single 10-line
-  loop. Defends against stale caches accumulating across SW versions.
-- [ ] M36-S5-03 · `fetch` handler — strict routing:
-  - URL in precache list → cache-first with stale-while-revalidate
-    fallback (always update cache from network when reachable).
-  - `^/my/practice/mobile(?:/|$)` → network-first with cache fallback
-    (catches new HTML revisions; falls back to last-good shell
-    offline).
-  - `^/lexora_api/(offline_batch|sync_offline)$` → ALWAYS network.
-    Never cache API responses.
-  - Anything else → `fetch(request)` passthrough. We never intercept
-    URLs outside our scope.
-- [ ] M36-S5-04 · Update banner in `mobile_practice.js`:
-  `navigator.serviceWorker.addEventListener('controllerchange', ...)`
-  fires when a new SW takes over. Show a fixed-position bottom banner
-  with copy "Lexora was updated — refresh to load the new version"
-  and a Refresh button → `location.reload()`. Banner is dismissable
-  but re-shows on next reload.
+- [x] M36-S5-01 · `sw.js` install handler ships the precache layer.
+  - **Simplification vs. plan**: the original plan called for 12-15
+    URLs with the HTML included via a `<meta name="lx-sw-precache">`
+    hashed-URL injection. In practice (a) our static assets live at
+    stable un-hashed URLs under `/language_learning/static/src/*`
+    because they're served directly from disk (not bundled through
+    `web.assets_frontend`), so no meta-tag passthrough is needed; and
+    (b) precaching the `/my/practice/mobile` HTML at install would
+    either fail (the SW install fetch may not carry the session
+    cookie reliably) or pollute every user's cache with one user's
+    initial-cards JSON. Solution: precache the **7 stable static
+    asset URLs only**; cache the HTML opportunistically on each
+    successful network navigation (Strategy 2 below). Documented in
+    the SW source as the rationale for the 7-URL list.
+  - Final precache list: `/lexora.webmanifest`, the CSS, the three
+    JS files (vendor idb + lexora_db + mobile_practice), and the
+    two icons. ~13 KB of CSS + ~21 KB JS + ~5 KB vendor +
+    ~3 KB icons = ~42 KB precache — fits in the smallest
+    iOS Safari budget with margin.
+  - `cache.addAll(PRECACHE_URLS)` is atomic: if any URL 404s, the
+    SW install fails and the browser transitions it to 'redundant'.
+    That's the right failure mode — broken offline mode is better
+    than silently-missing-assets.
+  - First-install `skipWaiting()` kept (no prior SW to displace);
+    subsequent updates skip it per sub-decision 35d.
+- [x] M36-S5-02 · `activate` handler — `event.waitUntil(async ...)`
+  wraps `caches.keys()` → `Promise.all(filter(k !== VERSION)
+  .map(caches.delete))`. Old `lexora-pwa-vN` caches are purged
+  whenever the user bumps to a new VERSION. **NO `clients.claim()`**
+  — preserves the user-controlled-update contract from § 35d (the
+  old SW keeps serving open tabs until the user clicks Refresh).
+- [x] M36-S5-03 · `fetch` handler — strict scoped routing.
+  Module-level matchers built once at SW load:
+  - `PRECACHE_SET = new Set(PRECACHE_URLS)` — O(1) membership.
+  - `MOBILE_PRACTICE_RE = /^\/my\/practice\/mobile(?:\/|$)/`
+  - `LEXORA_API_RE = /^\/lexora_api\/(?:offline_batch|sync_offline)(?:\?|$)/`
+  - Decision order inside the listener:
+    1. **Method guard**: non-GET (POST / PUT / DELETE / ...) →
+       passthrough. Mutating requests are never cached.
+    2. **Origin guard**: `url.origin !== self.location.origin` →
+       passthrough. We never touch cross-origin requests.
+    3. **API**: `LEXORA_API_RE.test(pathname)` → passthrough
+       (always-network — IDB owns offline data; serving cached
+       batches would surface stale due-dates).
+    4. **Precache**: `PRECACHE_SET.has(pathname)` →
+       `_cacheFirstSWR(request)` — return cached IMMEDIATELY,
+       background-revalidate from network on every request to
+       keep the cache fresh.
+    5. **Mobile nav**: `MOBILE_PRACTICE_RE.test(pathname)` →
+       `_networkFirstNav(request)` — always try network first
+       (HTML carries user-specific data we want fresh online),
+       fall back to last-cached on network failure.
+    6. **Default**: implicit passthrough (no `event.respondWith`).
+       Sub-decision § 35f locked: the SW MUST NEVER serve a stale
+       Odoo page outside its declared scope.
+  - **Sandbox routing matrix — 27/27 pass** (Node hand-port,
+    recorded in S5 commit message):
+    - 7 precache URLs → cache-first-SWR ✓
+    - 3 mobile-nav variants (exact / trailing slash / sub-path) →
+      network-first-nav ✓
+    - 3 lexora-api hits (no query / with query / sync_offline) →
+      always-network ✓
+    - 8 default-passthrough cases (Odoo backend, /web/login,
+      desktop /my/practice, /my/vocabulary, three other
+      language_portal /lexora_api/* routes, arbitrary path) ✓
+    - 2 method/origin guards (POST to precache URL, cross-origin
+      asset) ✓
+    - 4 regex-strictness near-misses (`/offline_batchX`,
+      `/sync_offline_other`, `/mobileX`, prefix
+      `/web/my/practice/mobile`) — none over-match ✓
+  - **Strategy helpers — both written defensively**:
+    - `_cacheFirstSWR(request)`: opens cache, queries match, fires
+      a parallel `fetch().then(put)` background revalidate
+      (`.catch(()=>null)` so a network failure doesn't reject the
+      outer promise); returns cached if present, awaits network
+      otherwise; final fallback is a 504 placeholder.
+    - `_networkFirstNav(request)`: `await fetch(request)`; on 2xx,
+      best-effort `cache.put(request, resp.clone())` (failures
+      ignored — don't fail the request because the cache write
+      hiccupped); on network failure, return the last cached
+      version; if neither: 504 with a plaintext "Open this page
+      online once before going airplane-mode" body.
+- [x] M36-S5-04 · Update-banner logic — was already wired in S4
+  (mobile_practice.js's `_registerServiceWorker`). S5 adds one
+  small UX enhancement: **suppress the first-install
+  auto-reload**.
+  - `state.hadControllerAtBoot` snapshots
+    `navigator.serviceWorker.controller` BEFORE we register.
+  - The `controllerchange` listener checks: if there was NO
+    controller at boot, this controllerchange is just the
+    first-ever SW taking control after `skipWaiting()` —
+    NOT a user-driven update. We record that we now have a
+    controller and skip the reload (no annoying first-visit
+    flash).
+  - If there WAS a controller at boot, the next controllerchange
+    means the user clicked Refresh and the new SW just activated;
+    we reload to serve the new shell.
+  - One-shot `_reloadingForSw` guard prevents reload loops in
+    edge cases (e.g. another tab also triggers SKIP_WAITING).
+  - The full chain stays:
+    1. New `sw.js` bytes detected on page load (`Cache-Control:
+       no-cache` ensures the browser revalidates every time).
+    2. Browser installs new SW in `waiting` state.
+    3. `reg.updatefound` → `installing.statechange === 'installed'`
+       AND `navigator.serviceWorker.controller` exists →
+       `state.waitingWorker = installing; _show($updateBanner)`.
+    4. User clicks Refresh → `state.waitingWorker.postMessage(
+       {type: 'SKIP_WAITING'})`.
+    5. SW receives the message → `self.skipWaiting()` →
+       new SW activates → `controllerchange` fires.
+    6. Listener sees we DID have a controller at boot → reloads
+       the page → new shell served via the SW's cache.
+- [x] M36-S5-PRE · `node --check sw.js` → OK;
+  `node --check mobile_practice.js` → OK.
+- [x] M36-S5-LIVE · Live smoke against running Odoo:
+  - `/sw.js` body matches source file byte-for-byte. Headers:
+    `Content-Type: application/javascript; charset=utf-8`,
+    `Service-Worker-Allowed: /`, `Cache-Control: no-cache`.
+  - All 7 precache URLs return 200 — SW `cache.addAll()` will
+    succeed at install.
+- [x] M36-S5-REGRESS · Full test suite re-run: **79 methods,
+  0 failures**. Same per-file breakdown as M36-S3/S4.
 
 **Step M36-S6 — ADR-035 + final docs flip**
 

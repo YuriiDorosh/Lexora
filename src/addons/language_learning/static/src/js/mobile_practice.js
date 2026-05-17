@@ -54,6 +54,12 @@
     syncing: false,
     swRegistration: null,
     waitingWorker: null,
+    // Snapshot of navigator.serviceWorker.controller BEFORE we register.
+    // Used by the controllerchange handler to distinguish first-install
+    // from a user-driven update (see _registerServiceWorker below).
+    hadControllerAtBoot: typeof navigator !== 'undefined' &&
+                          navigator.serviceWorker &&
+                          !!navigator.serviceWorker.controller,
   };
 
   // Static flag map for the translation rows on the card back.
@@ -137,12 +143,30 @@
         });
       });
 
-      // controllerchange fires when the new SW takes control after
-      // skipWaiting + reload. We reload the page so the new shell is
-      // served from cache cleanly.
+      // controllerchange fires when a new SW takes control. We reload
+      // the page so the new shell is served from cache cleanly.
+      //
+      // Two scenarios:
+      //   (a) FIRST install — there was no prior controller at boot
+      //       time. The controllerchange that fires after install +
+      //       skipWaiting is just the FIRST SW taking control, NOT
+      //       a user-driven update. Reloading here would produce an
+      //       annoying first-visit flash. So we record the initial
+      //       controller state and skip the reload on first take-over.
+      //   (b) UPDATE — the page was already controlled at boot
+      //       (state.hadControllerAtBoot === true). The next
+      //       controllerchange means the user clicked Refresh in the
+      //       update banner and the new SW just activated; reload
+      //       the page so the new shell loads.
       let _reloadingForSw = false;
       navigator.serviceWorker.addEventListener('controllerchange', () => {
         if (_reloadingForSw) return;
+        if (!state.hadControllerAtBoot) {
+          // First install: just record that we now have a controller
+          // and let the page keep going. No reload.
+          state.hadControllerAtBoot = true;
+          return;
+        }
         _reloadingForSw = true;
         window.location.reload();
       });
