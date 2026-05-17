@@ -43,6 +43,8 @@ import logging
 import os
 import time
 
+from markupsafe import Markup
+
 from odoo import fields as odoo_fields, http
 from odoo.http import request
 from odoo.tools import misc as odoo_misc
@@ -78,6 +80,68 @@ def _json_body(req):
         return data, None
     except json.JSONDecodeError as exc:
         return {}, 'Malformed JSON: %s' % exc
+
+
+def _project_cards_for_user(env, user, days, limit):
+    """Shared card-projection used by BOTH the /lexora_api/offline_batch
+    route AND the /my/practice/mobile server-side bootstrap.
+
+    Returns a list of plain dicts shaped per ADR-035 § 35c, so the
+    Service Worker, the IndexedDB layer, and the page's
+    `<script id="lx-initial-cards">` JSON all agree on a single
+    payload format.
+
+    Sort order is identical to language.review.get_due_cards (M7-01)
+    so the mobile session feels indistinguishable from the desktop one.
+    """
+    Review = env['language.review']
+    today = odoo_fields.Date.context_today(Review)
+    cards = Review.search([
+        ('user_id', '=', user.id),
+        '|',
+            ('next_review_date', '=', False),
+            ('next_review_date', '<=',
+             odoo_fields.Date.to_string(odoo_fields.Date.add(today, days=days))),
+    ], limit=limit, order='state desc, next_review_date asc')
+
+    # Bulk-fetch translations for all entry ids in a single sudo query.
+    entry_ids = [c.entry_id.id for c in cards if c.entry_id]
+    trans_by_entry = {}
+    if entry_ids and 'language.translation' in env.registry:
+        Trans = env['language.translation'].sudo()
+        for t in Trans.search([
+            ('entry_id', 'in', entry_ids),
+            ('status', '=', 'completed'),
+        ], order='id asc'):
+            bucket = trans_by_entry.setdefault(t.entry_id.id, {})
+            # First-write wins per (entry, lang) — id-asc means the
+            # earliest job's translation is canonical.
+            if t.target_language and t.translated_text and \
+               t.target_language not in bucket:
+                bucket[t.target_language] = t.translated_text
+
+    rows = []
+    for c in cards:
+        entry = c.entry_id
+        if not entry:
+            continue
+        rows.append({
+            'id': c.id,
+            'entry_id': entry.id,
+            'word': entry.source_text or '',
+            'lang': entry.source_language or '',
+            'normalized': entry.normalized_text or (entry.source_text or '').lower(),
+            'translations': trans_by_entry.get(entry.id) or {},
+            'srs_state': c.state,
+            'ease_factor': float(c.ease_factor or 0.0),
+            'interval': int(c.interval or 0),
+            'repetitions': int(c.repetitions or 0),
+            'next_review_date_iso': (
+                odoo_fields.Date.to_string(c.next_review_date)
+                if c.next_review_date else None
+            ),
+        })
+    return rows
 
 # Resolve via __file__ so the path is stable across module install
 # locations (development tree vs. /mnt/extra-addons in container).
@@ -209,58 +273,7 @@ class LexoraPwaController(http.Controller):
             n = _OFFLINE_BATCH_DEFAULT_LIMIT
         n = max(1, min(_OFFLINE_BATCH_MAX_LIMIT, n))
 
-        Review = request.env['language.review']
-        today = odoo_fields.Date.context_today(Review)
-        # Same ordering as language.review.get_due_cards (M7-01): state
-        # desc puts learning + new before review.
-        cards = Review.search([
-            ('user_id', '=', request.env.user.id),
-            '|',
-                ('next_review_date', '=', False),
-                ('next_review_date', '<=',
-                 odoo_fields.Date.to_string(odoo_fields.Date.add(today, days=d))),
-        ], limit=n, order='state desc, next_review_date asc')
-
-        # Bulk-fetch translations for all entry ids in one query.
-        # language.translation exists in the language_translation addon
-        # (declared as a dependency in __manifest__).
-        entry_ids = [c.entry_id.id for c in cards if c.entry_id]
-        trans_by_entry = {}
-        if entry_ids and 'language.translation' in request.env.registry:
-            Trans = request.env['language.translation'].sudo()
-            for t in Trans.search([
-                ('entry_id', 'in', entry_ids),
-                ('status', '=', 'completed'),
-            ], order='id asc'):
-                bucket = trans_by_entry.setdefault(t.entry_id.id, {})
-                # First-write wins per (entry, lang) — id-asc order
-                # means the earliest job's translation is canonical.
-                if t.target_language and t.translated_text and \
-                   t.target_language not in bucket:
-                    bucket[t.target_language] = t.translated_text
-
-        rows = []
-        for c in cards:
-            entry = c.entry_id
-            if not entry:
-                continue
-            rows.append({
-                'id': c.id,
-                'entry_id': entry.id,
-                'word': entry.source_text or '',
-                'lang': entry.source_language or '',
-                'normalized': entry.normalized_text or (entry.source_text or '').lower(),
-                'translations': trans_by_entry.get(entry.id) or {},
-                'srs_state': c.state,
-                'ease_factor': float(c.ease_factor or 0.0),
-                'interval': int(c.interval or 0),
-                'repetitions': int(c.repetitions or 0),
-                'next_review_date_iso': (
-                    odoo_fields.Date.to_string(c.next_review_date)
-                    if c.next_review_date else None
-                ),
-            })
-
+        rows = _project_cards_for_user(request.env, request.env.user, d, n)
         body = json.dumps({
             'status': 'ok',
             'cards': rows,
@@ -323,6 +336,54 @@ class LexoraPwaController(http.Controller):
         result = Log.apply_offline_batch(request.env.user, reviews)
         result['status'] = 'ok'
         return _json_http_response(result)
+
+    # ------------------------------------------------------------------
+    # GET /my/practice/mobile  — touch-first SRS review page (PWA shell)
+    # ------------------------------------------------------------------
+    @http.route('/my/practice/mobile', type='http', auth='user',
+                website=True, methods=['GET'])
+    def mobile_practice(self, **kw):
+        """Render the mobile-practice PWA shell.
+
+        Server-side pre-fetches the first 20 due cards and injects them
+        as JSON into the page so the user sees a functional review
+        session the instant the HTML lands — before Service Worker
+        registration, before IndexedDB opens, before any /offline_batch
+        round-trip. On boot, mobile_practice.js reads this initial set
+        into IDB on first run; subsequent navigations get the larger
+        cache from the previous `/offline_batch` fetch.
+
+        Out of the M36-S1 head-tag injection: this page inherits the
+        manifest link, theme-color, and apple-touch-icon via the
+        pwa_head_tags.xml inheritance — no duplication.
+
+        The template is a standalone full-viewport layout (NOT
+        portal.portal_layout) — no breadcrumbs, no portal navbar, no
+        footer credit. It looks like a native app once the user adds it
+        to their home screen (sub-decision 35d UX rule).
+        """
+        # 20 cards is enough to fill ~10 minutes of review at typical
+        # pace; the rest of the deck is fetched in the background after
+        # SW registration via /offline_batch.
+        initial_cards = _project_cards_for_user(
+            request.env, request.env.user,
+            days=_OFFLINE_BATCH_DEFAULT_DAYS,
+            limit=20,
+        )
+        # JSON embedded inside a <script type="application/json"> tag
+        # must NOT be HTML-escaped — the browser doesn't decode HTML
+        # entities inside script content, so &#34; would survive into
+        # JSON.parse and crash with "Expecting property name enclosed
+        # in double quotes". Wrap with markupsafe.Markup to tell QWeb
+        # "trust me, this is already safe". The </ → <\/ replacement
+        # is the standard XSS shield: a literal </script> inside our
+        # payload would otherwise close the script tag prematurely.
+        safe_json = json.dumps(initial_cards).replace('</', '<\\/')
+        return request.render('language_learning.portal_practice_mobile', {
+            'initial_cards': initial_cards,
+            'initial_cards_json': Markup(safe_json),
+            'user_display_name': request.env.user.name or '',
+        })
 
 
 # Helper kept module-level so both routes (and any future ones)

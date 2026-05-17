@@ -322,43 +322,144 @@ language_learning/
   - 13 `test_xp_shop`             (M11 shop)
   - **6 `test_offline_sync`       (M36-S3, NEW)**
 
-**Step M36-S4 — Mobile UI route + template + JS controller**
+**Step M36-S4 — Mobile UI route + template + JS controller** ✅
 
-- [ ] M36-S4-01 · `portal_pwa.py` — `GET /my/practice/mobile`
-  (`auth='user'`, `website=True`). Server-side pre-populates the first
-  20 cards (so the page is functional even before JS / IDB boot) and
-  passes them to the template as a JSON blob in a `<script
-  type="application/json">` tag.
-- [ ] M36-S4-02 · `views/portal_practice_mobile.xml` — full-viewport
-  layout (no portal chrome). Slots:
-  - `<header>` with progress count + online/offline indicator + sync
-    button (queued count badge).
-  - `<main>` with the active card (front = source word, back =
-    translations after tap-to-flip).
-  - `<footer>` with two huge action buttons (Forgot ⏎ left, Remembered
-    ⏎ right). 46% viewport width each, 80 px tall, finger-comfortable.
-  - `<script src=".../vendor/idb.umd.js">`,
-    `<script src=".../lexora_db.js">`,
-    `<script src=".../mobile_practice.js">`.
-- [ ] M36-S4-03 · `static/src/js/mobile_practice.js` — module exposing
-  `lexora.mobile.boot()`:
-  - Reads server-injected initial cards from
-    `<script id="lx-initial-cards" type="application/json">`.
-  - `lexora.db.init()` → `replaceCardsToReview(initial)` if first run.
-  - `navigator.serviceWorker.register('/sw.js')` — register SW.
-  - Bind touch + click handlers on the card surface; tap = flip,
-    swipe = grade.
-  - `navigator.onLine` + `online` / `offline` window events: update
-    indicator + trigger sync.
-  - `controllerchange` listener → show update banner.
-- [ ] M36-S4-04 · `static/src/css/mobile_practice.css` — mobile-Safari-
-  safe layout. Use `100dvh` with `100vh` fallback for the viewport
-  (Safari address-bar height issues). Glassmorphism card; gradient
-  buttons matching the premium UI theme; large 18-22 px type.
-- [ ] M36-S4-05 · Swipe-gesture handler: `touchstart` records X
-  coordinate; `touchend` measures delta; >60 px right → Remembered,
-  >60 px left → Forgot, otherwise treat as tap. Defensive: cancel
-  on `touchcancel` and on swipe-out-of-card-bounds.
+- [x] M36-S4-01 · `portal_pwa.py` — `GET /my/practice/mobile`
+  (`auth='user'`, `website=True`) shipped. Server-side pre-fetches
+  the first 20 due cards via the new shared helper
+  `_project_cards_for_user(env, user, days, limit)` (extracted from
+  the inline projection that used to live inside `offline_batch`).
+  Both routes now agree on a single payload shape — no drift between
+  the bootstrap JSON and the offline-batch JSON.
+  - **Gotcha caught by live smoke**: `<t t-out="...">` inside a
+    `<script type="application/json">` tag HTML-escapes the JSON
+    (`"` → `&#34;`), and the browser does NOT decode HTML entities
+    inside script content. `JSON.parse` then crashes with
+    `Expecting property name enclosed in double quotes`. Fixed by
+    wrapping the JSON with `markupsafe.Markup()` after a defensive
+    `.replace('</', '<\\/')` (the standard XSS shield against a
+    `</script>` substring inside the payload).
+- [x] M36-S4-02 · `views/portal_practice_mobile.xml` shipped.
+  Standalone template via `<t t-call="web.html_container">` (NOT
+  `web.frontend_layout`) — full-viewport with no portal chrome at
+  all. The M36-S1 PWA head tags (manifest, theme-color, apple-touch-
+  icon, three apple-mobile-web-app-* metas) are duplicated inline
+  because the page doesn't inherit `web.frontend_layout`; the
+  duplication is intentional and small (~5-line block).
+  - `<header>` — progress counter (`current / total`), online/offline
+    dot indicator, sync-now icon button with a queued-count badge.
+  - `<main>` — 3D flip card. Front face shows the SRS state badge
+    + source word + "tap to reveal" hint. Back face shows
+    🇬🇧/🇺🇦/🇬🇷/🇵🇱 translation rows. The flip is a `transform: rotateY(180deg)`
+    on the inner with `transform-style: preserve-3d`. Empty + loading
+    states have their own DOM nodes (`#lx-mp-empty`, `#lx-mp-loading`).
+  - `<footer>` — 2-col grid (Forgot / Remembered). Each button
+    80 px tall, near-half-viewport wide, with gradient background +
+    inset highlight + 8 px ring shadow.
+  - Script tag order: `idb.umd.js` → `lexora_db.js` → `mobile_practice.js`
+    (load order matters; `lexora_db.js` checks for `window.idb` at
+    module-load).
+- [x] M36-S4-03 · `static/src/js/mobile_practice.js` shipped.
+  ~470 lines, exposes `window.lexora.mobile.boot()` (auto-fires on
+  DOMContentLoaded). State machine:
+  - Resolve DOM handles via `getElementById`.
+  - Wire button handlers: Forgot → grade 0, Remembered → grade 2,
+    sync-now → drain queue, Refresh banner → `postMessage({type:
+    'SKIP_WAITING'})` to the waiting SW + reload.
+  - `window.addEventListener('online'|'offline')` updates the
+    indicator + auto-syncs + auto-prefetches on reconnect.
+  - `_registerServiceWorker()` — `navigator.serviceWorker.register
+    ('/sw.js', { scope: '/' })`. Wires the update-detection chain
+    via `reg.updatefound` + the installing worker's `statechange`
+    + a top-level `controllerchange` listener that auto-reloads
+    when a new SW takes control (one-shot guard prevents reload
+    loops).
+  - `_readInitialCards()` parses the server-injected
+    `<script id="lx-initial-cards" type="application/json">` blob.
+    Empty / malformed → safe fallback to empty array.
+  - DB hydration: `init()` → if IDB is empty, seed from the
+    server-injected initial cards; otherwise load whatever IDB has.
+    `getDueCards({asOf: new Date()})` produces the in-memory deck.
+  - Card render: front shows word + state badge, back assembles
+    translations from `LANG_ORDER = ['uk','el','pl','en']` minus
+    the source language. Empty translations → italic
+    "No translations on file for this entry."
+  - `_grade(int, direction)` enqueues to IDB (works offline),
+    triggers the CSS swipe-out animation, advances the index after
+    240 ms, attempts `_syncQueue()` if online.
+  - `_syncQueue()` — drains queue, POSTs to `/lexora_api/sync_offline`,
+    removes UUIDs the server processed OR rejected as duplicates.
+    Errors stay in the queue for the next attempt. On 401 surfaces
+    a "Session expired — sign in" toast instead of dropping the
+    queue. `_refreshQueueBadge()` keeps the header badge honest.
+  - Background `_prefetchBatch()` — fetches a fresh `/offline_batch`
+    when online; replaces the IDB deck via `replaceCardsToReview`;
+    refreshes the in-memory deck only if the user hasn't started
+    reviewing yet (index === 0 AND not flipped) so we never disturb
+    a mid-session user.
+- [x] M36-S4-04 · `static/src/css/mobile_practice.css` shipped.
+  - `100dvh` with `100vh` fallback + `env(safe-area-inset-*)` on the
+    root so notched iPhones don't get content under the Dynamic
+    Island / home indicator.
+  - Glassmorphism card: `backdrop-filter: blur(18px) saturate(180%)`,
+    indigo border, 3-layer box-shadow.
+  - `aspect-ratio: 3/4` on the card so it stays a flashcard
+    proportion across screen sizes.
+  - 3D flip via `transform-style: preserve-3d` + `rotateY(180deg)`
+    on `.lx-mp-flipped .lx-mp-card-inner`. Back face starts
+    pre-rotated (rotateY 180) so when the parent flips it reads
+    upright. `backface-visibility: hidden` on both faces stops
+    bleed-through.
+  - Swipe-out animations: `.lx-mp-swipe-left` / `.lx-mp-swipe-right`
+    translate the card off-screen with a 12° rotation + opacity 0.
+  - Action-row buttons are 80 px tall, gradient red (Forgot) +
+    gradient green (Remembered), with 8 px coloured ring shadows.
+  - Toast region + update banner styled as fixed-bottom overlays
+    above the safe-area inset.
+- [x] M36-S4-05 · Swipe-gesture handler implemented in
+  `_bindSwipe()`. `touchstart` records `startX / startY / startMs`
+  and disables the card's CSS transition for 1:1 finger tracking.
+  `touchmove` updates `transform: translateX(...) rotate(...)`
+  proportional to delta (rot = dx/20). If vertical movement
+  dominates by ≥16 px, the move is treated as a scroll attempt
+  and the card stops following — defends against rage-scrolling.
+  `touchend`: if `moved` AND elapsed `< 600 ms` AND `|dx| ≥ 70 px`
+  → commit grade (right = Remembered, left = Forgot). Otherwise
+  clear the inline transform so the CSS transition snaps the card
+  back. True taps (no significant movement) flip the card.
+  `touchcancel` resets transform + transition state. Mouse fallback
+  (mousedown/move/up) wired with the identical protocol for
+  desktop dev.
+- [x] M36-S4-PRE · Static checks: `node --check mobile_practice.js`
+  passes; `python3 ast.parse` on the controller passes;
+  `xml.etree.ElementTree.parse` on the template passes;
+  `__manifest__.py` parses.
+- [x] M36-S4-LIVE · Live smoke against a running Odoo:
+  - Unauthenticated `GET /my/practice/mobile` → HTTP 303
+    (Odoo's `auth='user'` redirect to login). ✓
+  - Authenticated `GET /my/practice/mobile` → HTTP 200, 15045 bytes,
+    full DOM including the manifest link, theme-color, all five
+    apple-mobile-web-app-* tags, the CSS link, all three script
+    tags in the right order, and the JSON blob inside
+    `<script id="lx-initial-cards">`.
+  - **JSON parsing**: the injected JSON parses cleanly (after the
+    Markup fix above). 20 cards delivered, each with exactly the
+    11 expected keys (`id, entry_id, word, lang, normalized,
+    translations, srs_state, ease_factor, interval, repetitions,
+    next_review_date_iso`). First card came back with three
+    translations (el, uk, pl), state 'review'.
+  - Static-asset reachability — all 7 files serve 200 with the
+    right Content-Type:
+    `mobile_practice.js   text/javascript 22228 B`
+    `lexora_db.js         text/javascript 15338 B`
+    `vendor/idb.umd.js    text/javascript 4997 B`
+    `mobile_practice.css  text/css       13020 B`
+    `icons/icon-192.png   image/png      826 B`
+    `lexora.webmanifest   application/manifest+json`
+    `sw.js                application/javascript`
+- [x] M36-S4-REGRESS · Test suite regression after the module
+  update: **79 test methods executed, 0 failures**. Same per-file
+  breakdown as M36-S3 (20 + 10 + 14 + 16 + 13 + 6).
 
 **Step M36-S5 — Service Worker caching + update banner**
 

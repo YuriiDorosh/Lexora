@@ -19,6 +19,8 @@
         'views/portal_shop.xml',
         # M36 — Mobile PWA <head> tags (manifest link + theme-color)
         'views/pwa_head_tags.xml',
+        # M36-S4 — Mobile-practice full-viewport PWA shell
+        'views/portal_practice_mobile.xml',
     ],
     'post_init_hook': 'post_init_hook',
     'post_update_hook': 'post_update_hook',
