@@ -434,8 +434,17 @@
       else btn.removeAttribute('aria-current');
     }
 
-    // Lazy-render dictionary on first activation.
-    if (name === 'dictionary' && !state.dictionaryLoaded) {
+    // Re-render dictionary on EVERY switch into the tab — not just the
+    // first one. Earlier code gated this on !state.dictionaryLoaded as
+    // an over-optimisation; the result was a real bug where a user who
+    // tab-bounced Practice ↔ Dictionary saw the original render even
+    // after the background _prefetchVocabulary had replaced IDB with a
+    // fresh (larger) word set. Symptom: "dictionary only shows N words"
+    // where N is whatever IDB happened to contain at the time of the
+    // first render. A full re-render reads the current IDB state and
+    // costs ~30 ms on 2000 rows — invisible, and worth the deterministic
+    // refresh.
+    if (name === 'dictionary') {
       _renderDictionary().then(() => {
         // If the user already started typing in the search field
         // (unlikely on first load, but defensive), apply the filter.
