@@ -70,9 +70,14 @@
 
   // ── Configuration constants ────────────────────────────────────────
   const DB_NAME = 'lexora_offline';
-  const DB_VERSION = 1;
+  // v1 → v2 (M37): adds the vocabulary_cache store. Upgrade is
+  // ADDITIVE — existing data in cards_to_review + sync_queue stays
+  // intact; the new store starts empty and fills on first online
+  // prefetch via replaceVocabulary().
+  const DB_VERSION = 2;
   const STORE_CARDS = 'cards_to_review';
   const STORE_QUEUE = 'sync_queue';
+  const STORE_VOCAB = 'vocabulary_cache';   // M37
 
   // Single persistent handle. _dbPromise is set by init() and re-used
   // by every subsequent call so we open the database exactly once per
@@ -113,14 +118,25 @@
 
     _dbPromise = _IDB.openDB(DB_NAME, DB_VERSION, {
       upgrade(db, oldVersion /*, newVersion, transaction, event */) {
-        // v0 → v1: create both stores. Schema migrations for future
-        // versions land as additional `if (oldVersion < N)` blocks.
+        // Incremental, additive migrations. Each `if` block represents
+        // one schema delta — never modifies/removes pre-existing
+        // stores, so an existing user's data survives every bump.
+        //
+        // v0 → v1 (M36): cards_to_review + sync_queue.
         if (oldVersion < 1) {
           if (!db.objectStoreNames.contains(STORE_CARDS)) {
             db.createObjectStore(STORE_CARDS, { keyPath: 'id' });
           }
           if (!db.objectStoreNames.contains(STORE_QUEUE)) {
             db.createObjectStore(STORE_QUEUE, { keyPath: 'client_uuid' });
+          }
+        }
+        // v1 → v2 (M37): vocabulary_cache for the offline dictionary
+        // tab. Keyed by language.entry.id. Wholesale-replaced on each
+        // successful /lexora_api/offline_vocabulary prefetch.
+        if (oldVersion < 2) {
+          if (!db.objectStoreNames.contains(STORE_VOCAB)) {
+            db.createObjectStore(STORE_VOCAB, { keyPath: 'id' });
           }
         }
       },
@@ -320,21 +336,83 @@
   // ── stats() ────────────────────────────────────────────────────────
   // Diagnostic counter — the mobile UI uses cardCount for the
   // "X / Y cards" header and queuedCount for the sync-button badge.
+  // M37 extends with vocabCount (size of the offline dictionary).
   async function stats() {
     try {
       const db = await _getDb();
       const cardCount = await db.count(STORE_CARDS);
       const queuedCount = await db.count(STORE_QUEUE);
+      // vocabCount: defensive — if a v1 user somehow reaches this
+      // code path before the upgrade fires (shouldn't happen, but
+      // belt-and-braces), the store may be missing.
+      let vocabCount = 0;
+      try {
+        if (db.objectStoreNames.contains(STORE_VOCAB)) {
+          vocabCount = await db.count(STORE_VOCAB);
+        }
+      } catch (_) {}
       return {
         ok: true,
         cardCount,
         queuedCount,
+        vocabCount,
         dbVersion: DB_VERSION,
         dbName: DB_NAME,
       };
     } catch (err) {
       const { kind, message } = _classifyError(err);
       console.warn('[lexora.db] stats failed:', kind, message);
+      return { ok: false, error: kind, message };
+    }
+  }
+
+  // ── replaceVocabulary(words) — M37 ─────────────────────────────────
+  // Wholesale replace of the vocabulary_cache store. Same shape as
+  // replaceCardsToReview: single transaction, clear then bulk-put,
+  // single error envelope. Used by the mobile-practice page after a
+  // successful GET /lexora_api/offline_vocabulary.
+  async function replaceVocabulary(words) {
+    if (!Array.isArray(words)) {
+      return { ok: false, error: 'unknown', message: 'words must be an array' };
+    }
+    try {
+      const db = await _getDb();
+      const tx = db.transaction(STORE_VOCAB, 'readwrite');
+      await tx.store.clear();
+      for (const w of words) {
+        if (w && typeof w.id !== 'undefined') {
+          await tx.store.put(w);
+        }
+      }
+      await tx.done;
+      return { ok: true, count: words.length };
+    } catch (err) {
+      const { kind, message } = _classifyError(err);
+      console.warn('[lexora.db] replaceVocabulary failed:', kind, message);
+      return { ok: false, error: kind, message };
+    }
+  }
+
+  // ── getVocabulary() — M37 ──────────────────────────────────────────
+  // Returns the full vocabulary_cache, sorted alphabetically by the
+  // `normalized` field (with a lowercased-source-text fallback for
+  // rows that somehow lack it). The dictionary tab calls this once
+  // on first activation and stores row references for the filter pass.
+  async function getVocabulary() {
+    try {
+      const db = await _getDb();
+      const all = await db.getAll(STORE_VOCAB);
+      all.sort((a, b) => {
+        const ka = (a.normalized || (a.word || '').toLowerCase()) || '';
+        const kb = (b.normalized || (b.word || '').toLowerCase()) || '';
+        if (ka < kb) return -1;
+        if (ka > kb) return 1;
+        return 0;
+      });
+      return { ok: true, words: all };
+    } catch (err) {
+      const { kind, message } = _classifyError(err);
+      console.warn('[lexora.db] getVocabulary failed:', kind, message);
       return { ok: false, error: kind, message };
     }
   }
@@ -347,9 +425,12 @@
     drainQueue,
     removeFromQueue,
     getDueCards,
+    // M37 — offline-dictionary additions:
+    replaceVocabulary,
+    getVocabulary,
     stats,
     // Internal constants exposed for the Node sandbox test only.
-    _internals: { DB_NAME, DB_VERSION, STORE_CARDS, STORE_QUEUE },
+    _internals: { DB_NAME, DB_VERSION, STORE_CARDS, STORE_QUEUE, STORE_VOCAB },
   };
 
   if (typeof window !== 'undefined') {

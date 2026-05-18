@@ -1,8 +1,8 @@
 # Lexora — Implementation Plan (MVP)
 
-> Version: 3.0 (M36 — Mobile PWA & Offline Sync — Complete)
+> Version: 3.1 (M37 — Offline Dictionary — In Progress)
 > Last updated: 2026-05-18
-> Status: M0–M25 complete; M26 postponed (resource constraints); M27–M36 complete
+> Status: M0–M25 complete; M26 postponed (resource constraints); M27–M36 complete; M37 in progress
 
 ---
 
@@ -64,6 +64,7 @@
 | M34 | Browser Extension — YouTube Vocab Radar | ✅ Complete | Passive vocabulary radar for YouTube. Background fetches the user's vocabulary via new `GET /lexora_api/my_vocab`; main-world inject patches `XMLHttpRequest.prototype` + `window.fetch` to sniff `/api/timedtext` (JSON3 primary, SRV3/SRV1 XML fallback, DOM-observer for live streams). Content script builds a longest-match sliding-window index over the cue track and pauses the video ~4 s before a known word. Glassmorphism Shadow-DOM card shows the word + all-language translations (🇺🇦/🇬🇷/🇵🇱/🇬🇧) + the surrounding cue with the word highlighted, plus ⏪ Rewind 5 s & Play / ▶ Continue / 🔕 Skip this word / ✖ Disable for this video. Cooldown timer (default 120 s) starts at overlay close, not at fire, so the user can read the alert at their pace. Three Options-page controls + per-tab skip set + per-video kill switch. No persistence by default (ADR-033) |
 | M35 | Browser Extension — Multi-word YouTube Subtitle Selection | ✅ Complete | Multi-word phrase lookup on YouTube subtitles via **Ctrl/⌘-Click multi-select** (Strategy C). Native browser selection (Strategy A) was implemented end-to-end and failed in browser smoke — YT's player aggressively re-applies `user-select: none` via JS on every cue render and the `selectstart` interception runs below event listeners. Strategy B (manual drag state machine) was rejected without smoke for the same cue-segment-volatility reason. Strategy C wins: the user Ctrl-clicks each word in the phrase (toggle semantics on re-click); the buffer is finalised on the LAST `Control`/`Meta` keyup (multi-key safe via post-event `e.ctrlKey \|\| e.metaKey` check); the concatenated phrase routes through the same `_openLookupOverlay` pipeline as M24's single-word click. Plain-click anywhere / Escape / `yt-navigate-finish` clear the buffer. Click order preserved (NOT spatial). Every downstream Quick Look feature (Add to Vocabulary, Explain Grammar M28, Explain Slang/Idiom M32, Practice Pronunciation M33) inherits phrase support unchanged. Visually robust, deterministic (always whole-word), immune to YT's selection-suppression. 16/16 sandbox cases pass; browser smoke confirmed (ADR-034) |
 | M36 | Mobile PWA & Offline Sync | ✅ Complete | Lexora installs to the iPhone / Android home screen and reviews SRS cards in airplane mode. Web App Manifest at `/lexora.webmanifest` + Service Worker served from an Odoo controller at `/sw.js` (root scope; `Cache-Control: no-cache` for update detection). IndexedDB layer via vendored `idb` 7.1.1 UMD (ISC licence; no CDN dependency) with two stores: `cards_to_review` (prefetched from `GET /lexora_api/offline_batch`, capped 200 cards / 30 days) and `sync_queue` (offline review results, keyed by `crypto.randomUUID()` for idempotent replay). Mobile route `/my/practice/mobile` renders a touch-first card UI: tap-to-flip 3D glassmorphism card, swipe left/right for grading (60-px commit threshold, 600 ms time budget, vertical-scroll detection), huge Forgot / Remembered buttons (80 px tall × ~half-viewport wide). `POST /lexora_api/sync_offline` dedupes via the new `language.review.offline.log` table on `UNIQUE(user_id, client_uuid)`, then routes each row through the existing `action_register_review(grade)` SM-2 pipeline. SW caching: precache 7 stable static-asset URLs (cache-first + SWR); HTML cached opportunistically via network-first-nav; `/lexora_api/*` ALWAYS network; everything else passthrough. User-controlled update banner (NOT `skipWaiting` / `clients.claim`) with a first-install-suppression guard so brand-new visits don't auto-reload. Six dedicated tests + 73 prior tests stay green (79/0). Sandbox routing matrix 27/27. ADR-035 records seven sub-decisions (35a-g) + plan deviations (precache list dropped from 12 to 7; idb licence corrected to ISC; first-install reload suppression; markupsafe.Markup for embedded JSON). Zero new services, zero new permissions, zero new RabbitMQ queues (ADR-035) |
+| M37 | Mobile PWA — Offline Dictionary | 🟡 In progress | Extends the M36 mobile PWA with a **read-only offline dictionary**. New `GET /lexora_api/offline_vocabulary` returns the user's full active vocabulary (capped 2000 entries) with all completed translations; **`auth='user'`** + `Cache-Control: no-store` (cached via IndexedDB on the client, never by the SW). IndexedDB schema bumped to v2 — new `vocabulary_cache` store (keyPath `id`) sits alongside the M36 `cards_to_review` + `sync_queue` stores; the `upgrade` callback is additive so existing v1 users migrate cleanly. Two new DB methods: `replaceVocabulary(words)` (wholesale clear + bulk-put) and `getVocabulary()` (returns all rows sorted alphabetically by `normalized`). Mobile UI gets a native-app-style **bottom navigation bar** with two tabs: **Practice** (the M36 swipe-card flow) and **Dictionary** (the new view). Dictionary tab features a **sticky search bar** at the top — instant client-side filtering (case-insensitive substring match against word + every translation). SW updated to recognise the new `/offline_vocabulary` endpoint in `LEXORA_API_RE` (always-network passthrough). VERSION bumped to `lexora-pwa-v2` to trigger the M36-S5 update-banner flow for the first time in production (ADR-035 § 35d/35f revisit) |
 
 ---
 
@@ -3969,3 +3970,250 @@ SM-2 state advanced on the desktop site within seconds.
   that finally added Web Push and stabilised most SW behaviour).
   Older iOS gets the offline-disabled fallback experience: page
   loads online, no SW registration.
+
+---
+
+## M37 — Mobile PWA: Offline Dictionary
+
+**Goal:** Extend the M36 mobile PWA with a read-only dictionary tab so
+the user can browse their entire vocabulary in airplane mode, not just
+review the due cards. Frequent feedback from M36 testers: "I want to
+look up a word I added last month while I'm on a flight without
+Wi-Fi."
+
+Pure additive milestone. Zero new services, zero new RabbitMQ
+queues, no LLM endpoints. One new API route, one IndexedDB schema
+bump (v1 → v2), one new bottom-nav tab, one client-side search bar.
+
+### Architecture (locked at S1)
+
+**One new Odoo route**, mirroring the M36 `/offline_batch` shape minus
+the SRS fields:
+
+`GET /lexora_api/offline_vocabulary` (`auth='user'`):
+
+```json
+{
+  "status": "ok",
+  "words": [
+    {"id": 42, "word": "ephemeral", "lang": "en",
+     "normalized": "ephemeral",
+     "translations": {"uk": "...", "el": "...", "pl": "..."}}
+  ],
+  "generated_at": <unix>
+}
+```
+
+- Cap: 2000 entries (env `LEXORA_OFFLINE_VOCAB_LIMIT`). Bigger than
+  the 200-card `/offline_batch` limit because the dictionary is the
+  user's full library, not just the review queue.
+- Filter: `owner_id = uid AND status='active'`. **Critical
+  divergence from M34's `/my_vocab`**: we do NOT filter on
+  `pvp_eligible=True` — the dictionary should include entries the
+  user has added but whose translations haven't completed yet, so
+  they can see the source word even while the translation is still
+  pending.
+- Order: alphabetical by `normalized_text` (or lowercased
+  `source_text` fallback) — the natural reading order for a
+  dictionary.
+- Sub-decision recorded in the M36 ADR-035's revisit-trigger
+  "offline vocabulary read" (was M45 in the roadmap; promoted here).
+
+**IndexedDB schema v1 → v2**. Additive upgrade:
+
+```
+db: lexora_offline  (version 2)
+├── cards_to_review   (keyPath: 'id', from v1)
+├── sync_queue        (keyPath: 'client_uuid', from v1)
+└── vocabulary_cache  (keyPath: 'id', NEW in v2)
+```
+
+`upgrade(db, oldVersion)` callback uses incremental `if (oldVersion <
+N)` blocks so a fresh install (oldVersion = 0) creates ALL three
+stores while an M36 user (oldVersion = 1) only creates the new
+`vocabulary_cache`. The pattern is the canonical IDB migration shape
+— each block represents one schema delta.
+
+**Two new DB methods on `lexora.db`**:
+
+- `replaceVocabulary(words)` — same wholesale-clear-then-bulk-put
+  pattern as `replaceCardsToReview`. Returns `{ok, count}` or
+  `{ok:false, error:'quota'|'unknown', message}`.
+- `getVocabulary()` — `getAll()` then sort alphabetically by
+  `normalized`. Returns `{ok, words}`.
+
+The existing M36 API surface (init, enqueueReview, drainQueue,
+removeFromQueue, getDueCards, stats) is **unchanged**. `stats()` is
+extended with a new `vocabCount` field for diagnostic visibility.
+
+**Mobile UI — bottom navigation bar.** Two tabs, native-app-style
+fixed at the bottom of the viewport above the safe-area inset:
+
+```
+┌─────────────────────────────────────────┐
+│  Header (progress / online dot / sync)  │
+├─────────────────────────────────────────┤
+│                                         │
+│   Active panel (Practice OR Dictionary) │
+│                                         │
+├─────────────────────────────────────────┤
+│  [ 🎴 Practice ]   [ 📖 Dictionary ]    │
+└─────────────────────────────────────────┘
+```
+
+- **Practice tab**: the existing M36 flip-card flow, untouched.
+- **Dictionary tab**:
+  - Sticky search bar at the top of the panel.
+  - Vocabulary list rendered as `<ul>` rows; each row shows the
+    source word in bold + a row of 🇺🇦/🇬🇷/🇵🇱 translations + the
+    source-language flag pill.
+  - Empty state: "No words in your vocabulary yet — add some from
+    the desktop site or the browser extension."
+  - Filter behaviour: case-insensitive substring match against
+    word + every translation. Toggles `display: none` on rows;
+    keeps the DOM stable for instant filtering even on 2000-row
+    lists.
+
+The M36 footer action row (Forgot / Remembered) is only visible when
+the Practice tab is active. The Dictionary tab hides it (no grading
+in dictionary mode).
+
+**JS state changes** in `mobile_practice.js`:
+
+- New `state.activeTab` ∈ `{'practice', 'dictionary'}`.
+- Tab-switch handler toggles panel visibility, updates the bottom
+  nav's active state, and lazy-loads the dictionary on first switch.
+- `_renderDictionary()` builds the list once from
+  `lexora.db.getVocabulary()` and stores row references in
+  `_dictRows` for the filter pass.
+- `_filterDictionary(query)` iterates `_dictRows` and toggles
+  `display` based on substring match. No DOM rebuild per keystroke.
+- `_prefetchVocabulary()` mirrors `_prefetchBatch`: best-effort
+  GET to `/offline_vocabulary` when online; replaces the IDB store
+  on 200. Triggers on boot (alongside `/offline_batch`) and on
+  `online` events.
+
+**SW** updated:
+
+- VERSION bumped `'lexora-pwa-v1'` → `'lexora-pwa-v2'` to trigger
+  the M36-S5 update-banner flow.
+- `LEXORA_API_RE` regex extended to include `offline_vocabulary`
+  so the new endpoint lands in the always-network path explicitly
+  (it would have matched the default-passthrough fallback anyway,
+  but explicit listing is documentation + future-proofing).
+- Precache list **unchanged** at 7 URLs. Dictionary HTML lives
+  inside the existing `/my/practice/mobile` HTML — no new
+  asset URLs to precache.
+
+### Step-by-step work plan
+
+**Step M37-S1 — Odoo API + IDB schema v2**
+
+- [ ] M37-S1-01 · `portal_pwa.py` — new
+  `_OFFLINE_VOCAB_DEFAULT_LIMIT = int(os.environ.get(
+  'LEXORA_OFFLINE_VOCAB_LIMIT', '2000'))` constant.
+- [ ] M37-S1-02 · `_project_vocab_for_user(env, user, limit)`
+  helper — mirrors `_project_cards_for_user` but reads from
+  `language.entry` directly (not `language.review`), and filters on
+  `status='active'` ONLY (NOT `pvp_eligible=True`). Translations
+  bulk-fetched the same way; first-write-wins per `(entry, lang)`.
+  Sort: `lower(source_text) asc` so the dictionary reads
+  alphabetically.
+- [ ] M37-S1-03 · `GET /lexora_api/offline_vocabulary` route
+  (`auth='user'`, `type='http'`) returns `{status:'ok',
+  words:[...], generated_at:<unix>}` with
+  `Content-Type: application/json` + `Cache-Control: no-store`.
+- [ ] M37-S1-04 · `lexora_db.js` — bump `DB_VERSION` constant
+  from 1 to 2. Add `STORE_VOCAB = 'vocabulary_cache'` constant.
+- [ ] M37-S1-05 · `init()` upgrade callback — additive
+  `if (oldVersion < 2) { db.createObjectStore(STORE_VOCAB,
+  {keyPath:'id'}); }` block. Pre-existing `if (oldVersion < 1)`
+  block untouched so fresh installs create all three stores in
+  one go.
+- [ ] M37-S1-06 · New DB methods:
+  - `replaceVocabulary(words)` — `clear()` then bulk-put. Error
+    envelope matches the rest of the API.
+  - `getVocabulary()` — `getAll()` + sort by `normalized` (with
+    `(word||'').toLowerCase()` fallback). Returns `{ok, words}`.
+  - `stats()` extended with `vocabCount: count(STORE_VOCAB)`.
+
+**Step M37-S2 — Mobile UI: bottom nav + dictionary panel**
+
+- [ ] M37-S2-01 · `portal_practice_mobile.xml` — wrap the existing
+  `.lx-mp-stage` + `.lx-mp-actions-row` inside a new
+  `<section id="lx-mp-panel-practice" class="lx-mp-panel">`.
+- [ ] M37-S2-02 · New `<section id="lx-mp-panel-dictionary"
+  class="lx-mp-panel d-none">` containing:
+  - Sticky search input (`<input type="search" id="lx-mp-dict-search">`).
+  - `<ul id="lx-mp-dict-list">` for the rendered rows.
+  - Empty state `<div id="lx-mp-dict-empty">`.
+- [ ] M37-S2-03 · New `<nav id="lx-mp-bottom-nav">` with two
+  tabs: `<button data-tab="practice">🎴 Practice</button>`,
+  `<button data-tab="dictionary">📖 Dictionary</button>`. Fixed
+  at the bottom of the viewport.
+
+**Step M37-S3 — JS state machine + search filter**
+
+- [ ] M37-S3-01 · `mobile_practice.js` — new `state.activeTab`
+  + `state.dictionaryLoaded` flags.
+- [ ] M37-S3-02 · `_switchTab(name)` helper:
+  - Toggle `d-none` on `#lx-mp-panel-practice` /
+    `#lx-mp-panel-dictionary`.
+  - Toggle `aria-current` + `.lx-mp-tab-active` on the bottom-nav
+    buttons.
+  - Hide the M36 action row (`#lx-mp-actions-row`) when on
+    Dictionary; restore when on Practice.
+  - First time we switch to Dictionary, call `_renderDictionary()`.
+- [ ] M37-S3-03 · `_renderDictionary()` — `await lexora.db
+  .getVocabulary()`; build `<li>` rows; store references in
+  `_dictRows` array (a parallel JS array of `{row, haystack}`
+  objects where `haystack` is the lowercased word + all
+  translations joined for cheap filter lookups).
+- [ ] M37-S3-04 · `_filterDictionary(query)`:
+  - Lowercase + trim the query.
+  - Empty query → show all rows.
+  - Non-empty → iterate `_dictRows`, toggle `style.display`
+    based on `haystack.includes(query)`.
+  - O(n) per keystroke; n=2000 is < 1 ms on modern phones.
+- [ ] M37-S3-05 · `_prefetchVocabulary()` — best-effort GET to
+  `/offline_vocabulary` when online; on 200, call
+  `replaceVocabulary(data.words)`; if the Dictionary tab is
+  currently active, re-render. Wire alongside the existing
+  `_prefetchBatch()` call in `boot()` and the `_setOnline(true)`
+  path.
+
+**Step M37-S4 — CSS + SW update**
+
+- [ ] M37-S4-01 · `mobile_practice.css` — bottom-nav bar:
+  fixed position, 64 px tall + safe-area-inset-bottom padding,
+  2-col grid, indigo `accent-color` on the active tab.
+- [ ] M37-S4-02 · Panel layout — full-flex column with header
+  pinned + scrollable body + footer reserved for action row OR
+  bottom nav depending on active panel.
+- [ ] M37-S4-03 · Dictionary list rules — `.lx-mp-dict-row` =
+  flex row with word + flag pill + translations; sticky search
+  bar with `backdrop-filter: blur` matching the header style.
+- [ ] M37-S4-04 · `sw.js` — bump `VERSION` constant to
+  `'lexora-pwa-v2'`. Extend `LEXORA_API_RE` regex to include
+  `offline_vocabulary` as a third alternative.
+
+**Step M37-S5 — Verification**
+
+- [ ] M37-S5-01 · `node --check sw.js`, `lexora_db.js`,
+  `mobile_practice.js` all OK.
+- [ ] M37-S5-02 · `python3 ast.parse portal_pwa.py` OK;
+  `xml.etree` on `portal_practice_mobile.xml` OK.
+- [ ] M37-S5-03 · `docker exec odoo odoo --update language_learning
+  --test-enable -u language_learning --stop-after-init --no-http`
+  — 79 tests stay green (M36 regression).
+- [ ] M37-S5-04 · Live smoke:
+  - `GET /lexora_api/offline_vocabulary` with auth → 200,
+    `{status:'ok', words:[...], generated_at:N}`. Cap honoured.
+  - Browser smoke: tap Dictionary tab → list renders; type a
+    query → filter responds within a tick; toggle back to
+    Practice → swipe-card UX intact; reload after VERSION bump
+    → M36 update banner appears.
+
+**Acceptance:** the user opens the mobile PWA on a plane, taps the
+Dictionary tab, searches for a word from their saved vocabulary, and
+sees the translations instantly — all without network.

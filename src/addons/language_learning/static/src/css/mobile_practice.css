@@ -456,3 +456,253 @@
   font-size: 13px;
 }
 .lx-mp-update-refresh:active { transform: scale(0.96); }
+
+/* ──────────────────────────────────────────────────────────────────
+ * M37 — Bottom navigation + Dictionary panel
+ *
+ * Two SPA panels (Practice + Dictionary) toggle via a fixed
+ * native-app-style bottom-nav bar. Panel layout is flex-column so
+ * the scrollable child grows to fill while the sticky search bar
+ * stays pinned. Bottom-nav reserves its own space via padding on
+ * the root rather than absolute positioning — keeps the safe-area
+ * inset math correct on notched iPhones.
+ * ──────────────────────────────────────────────────────────────── */
+
+/* Reserve space at the bottom of the root for the fixed nav so the
+   Practice panel's action row doesn't slide under it. 64 px nav +
+   safe-area inset bottom. */
+.lx-mp-root { padding-bottom: calc(64px + env(safe-area-inset-bottom, 0)); }
+
+/* Panels — each occupies the full stage area and is flex-column so
+   sticky search bar can pin while the list scrolls beneath it. */
+.lx-mp-panel {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* Practice panel keeps its existing flow (stage + action row); just
+   inherit the panel's flex column. */
+#lx-mp-panel-practice {
+  /* No further rules — children (.lx-mp-stage + .lx-mp-actions-row)
+     already have the right behaviour from the M36 stylesheet above. */
+}
+
+/* Dictionary panel — search bar pinned, list scrolls. */
+#lx-mp-panel-dictionary {
+  padding: 0;
+}
+
+.lx-mp-dict-search-wrap {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px 10px;
+  background: rgba(15, 23, 42, 0.85);
+  backdrop-filter: blur(14px) saturate(160%);
+  -webkit-backdrop-filter: blur(14px) saturate(160%);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.lx-mp-dict-search {
+  flex: 1 1 auto;
+  appearance: none;
+  -webkit-appearance: none;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+  color: #f1f5f9;
+  font-size: 16px;            /* >= 16 px or iOS Safari auto-zooms on focus */
+  font-family: inherit;
+  padding: 10px 14px;
+  outline: none;
+  transition: border-color 140ms, background 140ms;
+}
+.lx-mp-dict-search::placeholder { color: rgba(241, 245, 249, 0.4); }
+.lx-mp-dict-search:focus {
+  border-color: rgba(129, 140, 248, 0.7);
+  background: rgba(255, 255, 255, 0.10);
+}
+
+.lx-mp-dict-count {
+  flex: 0 0 auto;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: rgba(241, 245, 249, 0.45);
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+/* Dictionary list — scrollable; padding-bottom so the last row clears
+   the bottom-nav on small screens with short content. */
+.lx-mp-dict-list {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  margin: 0;
+  padding: 8px 12px 24px;
+  list-style: none;
+  -webkit-overflow-scrolling: touch;
+}
+
+.lx-mp-dict-row {
+  padding: 12px 14px;
+  margin-bottom: 8px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.lx-mp-dict-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.lx-mp-dict-word {
+  font-size: 17px;
+  font-weight: 700;
+  color: #f1f5f9;
+  word-break: break-word;
+  letter-spacing: -0.005em;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.lx-mp-dict-flag {
+  flex: 0 0 auto;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(129, 140, 248, 0.16);
+  color: #c7d2fe;
+  white-space: nowrap;
+}
+
+.lx-mp-dict-trans {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.lx-mp-dict-trans-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 14px;
+  color: rgba(241, 245, 249, 0.85);
+}
+
+.lx-mp-dict-trans-flag {
+  flex: 0 0 auto;
+  font-size: 14px;
+  line-height: 1;
+  opacity: 0.85;
+}
+
+.lx-mp-dict-trans-text {
+  flex: 1 1 auto;
+  word-break: break-word;
+}
+
+.lx-mp-dict-pending {
+  font-size: 12px;
+  font-style: italic;
+  color: rgba(241, 245, 249, 0.4);
+}
+
+.lx-mp-dict-noresults {
+  text-align: center;
+  font-size: 14px;
+  color: rgba(241, 245, 249, 0.5);
+  padding: 32px 16px;
+}
+
+.lx-mp-dict-empty {
+  /* Inherits .lx-mp-empty centering rules from M36. Just give the
+     empty state breathing room when it's inside the panel column. */
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 0 18px;
+}
+
+/* ── Bottom navigation bar ────────────────────────────────────── */
+.lx-mp-bottom-nav {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  height: calc(64px + env(safe-area-inset-bottom, 0));
+  padding-bottom: env(safe-area-inset-bottom, 0);
+  background: rgba(15, 23, 42, 0.94);
+  backdrop-filter: blur(16px) saturate(160%);
+  -webkit-backdrop-filter: blur(16px) saturate(160%);
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  z-index: 40;
+}
+
+.lx-mp-tab {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  background: transparent;
+  border: none;
+  color: rgba(241, 245, 249, 0.55);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  padding: 6px 0;
+  transition: color 140ms, transform 90ms;
+}
+.lx-mp-tab:active { transform: scale(0.96); }
+
+.lx-mp-tab-icon {
+  font-size: 20px;
+  line-height: 1;
+  filter: grayscale(0.4);
+  transition: filter 140ms, transform 140ms;
+}
+
+.lx-mp-tab-label {
+  font-size: 11px;
+  letter-spacing: 0.04em;
+}
+
+.lx-mp-tab-active {
+  color: #c7d2fe;
+}
+.lx-mp-tab-active .lx-mp-tab-icon {
+  filter: grayscale(0);
+  transform: scale(1.08);
+}
+
+/* Small indigo bar under the active tab, mirroring iOS app conventions. */
+.lx-mp-tab-active::before {
+  content: '';
+  position: absolute;
+  width: 36px;
+  height: 3px;
+  border-radius: 0 0 4px 4px;
+  background: linear-gradient(90deg, #818cf8, #7c3aed);
+  top: 0;
+}
+.lx-mp-tab { position: relative; }

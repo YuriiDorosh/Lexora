@@ -70,57 +70,127 @@
                         </div>
                     </header>
 
-                    <!-- ── Card stage ──────────────────────────────── -->
-                    <section id="lx-mp-stage" class="lx-mp-stage">
-                        <!-- Loading state shown until JS hydrates -->
-                        <div id="lx-mp-loading" class="lx-mp-loading">
-                            <div class="lx-mp-spinner" aria-hidden="true"/>
-                            <p>Loading your practice deck…</p>
+                    <!-- ─────────────────────────────────────────────── -->
+                    <!-- M37 — two-panel SPA: Practice + Dictionary     -->
+                    <!-- ─────────────────────────────────────────────── -->
+
+                    <!-- PRACTICE PANEL — the M36 flip-card flow -->
+                    <section id="lx-mp-panel-practice" class="lx-mp-panel">
+                        <!-- ── Card stage ──────────────────────────── -->
+                        <section id="lx-mp-stage" class="lx-mp-stage">
+                            <!-- Loading state shown until JS hydrates -->
+                            <div id="lx-mp-loading" class="lx-mp-loading">
+                                <div class="lx-mp-spinner" aria-hidden="true"/>
+                                <p>Loading your practice deck…</p>
+                            </div>
+
+                            <!-- Empty state — no cards due -->
+                            <div id="lx-mp-empty" class="lx-mp-empty d-none">
+                                <div class="lx-mp-empty-emoji">🎉</div>
+                                <h2>All caught up!</h2>
+                                <p>No cards are due right now. Come back later.</p>
+                                <a href="/my/practice" class="lx-mp-link-btn">
+                                    Open desktop practice
+                                </a>
+                            </div>
+
+                            <!-- The flip card (hidden until first card hydrates) -->
+                            <div id="lx-mp-card" class="lx-mp-card d-none"
+                                 role="button" tabindex="0"
+                                 aria-label="Practice card — tap to reveal translations">
+                                <div class="lx-mp-card-inner">
+                                    <div class="lx-mp-card-face lx-mp-card-front">
+                                        <div class="lx-mp-card-state"
+                                             id="lx-mp-card-state">new</div>
+                                        <div class="lx-mp-card-word"
+                                             id="lx-mp-card-word">…</div>
+                                        <div class="lx-mp-card-hint">tap to reveal</div>
+                                    </div>
+                                    <div class="lx-mp-card-face lx-mp-card-back">
+                                        <div class="lx-mp-card-translations"
+                                             id="lx-mp-card-translations"/>
+                                    </div>
+                                </div>
+                            </div>
+                        </section>
+
+                        <!-- Practice action row (Forgot / Remembered).      -->
+                        <!-- Lives inside the Practice panel so switching to -->
+                        <!-- Dictionary hides it automatically.              -->
+                        <footer id="lx-mp-actions-row" class="lx-mp-actions-row d-none">
+                            <button type="button" id="lx-mp-forgot"
+                                    class="lx-mp-grade-btn lx-mp-forgot">
+                                <span class="lx-mp-grade-emoji" aria-hidden="true">✕</span>
+                                <span class="lx-mp-grade-label">Forgot</span>
+                            </button>
+                            <button type="button" id="lx-mp-remembered"
+                                    class="lx-mp-grade-btn lx-mp-remembered">
+                                <span class="lx-mp-grade-emoji" aria-hidden="true">✓</span>
+                                <span class="lx-mp-grade-label">Remembered</span>
+                            </button>
+                        </footer>
+                    </section>
+
+                    <!-- DICTIONARY PANEL — read-only browse-all view -->
+                    <section id="lx-mp-panel-dictionary"
+                             class="lx-mp-panel lx-mp-panel-dictionary d-none"
+                             aria-label="Vocabulary dictionary">
+                        <div class="lx-mp-dict-search-wrap">
+                            <input type="search"
+                                   id="lx-mp-dict-search"
+                                   class="lx-mp-dict-search"
+                                   placeholder="Search your vocabulary…"
+                                   autocomplete="off"
+                                   autocorrect="off"
+                                   autocapitalize="off"
+                                   spellcheck="false"
+                                   aria-label="Search vocabulary"/>
+                            <span class="lx-mp-dict-count" id="lx-mp-dict-count"/>
                         </div>
 
-                        <!-- Empty state — no cards due -->
-                        <div id="lx-mp-empty" class="lx-mp-empty d-none">
-                            <div class="lx-mp-empty-emoji">🎉</div>
-                            <h2>All caught up!</h2>
-                            <p>No cards are due right now. Come back later.</p>
-                            <a href="/my/practice" class="lx-mp-link-btn">
-                                Open desktop practice
+                        <div id="lx-mp-dict-loading" class="lx-mp-loading">
+                            <div class="lx-mp-spinner" aria-hidden="true"/>
+                            <p>Loading your dictionary…</p>
+                        </div>
+
+                        <div id="lx-mp-dict-empty"
+                             class="lx-mp-empty lx-mp-dict-empty d-none">
+                            <div class="lx-mp-empty-emoji">📖</div>
+                            <h2>No vocabulary yet</h2>
+                            <p>Add words from the desktop site or the browser
+                               extension and they'll appear here.</p>
+                            <a href="/my/vocabulary" class="lx-mp-link-btn">
+                                Open desktop vocabulary
                             </a>
                         </div>
 
-                        <!-- The flip card (hidden until first card hydrates) -->
-                        <div id="lx-mp-card" class="lx-mp-card d-none"
-                             role="button" tabindex="0"
-                             aria-label="Practice card — tap to reveal translations">
-                            <div class="lx-mp-card-inner">
-                                <div class="lx-mp-card-face lx-mp-card-front">
-                                    <div class="lx-mp-card-state"
-                                         id="lx-mp-card-state">new</div>
-                                    <div class="lx-mp-card-word"
-                                         id="lx-mp-card-word">…</div>
-                                    <div class="lx-mp-card-hint">tap to reveal</div>
-                                </div>
-                                <div class="lx-mp-card-face lx-mp-card-back">
-                                    <div class="lx-mp-card-translations"
-                                         id="lx-mp-card-translations"/>
-                                </div>
-                            </div>
+                        <ul id="lx-mp-dict-list" class="lx-mp-dict-list d-none"/>
+
+                        <div id="lx-mp-dict-noresults"
+                             class="lx-mp-dict-noresults d-none">
+                            No matches.
                         </div>
                     </section>
 
-                    <!-- ── Footer action row ───────────────────────── -->
-                    <footer id="lx-mp-actions-row" class="lx-mp-actions-row d-none">
-                        <button type="button" id="lx-mp-forgot"
-                                class="lx-mp-grade-btn lx-mp-forgot">
-                            <span class="lx-mp-grade-emoji" aria-hidden="true">✕</span>
-                            <span class="lx-mp-grade-label">Forgot</span>
+                    <!-- BOTTOM NAVIGATION — native-app tab bar -->
+                    <nav id="lx-mp-bottom-nav" class="lx-mp-bottom-nav"
+                         role="tablist" aria-label="Mobile sections">
+                        <button type="button"
+                                class="lx-mp-tab lx-mp-tab-active"
+                                data-tab="practice"
+                                aria-current="page"
+                                aria-label="Practice tab">
+                            <span class="lx-mp-tab-icon" aria-hidden="true">🎴</span>
+                            <span class="lx-mp-tab-label">Practice</span>
                         </button>
-                        <button type="button" id="lx-mp-remembered"
-                                class="lx-mp-grade-btn lx-mp-remembered">
-                            <span class="lx-mp-grade-emoji" aria-hidden="true">✓</span>
-                            <span class="lx-mp-grade-label">Remembered</span>
+                        <button type="button"
+                                class="lx-mp-tab"
+                                data-tab="dictionary"
+                                aria-label="Dictionary tab">
+                            <span class="lx-mp-tab-icon" aria-hidden="true">📖</span>
+                            <span class="lx-mp-tab-label">Dictionary</span>
                         </button>
-                    </footer>
+                    </nav>
 
                     <!-- Toast region for ephemeral status messages -->
                     <div id="lx-mp-toast" class="lx-mp-toast d-none"

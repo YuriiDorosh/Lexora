@@ -63,6 +63,14 @@ _OFFLINE_BATCH_DEFAULT_LIMIT = int(
 _OFFLINE_BATCH_MAX_DAYS = 30
 _OFFLINE_BATCH_MAX_LIMIT = 1000
 
+# M37 — Offline-vocabulary endpoint. Bigger cap than offline_batch
+# because this serves the FULL dictionary view, not just the due-cards
+# review queue. Clamped to safe range per-request below.
+_OFFLINE_VOCAB_DEFAULT_LIMIT = int(
+    os.environ.get('LEXORA_OFFLINE_VOCAB_LIMIT', '2000')
+)
+_OFFLINE_VOCAB_MAX_LIMIT = 5000
+
 
 def _json_body(req):
     """Parse the JSON body of an http-type request defensively.
@@ -161,6 +169,59 @@ def _read_static_asset(relative_path):
     full_path = os.path.join('language_learning', relative_path)
     with odoo_misc.file_open(full_path, mode='rb') as fh:
         return fh.read()
+
+
+def _project_vocab_for_user(env, user, limit):
+    """M37 — projection used by GET /lexora_api/offline_vocabulary.
+
+    Reads `language.entry` directly (NOT `language.review`) because the
+    dictionary view is about the user's full vocabulary, not just SRS
+    state. Two important divergences from _project_cards_for_user:
+
+      1. **Filter is `status='active'` ONLY** — NOT `pvp_eligible=True`.
+         M34's `/lexora_api/my_vocab` filters on pvp_eligible to
+         exclude entries with no completed translations (the YouTube
+         radar can't surface those). The dictionary intentionally
+         INCLUDES them so the user sees the source word even while
+         translations are still pending.
+
+      2. **Alphabetical order** by lowercased `source_text`. The
+         dictionary reads naturally A→Z; the review queue's
+         state-desc/date-asc order doesn't make sense here.
+
+    Translation bulk-fetch is identical to the cards helper —
+    first-write-wins per (entry, lang).
+    """
+    Entry = env['language.entry']
+    entries = Entry.search([
+        ('owner_id', '=', user.id),
+        ('status', '=', 'active'),
+    ], limit=limit, order='source_text asc')
+
+    # Bulk-fetch translations for all entry ids in one sudo query.
+    entry_ids = entries.ids
+    trans_by_entry = {}
+    if entry_ids and 'language.translation' in env.registry:
+        Trans = env['language.translation'].sudo()
+        for t in Trans.search([
+            ('entry_id', 'in', entry_ids),
+            ('status', '=', 'completed'),
+        ], order='id asc'):
+            bucket = trans_by_entry.setdefault(t.entry_id.id, {})
+            if t.target_language and t.translated_text and \
+               t.target_language not in bucket:
+                bucket[t.target_language] = t.translated_text
+
+    rows = []
+    for entry in entries:
+        rows.append({
+            'id': entry.id,
+            'word': entry.source_text or '',
+            'lang': entry.source_language or '',
+            'normalized': entry.normalized_text or (entry.source_text or '').lower(),
+            'translations': trans_by_entry.get(entry.id) or {},
+        })
+    return rows
 
 
 class LexoraPwaController(http.Controller):
@@ -336,6 +397,56 @@ class LexoraPwaController(http.Controller):
         result = Log.apply_offline_batch(request.env.user, reviews)
         result['status'] = 'ok'
         return _json_http_response(result)
+
+    # ------------------------------------------------------------------
+    # GET /lexora_api/offline_vocabulary  — full read-only dictionary (M37)
+    # ------------------------------------------------------------------
+    @http.route('/lexora_api/offline_vocabulary', type='http', auth='user',
+                methods=['GET'], csrf=False)
+    def offline_vocabulary(self, limit=None, **kw):
+        """Return the caller's full active vocabulary for offline browse.
+
+        Distinct from `/offline_batch` (review-queue cards, SM-2 fields
+        + days look-ahead) and from `/lexora_api/my_vocab` (M34 YouTube
+        radar — filters on pvp_eligible). This route is the dictionary
+        view: every active entry the user owns, sorted alphabetically,
+        with all completed translations bundled in. The mobile PWA
+        prefetches this on Wi-Fi and stores it in IDB v2's
+        vocabulary_cache store so the dictionary tab works in airplane
+        mode.
+
+        Query param:
+            limit  — max rows. Default LEXORA_OFFLINE_VOCAB_LIMIT (2000).
+                     Clamped to [1, 5000].
+
+        Response shape (per ADR-035 § 35c projection conventions):
+            {
+              "status": "ok",
+              "words": [
+                {"id": <int>, "word": <str>, "lang": <2-letter code>,
+                 "normalized": <str>,
+                 "translations": {"en":"...","uk":"...","el":"...","pl":"..."}}
+              ],
+              "generated_at": <unix int>
+            }
+        """
+        try:
+            n = int(limit) if limit is not None else _OFFLINE_VOCAB_DEFAULT_LIMIT
+        except (TypeError, ValueError):
+            n = _OFFLINE_VOCAB_DEFAULT_LIMIT
+        n = max(1, min(_OFFLINE_VOCAB_MAX_LIMIT, n))
+
+        rows = _project_vocab_for_user(request.env, request.env.user, n)
+        body = json.dumps({
+            'status': 'ok',
+            'words': rows,
+            'generated_at': int(time.time()),
+        })
+        return request.make_response(body, headers=[
+            ('Content-Type', 'application/json; charset=utf-8'),
+            ('Cache-Control', 'no-store'),
+            ('Content-Length', str(len(body.encode('utf-8')))),
+        ])
 
     # ------------------------------------------------------------------
     # GET /my/practice/mobile  — touch-first SRS review page (PWA shell)
