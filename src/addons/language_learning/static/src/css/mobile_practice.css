@@ -1,0 +1,458 @@
+/* ──────────────────────────────────────────────────────────────────
+ * M36 — Mobile Practice PWA stylesheet
+ *
+ * Touch-first single-column layout. Full viewport via 100dvh (the
+ * "dynamic viewport height" unit that respects the iOS Safari
+ * collapsing address bar correctly); falls back to 100vh on older
+ * browsers — which mis-sizes by the address-bar height on iOS but is
+ * close enough and improves on every other modern browser.
+ *
+ * Premium palette matches the M14 branding (#0f172a slate base,
+ * indigo + emerald gradients, glassmorphism on the card surface).
+ * Buttons are deliberately huge (≥ 80 px tall, near-half-viewport
+ * wide) so a thumb can grade without fine motor control on the
+ * metro.
+ * ──────────────────────────────────────────────────────────────── */
+
+/* ── Reset + page chrome ────────────────────────────────────────── */
+.lx-mp-body {
+  margin: 0;
+  padding: 0;
+  background: #0f172a;
+  color: #f1f5f9;
+  font-family: 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  font-size: 16px;
+  line-height: 1.4;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  /* Lock body scroll so the page never overflows on iOS rubber-band. */
+  overflow: hidden;
+  /* Disable iOS pull-to-refresh and overscroll bounce inside the app. */
+  overscroll-behavior: none;
+  /* No tap highlight (we provide our own hover/active states). */
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.lx-mp-body * { box-sizing: border-box; }
+.lx-mp-body .d-none { display: none !important; }
+.lx-mp-body button { font-family: inherit; }
+.lx-mp-body a { color: #818cf8; }
+
+/* ── Root container — animated gradient background ──────────────── */
+.lx-mp-root {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  /* iOS Safari needs both — 100dvh is the modern unit; 100vh is the
+     fallback that all browsers understand. Use env(safe-area-inset-*)
+     so notched phones don't get content clipped under the Dynamic
+     Island / status bar / home-indicator areas. */
+  height: 100vh;
+  height: 100dvh;
+  min-height: 100vh;
+  min-height: 100dvh;
+  padding-top: env(safe-area-inset-top, 0);
+  padding-bottom: env(safe-area-inset-bottom, 0);
+  padding-left: env(safe-area-inset-left, 0);
+  padding-right: env(safe-area-inset-right, 0);
+  background:
+    radial-gradient(ellipse at top, rgba(79, 70, 229, 0.18), transparent 60%),
+    radial-gradient(ellipse at bottom, rgba(34, 197, 94, 0.10), transparent 55%),
+    #0f172a;
+}
+
+/* ── Header ─────────────────────────────────────────────────────── */
+.lx-mp-header {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 20px 10px;
+  font-size: 14px;
+}
+
+.lx-mp-progress {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.04em;
+  font-size: 16px;
+  font-weight: 600;
+  color: rgba(241, 245, 249, 0.92);
+}
+.lx-mp-progress-sep {
+  margin: 0 4px;
+  color: rgba(241, 245, 249, 0.4);
+}
+#lx-mp-progress-total {
+  color: rgba(241, 245, 249, 0.55);
+}
+
+.lx-mp-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.lx-mp-icon-btn {
+  position: relative;
+  width: 38px;
+  height: 38px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.04);
+  color: #f1f5f9;
+  font-size: 18px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 120ms, transform 80ms;
+}
+.lx-mp-icon-btn:active {
+  transform: scale(0.94);
+  background: rgba(255, 255, 255, 0.10);
+}
+
+.lx-mp-icon {
+  display: inline-block;
+  font-size: 20px;
+}
+
+.lx-mp-badge {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: linear-gradient(135deg, #f97316, #ef4444);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 18px;
+  text-align: center;
+}
+
+/* Online/offline indicator. The colour changes on a body class so it's
+   trivial to flip via JS. */
+.lx-mp-conn {
+  font-size: 14px;
+  line-height: 1;
+  transition: color 200ms;
+}
+.lx-mp-conn-online  { color: #22c55e; }
+.lx-mp-conn-offline { color: #f59e0b; }
+
+/* ── Card stage (centred main area) ─────────────────────────────── */
+.lx-mp-stage {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 14px 20px;
+  min-height: 0; /* allows shrink inside flex column on small screens */
+  position: relative;
+}
+
+.lx-mp-loading {
+  text-align: center;
+  color: rgba(241, 245, 249, 0.7);
+}
+.lx-mp-spinner {
+  width: 36px;
+  height: 36px;
+  margin: 0 auto 12px;
+  border: 3px solid rgba(129, 140, 248, 0.25);
+  border-top-color: #818cf8;
+  border-radius: 50%;
+  animation: lx-mp-spin 0.9s linear infinite;
+}
+@keyframes lx-mp-spin {
+  to { transform: rotate(360deg); }
+}
+
+.lx-mp-empty {
+  text-align: center;
+  color: rgba(241, 245, 249, 0.85);
+  padding: 0 18px;
+}
+.lx-mp-empty-emoji {
+  font-size: 64px;
+  margin-bottom: 12px;
+}
+.lx-mp-empty h2 {
+  font-size: 24px;
+  font-weight: 700;
+  margin: 0 0 8px;
+  color: #22c55e;
+}
+.lx-mp-empty p {
+  margin: 0 0 20px;
+  color: rgba(241, 245, 249, 0.6);
+}
+.lx-mp-link-btn {
+  display: inline-block;
+  padding: 10px 16px;
+  border-radius: 10px;
+  background: rgba(129, 140, 248, 0.18);
+  color: #c7d2fe;
+  text-decoration: none;
+  font-weight: 600;
+  font-size: 14px;
+}
+
+/* ── The flip card ──────────────────────────────────────────────── */
+.lx-mp-card {
+  width: 100%;
+  max-width: 360px;
+  /* Aspect ratio gives the card a deck-of-flashcards proportion. */
+  aspect-ratio: 3 / 4;
+  /* perspective applied to PARENT, not card, so the 3D rotation
+     reads natural depth. */
+  perspective: 1200px;
+  cursor: pointer;
+  /* Smooth swipe — transform is set via JS while dragging; this
+     transition gives the snap-back / snap-out animation when the
+     user releases without crossing the threshold. */
+  transition: transform 220ms cubic-bezier(0.4, 0.0, 0.2, 1),
+              opacity 220ms ease-out;
+}
+
+.lx-mp-card-inner {
+  width: 100%;
+  height: 100%;
+  position: relative;
+  transform-style: preserve-3d;
+  transition: transform 480ms cubic-bezier(0.4, 0.0, 0.2, 1);
+}
+
+/* The flip is applied via the `.lx-mp-flipped` class added by JS on
+   tap. 180deg around Y gives the standard playing-card flip. */
+.lx-mp-card.lx-mp-flipped .lx-mp-card-inner {
+  transform: rotateY(180deg);
+}
+
+.lx-mp-card-face {
+  position: absolute;
+  inset: 0;
+  border-radius: 24px;
+  /* Glassmorphism: blurred background + subtle indigo border. */
+  background: rgba(15, 23, 42, 0.7);
+  backdrop-filter: blur(18px) saturate(180%);
+  -webkit-backdrop-filter: blur(18px) saturate(180%);
+  border: 1px solid rgba(129, 140, 248, 0.25);
+  box-shadow:
+    0 20px 60px rgba(0, 0, 0, 0.55),
+    0 4px 14px rgba(0, 0, 0, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  /* Hide the back face when not flipped so it doesn't show through. */
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 28px 22px;
+  text-align: center;
+}
+
+.lx-mp-card-back {
+  /* The back face starts pre-rotated so when the parent flips it
+     reads right-side up. */
+  transform: rotateY(180deg);
+}
+
+.lx-mp-card-state {
+  position: absolute;
+  top: 14px;
+  left: 14px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: rgba(129, 140, 248, 0.8);
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(129, 140, 248, 0.12);
+}
+.lx-mp-card-state.lx-mp-state-learning { color: #fbbf24; background: rgba(251,191,36,0.12); }
+.lx-mp-card-state.lx-mp-state-review   { color: #22c55e; background: rgba(34,197,94,0.12); }
+
+.lx-mp-card-word {
+  font-size: clamp(28px, 8vw, 44px);
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  color: #f1f5f9;
+  word-break: break-word;
+  max-width: 100%;
+}
+
+.lx-mp-card-hint {
+  position: absolute;
+  bottom: 16px;
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: rgba(241, 245, 249, 0.32);
+}
+
+.lx-mp-card-translations {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  width: 100%;
+  max-width: 100%;
+}
+.lx-mp-trans-row {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  text-align: left;
+}
+.lx-mp-trans-flag {
+  font-size: 22px;
+  line-height: 1;
+  flex: 0 0 auto;
+}
+.lx-mp-trans-text {
+  font-size: 18px;
+  font-weight: 600;
+  color: #f1f5f9;
+  word-break: break-word;
+}
+.lx-mp-trans-empty {
+  color: rgba(241, 245, 249, 0.55);
+  font-style: italic;
+  text-align: center;
+  padding: 18px 0;
+}
+
+/* While dragging the card horizontally the parent gets these inline
+   styles via JS. The classes below apply the snap-out animation when
+   the threshold is crossed. */
+.lx-mp-card.lx-mp-swipe-left {
+  transform: translateX(-130vw) rotate(-12deg);
+  opacity: 0;
+}
+.lx-mp-card.lx-mp-swipe-right {
+  transform: translateX(130vw) rotate(12deg);
+  opacity: 0;
+}
+
+/* ── Action row (Forgot / Remembered) ───────────────────────────── */
+.lx-mp-actions-row {
+  flex: 0 0 auto;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  padding: 14px 16px calc(14px + env(safe-area-inset-bottom, 0));
+}
+
+.lx-mp-grade-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  /* Huge — ~half viewport wide, ~80 px tall — built for thumbs. */
+  height: 80px;
+  border: 1px solid transparent;
+  border-radius: 18px;
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  transition: transform 90ms ease-out, box-shadow 180ms;
+  color: #f1f5f9;
+}
+.lx-mp-grade-btn:active { transform: scale(0.97); }
+.lx-mp-grade-btn:disabled { opacity: 0.5; cursor: default; transform: none; }
+
+.lx-mp-grade-emoji {
+  font-size: 22px;
+  line-height: 1;
+}
+.lx-mp-grade-label {
+  font-size: 15px;
+}
+
+.lx-mp-forgot {
+  background: linear-gradient(135deg, #ef4444, #b91c1c);
+  border-color: rgba(239, 68, 68, 0.55);
+  box-shadow:
+    0 8px 24px rgba(239, 68, 68, 0.28),
+    inset 0 1px 0 rgba(255, 255, 255, 0.18);
+}
+.lx-mp-remembered {
+  background: linear-gradient(135deg, #22c55e, #15803d);
+  border-color: rgba(34, 197, 94, 0.55);
+  box-shadow:
+    0 8px 24px rgba(34, 197, 94, 0.28),
+    inset 0 1px 0 rgba(255, 255, 255, 0.18);
+}
+
+/* ── Toast (transient status: "Synced 3 reviews", "Offline mode", …) ── */
+.lx-mp-toast {
+  position: fixed;
+  left: 50%;
+  bottom: calc(120px + env(safe-area-inset-bottom, 0));
+  transform: translateX(-50%);
+  max-width: calc(100vw - 32px);
+  padding: 10px 16px;
+  border-radius: 12px;
+  background: rgba(15, 23, 42, 0.92);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+  font-size: 14px;
+  color: #f1f5f9;
+  z-index: 50;
+  animation: lx-mp-toast-in 220ms ease-out;
+}
+.lx-mp-toast.lx-mp-toast-ok      { border-color: rgba(34, 197, 94, 0.45); }
+.lx-mp-toast.lx-mp-toast-warn    { border-color: rgba(245, 158, 11, 0.45); }
+.lx-mp-toast.lx-mp-toast-error   { border-color: rgba(239, 68, 68, 0.45); }
+@keyframes lx-mp-toast-in {
+  from { opacity: 0; transform: translate(-50%, 10px); }
+  to   { opacity: 1; transform: translate(-50%, 0); }
+}
+
+/* ── Update banner (sub-decision 35d) ───────────────────────────── */
+.lx-mp-update-banner {
+  position: fixed;
+  left: 16px;
+  right: 16px;
+  bottom: calc(16px + env(safe-area-inset-bottom, 0));
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: rgba(15, 23, 42, 0.95);
+  border: 1px solid rgba(129, 140, 248, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  box-shadow: 0 14px 32px rgba(0, 0, 0, 0.55);
+  z-index: 100;
+}
+.lx-mp-update-msg {
+  font-size: 13px;
+  color: #f1f5f9;
+}
+.lx-mp-update-refresh {
+  flex: 0 0 auto;
+  padding: 8px 14px;
+  border: none;
+  border-radius: 10px;
+  background: linear-gradient(135deg, #4f46e5, #7c3aed);
+  color: #fff;
+  font-weight: 600;
+  cursor: pointer;
+  font-size: 13px;
+}
+.lx-mp-update-refresh:active { transform: scale(0.96); }

@@ -1593,3 +1593,370 @@ path doesn't fire:
   forget they still have Ctrl held. A 5-second inactivity timer
   (no Ctrl-click for 5 s while buffer non-empty → finalise) is a
   possible UX nudge. Default off.
+
+---
+
+## ADR-035: Mobile PWA & Offline Sync — Service Worker + IndexedDB architecture (M36)
+
+**Status:** Accepted (M36, 2026-05-18)
+
+**Context:** M36 turns Lexora into a Progressive Web App. The user adds it
+to their iPhone / Android home screen, opens it in airplane mode, reviews
+SRS cards via a touch-first UI (huge Forgot / Remembered buttons), and on
+Wi-Fi reconnect the queued reviews push to the server so the SM-2 state
+advances exactly as if the desktop `/my/practice` page had been used.
+
+Substantial architecturally because it's the **first time the codebase
+carries a Service Worker, an IndexedDB data plane, and an explicit
+offline-first sync protocol.** Zero new backend services, zero new
+RabbitMQ queues, no new LLM endpoints — the whole milestone lives in
+`language_learning/static/src/*`, two new routes on `portal_pwa.py`, and
+one new model (`language.review.offline.log`).
+
+Seven sub-decisions covering the architecture; each one tested against a
+real failure mode that emerged either at plan time or during live smoke.
+
+### Sub-decision 35a: Serve `/sw.js` from a controller, NOT `static/`
+
+**Decision:** the Service Worker is served from
+`portal_pwa.LexoraPwaController.service_worker` at root path `/sw.js`
+with `auth='public'`. The web manifest is served from the same
+controller at `/lexora.webmanifest`. Both reads use
+`odoo.tools.misc.file_open` for path-traversal-safe access.
+
+**Why not the standard `static/` directory:**
+
+A Service Worker's scope is **limited to its own URL path or shallower**
+(W3C spec). Odoo's `static/` convention puts files at
+`/<addon>/static/<rest>`, which would scope our SW to a single addon
+subtree — useless for caching `/my/practice/mobile/*` which lives at a
+completely different prefix.
+
+**Alternatives considered:**
+
+- `Service-Worker-Allowed: <path>` header to broaden the scope from a
+  deeper file. Works in principle but ties future PWA-enabled routes
+  to remembering to add the header. Re-evaluated and rejected: every
+  PWA feature would need this header dance, the controller approach
+  scales for free.
+- Inline `<script>` registration with a Blob URL. Doesn't work — SWs
+  must be registered from same-origin URLs, not blob: scheme.
+
+**Critical implementation details verified in live smoke:**
+
+- `Content-Type: application/javascript; charset=utf-8` — browsers
+  reject SW registration with the wrong MIME.
+- `Service-Worker-Allowed: /` — root scope declaration, future-proofs
+  the registration if we ever move the controller path.
+- `Cache-Control: no-cache` — **the update-detection floor**. Browsers
+  re-fetch the SW URL on every page load to compare bytes. A long TTL
+  here would silently break updates; `no-store` would be too strict
+  (the browser can cache the body as long as it revalidates).
+- `auth='public'` — the SW + manifest must be reachable on the very
+  first visit, BEFORE the user signs in.
+
+### Sub-decision 35b: Vendor `idb` locally — NO CDN
+
+**Decision:** Jake Archibald's `idb` library (v7.1.1, UMD build,
+~1.1 KB minified) is vendored into
+`static/src/js/vendor/idb.umd.js` with the upstream licence text
+embedded in a header comment.
+
+**Why no CDN:**
+
+> A PWA whose offline mode is bootstrapped by a CDN script is
+> contradictory.
+
+A user installs Lexora to their home screen specifically because they
+want it to work in airplane mode on the metro. If the boot path
+depends on `unpkg.com` / `jsdelivr` / any other third party being
+reachable, the very first cold-cache offline open fails. Vendoring is
+the only correct choice for an offline-first PWA.
+
+**Licence correction caught during S2:** the M36 plan called the
+library MIT. Upstream is actually **ISC** — equivalent for redistribution
+but the docstring and this ADR must record the right name. The vendored
+file's header carries the full ISC text + Jake Archibald copyright
+(2016) per the "appear in all copies" clause.
+
+**Why `idb` over raw IndexedDB:** the raw API is callback-based,
+verbose, and error-prone (each transaction is a constellation of
+`onsuccess` / `onerror` / `oncomplete` handlers). `idb` wraps it in
+Promises (`await db.put(...)`, `await db.getAll(...)`) — readable,
+async/await-friendly, ~600 LOC of source, zero transitive dependencies,
+~10 years of production use.
+
+### Sub-decision 35c: `sync_queue` keyed by `crypto.randomUUID()` + dedicated `language.review.offline.log` table
+
+**Decision:**
+
+- IndexedDB `sync_queue` store uses `client_uuid` as keyPath; every
+  offline review gets a fresh UUID via `crypto.randomUUID()` (modern
+  browsers) with an RFC 4122 v4 fallback for environments without
+  webcrypto.
+- Server-side: `language.review.offline.log` model with a UNIQUE
+  constraint on `(user_id, client_uuid)`. Per-row dedup check inside
+  `apply_offline_batch()` catches duplicate UUIDs and counts them in
+  `skipped_duplicate`.
+- The client safely re-uploads the same batch after a mid-flight
+  network drop; every UUID already in the log is a silent no-op.
+
+**Why a separate model rather than a JSON field on `language.review`:**
+
+| Concern | Separate model | JSON field on review |
+|---|---|---|
+| Duplicate check | Single B-tree index lookup | JSON scan per check |
+| Card delete behaviour | `ondelete='set null'` preserves dedup history | Cascade loses history |
+| Analytics queries | Standard ORM joins | Custom JSON parsing |
+| Schema migrations | Independent | Mixed with SRS schema |
+
+**Test coverage:** six dedicated tests in `test_offline_sync.py` —
+idempotent replay (`test_01`), foreign-user card rejection (`test_02`),
+grade clamping for -1 / 99 / 'oops' (`test_03`), mixed-batch partial
+success (`test_04`), `/offline_batch` clamping (`test_05`),
+translations projection (`test_06`). All pass + 73 pre-M36 tests stay
+green = **79 / 0 failures**.
+
+### Sub-decision 35d: User-controlled SW update — NO `skipWaiting` / `clients.claim`
+
+**Decision:** when a new SW version is detected, the `install` handler
+runs (`addAll` precache), but the new SW stays in the **waiting**
+state. The mobile UI shows a bottom-fixed banner ("Lexora was updated —
+refresh to load the new version") with a Refresh button. The button
+posts `{type: 'SKIP_WAITING'}` to the waiting SW; the SW calls
+`self.skipWaiting()` and activates; `controllerchange` fires on the
+page; the page reloads, serving the new shell.
+
+**First-install path is different and intentionally so:** when there
+is no prior controller, the install handler DOES call `skipWaiting()`
+— there's no prior SW to displace and no user state at risk, so the
+user gets offline support immediately. This branch fires only ONCE
+per browser per install.
+
+**Why we DON'T use `skipWaiting + clients.claim` for updates:**
+
+A user mid-review with a non-empty IndexedDB `sync_queue` should
+NEVER have the SW swapped out from under them. `clients.claim()` does
+exactly that — yanks control away from open tabs without warning.
+Possible failure modes if we did this:
+
+- A grade-in-flight fetch could be served by a SW with different
+  cache logic mid-request.
+- A queued review currently being written to IDB could land in a
+  half-state if the new SW's lifecycle invalidates an active
+  transaction.
+- The user's mental model of "I'm reviewing flashcards right now"
+  doesn't include "your background process just swapped out".
+
+The banner gives the user agency: they finish their session, click
+Refresh when ready, the update lands cleanly. Standard Workbox / Vite
+PWA default, for the same reason.
+
+**S5 polish caught a UX flash:** the S4 `controllerchange` handler
+reloaded the page unconditionally. On a brand-new visit with no prior
+SW, the first install triggers `controllerchange` once SW v1 takes
+control — and the unconditional reload produced a visible flash.
+Fixed by snapshotting `navigator.serviceWorker.controller` at boot:
+the listener now distinguishes first-install (skip the reload) from
+user-driven update (reload to serve the new shell).
+
+### Sub-decision 35e: Mobile UI = 2 grades (Forgot / Remembered), NOT desktop's 4
+
+**Decision:** the mobile-practice action row exposes only two buttons:
+**Forgot** (red, grade 0) and **Remembered** (green, grade 2). Swipe
+left also grades 0, swipe right also grades 2. The desktop
+`/my/practice` page keeps the full 4-grade UI (Again / Hard / Good /
+Easy = 0 / 1 / 2 / 3).
+
+**Why simplify:**
+
+- **Touch UX**: two huge thumb-targets (≥ 80 px tall, ≥ 46 % viewport
+  wide) beat four small ones. On a metro train with one hand on a
+  pole, fine motor control is at a premium.
+- **Cognitive load**: "Did I remember this — yes or no?" is a
+  judgment a sleepy commuter can make in 200 ms. "Was that hard,
+  good, or easy?" requires reflection on a continuum.
+- **SM-2 still advances meaningfully**: grade 0 resets the interval
+  (state goes to `learning`); grade 2 advances at the standard
+  ease-factor multiplier. We lose the Hard / Easy nuance but keep
+  the primary signal — "did this stick?".
+
+**Trade-off documented:** power users practising at the desktop get
+the 4-grade UI for finer SRS tuning. The mobile UI is consciously
+aimed at the "review while commuting" use case, not maximum-fidelity
+SRS scheduling.
+
+**Sandbox-verified:** the grade-clamping logic in
+`_clamp_grade(raw)` collapses non-numeric / out-of-range values to
+the [0, 3] endpoints. A tampered client (or a future UI version that
+ships grade 4) never crashes the sync endpoint; the SM-2 advance
+always sees a value in the canonical range.
+
+### Sub-decision 35f: Strictly-scoped cache — mobile subtree + precache list ONLY
+
+**Decision:** the SW fetch handler intercepts EXACTLY three URL
+patterns:
+
+1. Precache list (7 stable static-asset URLs) → `_cacheFirstSWR`
+   (return cached immediately, background-revalidate on every
+   request).
+2. `^/my/practice/mobile(?:/|$)` → `_networkFirstNav` (try network
+   first, fall back to last-cached on failure).
+3. `^/lexora_api/(?:offline_batch|sync_offline)(?:\?|$)` → **always
+   network** (passthrough — the IDB layer owns offline data; cached
+   batches would surface stale due-dates).
+
+Every other URL — Odoo backend, login, desktop `/my/practice`,
+`/my/vocabulary`, `/lexora_api/add_word`, `/lexora_api/my_vocab`,
+arbitrary paths — falls through to the browser's native fetch. The SW
+NEVER calls `event.respondWith` for these. No caching, no
+interference.
+
+**Why so strict:**
+
+The SW lives on the root origin. A naïve catch-all fetch handler
+would intercept every Odoo backend request — and a stale cached
+backend page (after a model migration, after a user-permission change,
+after ANYTHING server-side) is a real foot-gun. The risk profile of
+"silently serve stale Odoo" dwarfs the benefit of "marginally faster
+Odoo backend on a mobile PWA we're not promising to ship to admins".
+
+**Sandbox routing matrix — 27/27 pass:**
+
+| Case | Hits | Result |
+|---|---|---|
+| Precache URLs | 7 | cache-first-SWR ✓ |
+| Mobile-nav variants (exact / trailing slash / sub-path) | 3 | network-first-nav ✓ |
+| Lexora API (with / without query, sync_offline) | 3 | always-network passthrough ✓ |
+| Default passthrough (8 representative Odoo paths) | 8 | passthrough (default) ✓ |
+| Method / origin guards (POST to precache URL, cross-origin asset) | 2 | passthrough ✓ |
+| Regex strictness (`/offline_batchX`, `/sync_offline_other`, `/mobileX`, prefix `/web/my/practice/mobile`) | 4 | no over-match ✓ |
+
+**Plan deviation worth recording:** the original plan called for
+12-15 URLs in the precache list with the `/my/practice/mobile` HTML
+included via a hashed-asset `<meta>` passthrough. Dropped to **7
+stable static-asset URLs** because:
+
+1. Our static assets serve at stable un-hashed URLs (under
+   `static/src/*`, not bundled through `web.assets_frontend`), so no
+   hashed-URL passthrough is needed.
+2. Precaching the HTML at install would either fail (the SW install
+   fetch may not carry the session cookie reliably) OR poison every
+   user's cache with one user's `lx-initial-cards` JSON.
+
+The HTML is cached **opportunistically** via `_networkFirstNav` on
+each successful navigation. ~42 KB total precache fits inside iOS
+Safari's smallest PWA storage budget with margin.
+
+### Sub-decision 35g: Auth via existing session cookie; no new token
+
+**Decision:** the PWA is served on the same origin as Odoo. The
+session cookie travels naturally with every fetch — no
+X-Lexora-Session-Id bridge (M22-M34 pattern for cross-origin
+extension calls), no JWT, no separate PWA-token. Both authenticated
+routes use Odoo's stock `auth='user'`.
+
+**First-load flow:** the user navigates to `/my/practice/mobile`. If
+not signed in, Odoo's auth wrapper redirects to the login page
+(verified: unauthenticated GET → 303). After signing in, the
+session cookie is set; subsequent visits use it transparently. The
+SW + manifest routes are `auth='public'` so the offline shell can
+be installed even on the very first visit before login.
+
+**Offline behaviour:** the cookie persists in the browser's cookie
+store regardless of network state. Queued reviews sit in IDB's
+`sync_queue` until the next successful POST to `/sync_offline`. If
+the cookie has expired by the time we reconnect, the route returns
+401; the mobile UI surfaces a "Session expired — sign in" toast and
+**preserves the queue** (never drops UUIDs on auth failure — the
+user signs in, the next sync drains them).
+
+**Why no new token:**
+
+A JWT or PWA-specific token would add (a) a key-rotation surface, (b)
+a refresh-token flow, (c) a divergent auth path from the rest of
+Odoo. The cookie-on-same-origin pattern is older than the JWT spec
+and has never been the security weak link in this codebase. We're
+not solving a new problem; the simplest fix is the right one.
+
+### Lessons fed back into the codebase
+
+- **Always run a live smoke before declaring victory on a new
+  template.** S4 looked correct until the curl test revealed
+  `<t t-out="...">` was HTML-escaping the JSON inside a `<script
+  type="application/json">` tag. The fix was `markupsafe.Markup(...)`
+  wrapping; the bug would have shipped silently otherwise. **Rule:
+  every QWeb template that embeds non-HTML payloads should be
+  served through a controller and curl-verified at least once.**
+- **Vendor over CDN for any offline-first feature.** Strategy A in
+  M35 taught this lesson; M36 inherits it. The `idb` library is
+  vendored locally; the licence text travels with the file. Future
+  PWA-adjacent features that need a library should follow this
+  pattern by default.
+- **First-install vs update: snapshot `controller` at boot.** The
+  `controllerchange` handler must distinguish between the
+  first-ever SW taking control (don't reload) and a user-driven
+  update (do reload). The snapshot pattern in `state.hadControllerAtBoot`
+  is the canonical fix for any PWA's first-visit flash.
+- **Strict scoping over catch-all.** The SW's fetch handler is
+  three patterns, not "everything we can think of". An aggressive
+  cache would silently serve stale Odoo pages on a model schema
+  change — far worse than the cost of an occasional cache miss
+  inside our scope.
+- **Plan deviations are documented in-line.** The precache-list
+  shrinkage from 12-15 to 7 URLs is recorded both here (35f) and
+  in TASKS.md M36-S5-01. Future readers will see exactly what we
+  planned, what we shipped, and why.
+
+### Revisit triggers
+
+- **Push Notifications.** Apple still requires PWAs to be installed
+  before push permission can be requested, and the prompt UX is
+  awkward. **Deferred to M37.** The opt-in flow would be:
+  manifest declares `permissions: ["push"]`, an Options-page button
+  triggers `Notification.requestPermission()`, a new
+  `language.notification.subscription` model tracks per-user
+  endpoints, an Odoo cron iterates due cards and pings the Web
+  Push protocol. Substantial enough to deserve its own milestone.
+- **iOS Safari ~7-day storage eviction.** Safari evicts PWA storage
+  after roughly 7 days of non-use. A user who installs Lexora,
+  doesn't open it for two weeks, comes back to an empty
+  `cards_to_review` — `mobile_practice.js` silently re-prefetches
+  on first online load, so the UX is degraded (longer first-card
+  latency) but not broken. Mitigation if it becomes a complaint:
+  add a `navigator.storage.persist()` request to the install path
+  (browser prompts the user to mark storage persistent).
+- **iOS 16.4 minimum support floor.** Older iOS Safari has buggier
+  Service Worker lifecycle behaviour. Below 16.4: the PWA still
+  renders online (server-side route works fine) but the SW
+  registration may fail silently — offline mode is unavailable.
+  Documented as the supported-version floor.
+- **Background Sync API.** Chrome / Edge / Samsung Internet support
+  the `sync` event, which lets the SW drain the IndexedDB queue
+  even when the page is closed. iOS Safari has no equivalent. We
+  currently rely on the `online` window event + the user manually
+  opening the app. If telemetry shows Chrome / Android users
+  benefit, we can add `sync` event registration as an Android-only
+  bonus path (the iOS fallback stays).
+- **Offline vocabulary-add.** Adding new entries offline is a
+  separate, harder problem: the entry needs an Odoo-side ID before
+  any translation can be queued, and our auto-translation pipeline
+  is server-side. Future milestone.
+- **iOS share-target API.** `manifest.share_target` lets the
+  installed PWA appear in the iOS Share Sheet — a user could share
+  text from Safari into Lexora to add it to their vocabulary.
+  Future enhancement; small surface, big UX win.
+- **Multi-device sync conflict resolution.** Currently the server is
+  the authority — `apply_offline_batch` calls
+  `action_register_review` in arrival order, so the last sync wins.
+  Two devices reviewing the same card while both offline, then both
+  syncing, results in the second-arriving review being applied to
+  the post-first-arrival state. This is the right semantics for SM-2
+  (each grade advances the state from where it was, no merge needed)
+  but worth re-evaluating if telemetry shows users hit weird
+  scheduling artefacts.
+- **Storage telemetry.** `navigator.storage.estimate()` returns the
+  quota + usage in bytes. We could surface a "storage used: X / Y MB"
+  line in the Options page to let users see how much budget they've
+  consumed. Cheap addition; helpful for users who hit the
+  QuotaExceededError path.

@@ -7,3 +7,5 @@ access_language_shop_item_user,language.shop.item user,model_language_shop_item,
 access_language_shop_item_admin,language.shop.item admin,model_language_shop_item,language_security.group_language_admin,1,1,1,1
 access_language_user_item_user,language.user.item user,model_language_user_item,language_security.group_language_user,1,1,1,0
 access_language_user_item_admin,language.user.item admin,model_language_user_item,language_security.group_language_admin,1,1,1,1
+access_language_review_offline_log_user,language.review.offline.log user,model_language_review_offline_log,language_security.group_language_user,1,0,0,0
+access_language_review_offline_log_admin,language.review.offline.log admin,model_language_review_offline_log,language_security.group_language_admin,1,1,1,1

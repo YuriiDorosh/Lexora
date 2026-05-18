@@ -21,7 +21,7 @@
 
 1. [Concept](#1-concept)
 2. [Feature Catalogue](#2-feature-catalogue)
-3. [The Browser Ecosystem (M22–M35)](#3-the-browser-ecosystem-m22m35)
+3. [The Browser & Mobile Ecosystem (M22–M36)](#3-the-browser--mobile-ecosystem-m22m36)
 4. [Backend Architecture](#4-backend-architecture)
 5. [Async Microservices](#5-async-microservices)
 6. [Spaced Repetition (SM-2)](#6-spaced-repetition-sm-2)
@@ -118,7 +118,7 @@ fees, no external databases — just Docker Compose on a CPU-only Linux server.
 
 ---
 
-## 3. The Browser Ecosystem (M22–M35)
+## 3. The Browser & Mobile Ecosystem (M22–M36)
 
 The Chrome Extension is the centrepiece of the immersion strategy. It turns every
 browser tab into a capture and practice surface.
@@ -479,6 +479,106 @@ unchanged.
 The full Strategy A / B post-mortem is preserved in PLAN.md §M35 and
 ADR-034 — future readers will see exactly what we tried and why it
 failed before being tempted to re-attempt the same dead end.
+
+### M36 — Mobile PWA & Offline Sync
+
+Lexora installs to the iPhone / Android home screen and grades SRS
+cards in airplane mode. Open `/my/practice/mobile` once online, then
+the entire flashcard review flow works offline — translations,
+flip-cards, swipe gestures, the lot. Reviews queue in IndexedDB and
+push to the server the moment Wi-Fi returns; the SM-2 state advances
+exactly as if the desktop `/my/practice` page had been used. Zero new
+services, zero new RabbitMQ queues, no new LLM endpoints — pure
+client-side machinery on top of two new Odoo routes.
+
+**The first time the codebase carries a Service Worker, an IndexedDB
+data plane, and an explicit offline-first sync protocol.** Seven
+sub-decisions locked in ADR-035; the architecture is summarised here.
+
+**Web App Manifest + Service Worker — served from controllers** at
+`/lexora.webmanifest` and `/sw.js` (NOT from `static/`). The SW lives
+at the root path so its scope can intercept `/my/practice/mobile/*`
+without `Service-Worker-Allowed` header gymnastics. Both routes are
+`auth='public'` so the offline shell can be installed on the very
+first visit before login. The SW carries `Cache-Control: no-cache`
+so the browser revalidates on every page load — the update-detection
+floor (ADR-035 § 35a).
+
+**IndexedDB layer** — Jake Archibald's `idb` library 7.1.1 vendored
+locally (ISC licence; ~5.8 KB total including the embedded licence
+text). A PWA whose offline mode is bootstrapped by a CDN is
+contradictory; we never depend on a third-party host (ADR-035 § 35b).
+Two object stores:
+
+- `cards_to_review` keyed by `id` — wholesale-replaced on every
+  successful `GET /lexora_api/offline_batch` prefetch (default 7 days
+  / 200 cards).
+- `sync_queue` keyed by `client_uuid` from `crypto.randomUUID()` —
+  one row per offline grade. The server-side
+  `language.review.offline.log` table mirrors this with a
+  `UNIQUE(user_id, client_uuid)` constraint, so re-uploading the same
+  batch after a mid-flight network drop is a clean no-op (ADR-035 §
+  35c). Six dedicated tests in `test_offline_sync.py` cover the
+  idempotent-replay / foreign-user / grade-clamp / mixed-batch /
+  clamping / translations matrix; 79 / 0 with no regression on the 73
+  pre-M36 tests.
+
+**Mobile UI** — `/my/practice/mobile` renders a touch-first
+glassmorphism flashcard via a standalone QWeb template (no portal
+chrome — full viewport, looks native after Add-to-Home-Screen).
+
+- Tap the card → 3D flip (CSS `transform: rotateY(180deg)` on the
+  inner; backface-visibility hidden to prevent bleed-through).
+- Swipe left or right → grade (60-px commit threshold, 600 ms time
+  budget; vertical-scroll detection abandons the gesture cleanly so
+  rage-scrolling never triggers an accidental grade).
+- Bottom action row: two huge buttons — Forgot (red, grade 0) and
+  Remembered (green, grade 2). Each is ≥ 80 px tall, near-half-
+  viewport wide, gradient background + 8-px ring shadow. Built for
+  one-handed thumb use on a metro train.
+- Mobile UI exposes only 2 grades (not desktop's 4) — deliberate
+  trade-off for touch UX and cognitive load on the move (ADR-035
+  § 35e). Power users keep the full 4-grade UI on `/my/practice`.
+
+**Service Worker caching — strictly scoped** (ADR-035 § 35f):
+
+1. 7 stable static-asset URLs precached at install (manifest, CSS,
+   3 JS files, 2 icons) — cache-first with stale-while-revalidate.
+2. `/my/practice/mobile` HTML — network-first with cache fallback,
+   so the offline shell stays usable for at least the most recent
+   visit.
+3. `/lexora_api/{offline_batch,sync_offline}` — **always network**.
+   The IndexedDB layer owns offline data; cached batches would
+   surface stale due-dates and corrupt SM-2 scheduling.
+4. Everything else — passthrough. The SW never serves a stale Odoo
+   page outside its declared scope. **27/27 sandbox routing
+   assertions pass** covering precache hits, mobile-nav variants,
+   API hits, default passthrough, method/origin guards, and four
+   regex-strictness near-misses.
+
+**User-controlled update flow** (ADR-035 § 35d): subsequent SW
+versions install but **wait** in the registration's `installing` →
+`waiting` chain. The mobile UI shows a bottom banner ("Lexora was
+updated — refresh to load the new version"); the user clicks Refresh
+when they're ready, which posts `{type: 'SKIP_WAITING'}` to the
+waiting SW; `controllerchange` fires; the page reloads with the new
+shell — never mid-review, never with an unflushed `sync_queue`.
+First-install gets `skipWaiting()` because there's no prior SW to
+displace; the `state.hadControllerAtBoot` snapshot suppresses the
+otherwise-annoying first-visit reload flash.
+
+**Authentication** — same-origin session cookie (ADR-035 § 35g). No
+JWT, no PWA-specific token, no auth bridge. On 401, the queue is
+preserved (never dropped on auth failure) and a toast prompts re-
+sign-in.
+
+**Verified end-to-end**: 79 tests / 0 failures; 27/27 sandbox routing
+assertions; curl smokes confirm `/sw.js` and `/lexora.webmanifest`
+serve with correct MIME + cache headers; all 7 precache URLs return
+200 so the SW install succeeds; live browser smoke confirms airplane-
+mode grading queues to IDB, reconnect drains the queue, SM-2 advances
+on the desktop site within seconds; the update banner appears on a
+`VERSION` bump and the reload chain works cleanly.
 
 ---
 
@@ -944,6 +1044,7 @@ Key variables in `.env` (see `env.example` for the full list):
 | M33 | ✅ Complete | Webpage Shadowing — "🎤 Practice Pronunciation" button in Quick Look + YouTube overlays. ▶ Play Original streams Edge TTS via `/tts-sync`; click-to-toggle Start/Stop Recording captures voice on a `chrome.offscreen` document (mic permission once per extension); `/transcribe-sync` → `/evaluate-pronunciation` → score badge (green/amber/red) + per-word red-strikethrough/amber-wavy-underline annotation + localised feedback. Deterministic Python word-diff is the source of truth for the structured fields; LLM only writes feedback. Click-to-toggle UX + Options-page mic-grant button + no-persistence default (ADR-032) |
 | M34 | ✅ Complete | YouTube Vocab Radar — main-world script injection patches `XMLHttpRequest.prototype` + `window.fetch` to sniff `/api/timedtext` responses (JSON3 / SRV3 / SRV1 parsers; idempotent guard; transparent to the page via `response.clone()`). Content script builds a longest-match sliding-window index from new `GET /lexora_api/my_vocab` (cached 15 min), binary-searches `<video>.timeupdate` for upcoming hits, and pauses 4 s before a known word with a glassmorphism Shadow-DOM card (teal+amber palette; multi-language translation rows; matched word highlighted in cue). Footer: ⏪ Rewind 5 s & Play / ▶ Continue / 🔕 Skip this word / ✖ Disable for this video. Cooldown timer (default 120 s) starts at overlay close, not fire — gated by `_overlayOpen` flag; `_lastFiredAt` sentinel `-Infinity` so first fire isn't gated. Three Options-page controls + per-tab skip set + per-video kill switch. No persistence by default (ADR-033) |
 | M35 | ✅ Complete | Multi-word YouTube Subtitle Selection — Ctrl/⌘-Click multi-select on subtitle spans, finalised on the LAST Ctrl/Meta keyup (multi-key safe via post-event `e.ctrlKey \|\| e.metaKey` check). Selected spans pick up a stronger-than-hover `.lx-multi-selected` indigo highlight; toggle semantics on re-Ctrl-click allow undo without releasing the modifier. Buffer holds spans in **click order** (NOT spatial order — out-of-order Ctrl-clicks produce the click-ordered phrase). Finalisation concatenates via `join(' ')`, runs through `_normalisePhrase`, and dispatches to the same `_openLookupOverlay(phrase, 'phrase')` pipeline as M24's single-word click — so every downstream Quick Look feature (Add to Vocabulary, M28 Grammar, M32 Slang/Idiom, M33 Shadowing) inherits phrase support unchanged. Three escape hatches: plain click anywhere, Escape, `yt-navigate-finish` — all clear the buffer. Strategy A (native browser selection via `user-select: text` override) was implemented and reverted after failing browser smoke — YT re-applies `user-select: none` via JS on every cue render and the `selectstart` interception runs below the event-listener level (ADR-034) |
+| M36 | ✅ Complete | Mobile PWA & Offline Sync — Lexora installs to the iPhone / Android home screen and grades SRS cards in airplane mode. Web App Manifest at `/lexora.webmanifest` + Service Worker served from an Odoo controller at `/sw.js` (root scope; `Cache-Control: no-cache` for update detection). IndexedDB via vendored `idb` 7.1.1 UMD (ISC licence, no CDN dependency) with two stores: `cards_to_review` (prefetched via `GET /lexora_api/offline_batch`, capped 200 cards / 30 days) and `sync_queue` (offline reviews, keyed by `crypto.randomUUID()` for idempotent replay). Mobile route `/my/practice/mobile` renders a touch-first 3D flip card with swipe gestures (60-px commit, 600 ms budget, vertical-scroll detection); two huge bottom buttons (Forgot grade 0 / Remembered grade 2 — simplified from desktop's 4-grade UI per ADR-035 § 35e). `POST /lexora_api/sync_offline` dedupes via `language.review.offline.log` on `UNIQUE(user_id, client_uuid)`. SW caching: 7 stable static-asset URLs precached (cache-first + SWR); HTML cached opportunistically (network-first-nav); `/lexora_api/*` always-network; everything else passthrough — sandbox routing matrix 27/27. User-controlled update banner (no `skipWaiting` for updates; `state.hadControllerAtBoot` snapshot suppresses first-install reload flash). Same-origin session-cookie auth; queue preserved on 401. 79 / 0 tests; 6 new offline-sync tests cover idempotency / foreign-user / grade-clamp / mixed-batch / clamping / translations (ADR-035) |
 
 ---
 
@@ -954,14 +1055,16 @@ generated by a local pgvector + Qwen2.5-1.5B RAG pipeline. Complete implementati
 exists on `m26_ai_helpdesk` branch. Blocked by server RAM constraints (requires ≥16 GiB).
 
 **Potential future milestones:**
-- M36: ELO rating system for PvP matchmaking
-- M37: Multi-language expansion (Spanish, German — Polish landed in M29)
-- M38: Collaborative vocabulary lists / class rooms
-- M39: Mobile PWA / React Native companion
-- M40: Per-session pronunciation scoring on Speaking Coach (extends M30 with phoneme-level Whisper output)
-- M41: Touch-device long-press multi-select for M35 mobile users (ADR-034 revisit trigger)
-- M42: Netflix / Disney+ / Coursera adapters for the M34 radar (architecture is portable per ADR-033 revisit triggers)
-- M43: Opt-in radar history persistence — POST each YouTube fire to a new `/lexora_api/radar_log` endpoint for cross-device review continuity
+- M37: PWA Push Notifications — Web Push subscriptions + an Odoo cron pinging due cards (deferred from M36 per ADR-035 revisit trigger)
+- M38: ELO rating system for PvP matchmaking
+- M39: Multi-language expansion (Spanish, German — Polish landed in M29)
+- M40: Collaborative vocabulary lists / class rooms
+- M41: Per-session pronunciation scoring on Speaking Coach (extends M30 with phoneme-level Whisper output)
+- M42: Touch-device long-press multi-select for M35 mobile users (ADR-034 revisit trigger)
+- M43: Netflix / Disney+ / Coursera adapters for the M34 radar (architecture is portable per ADR-033 revisit triggers)
+- M44: Opt-in radar history persistence — POST each YouTube fire to a new `/lexora_api/radar_log` endpoint for cross-device review continuity
+- M45: Offline vocabulary-add — queue + sync flow for new entries created without network (M36 ADR-035 revisit trigger)
+- M46: iOS share-target API — `manifest.share_target` so installed PWA appears in iOS Share Sheet (M36 revisit trigger)
 
 ---
 

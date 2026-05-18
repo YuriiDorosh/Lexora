@@ -1,0 +1,155 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- ============================================================ -->
+    <!-- M36 — Mobile Practice (PWA shell)                            -->
+    <!-- ============================================================ -->
+    <!-- Standalone full-viewport template; deliberately NOT inheriting -->
+    <!-- portal.portal_layout / web.frontend_layout so the page has no -->
+    <!-- breadcrumbs, no navbar, no footer chrome. The result looks    -->
+    <!-- like a native app once added to the iPhone home screen.       -->
+    <!--                                                              -->
+    <!-- All M36-S1 PWA head tags (manifest link, theme-color,         -->
+    <!-- apple-touch-icon, apple-mobile-web-app-* meta tags) are       -->
+    <!-- duplicated inline here rather than inherited because we don't -->
+    <!-- inherit web.frontend_layout. The duplication is intentional   -->
+    <!-- and small (5-line block) — see pwa_head_tags.xml for the     -->
+    <!-- equivalent injection on portal pages.                         -->
+    <!-- ============================================================ -->
+
+    <template id="portal_practice_mobile" name="Lexora Mobile Practice">
+        <t t-call="web.html_container">
+            <head>
+                <meta charset="utf-8"/>
+                <meta name="viewport"
+                      content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no"/>
+                <title>Lexora · Practice</title>
+
+                <!-- M36-S1 PWA head tags (duplicated from pwa_head_tags.xml — -->
+                <!-- this template doesn't inherit web.frontend_layout so the -->
+                <!-- xpath-based injection doesn't apply.) -->
+                <link rel="manifest" href="/lexora.webmanifest"/>
+                <meta name="theme-color" content="#0f172a"/>
+                <meta name="apple-mobile-web-app-capable" content="yes"/>
+                <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+                <meta name="apple-mobile-web-app-title" content="Lexora"/>
+                <link rel="apple-touch-icon"
+                      href="/language_learning/static/src/icons/icon-192.png"/>
+
+                <!-- Page-specific CSS -->
+                <link rel="stylesheet"
+                      href="/language_learning/static/src/css/mobile_practice.css"/>
+            </head>
+            <body class="lx-mp-body">
+                <!-- Initial card set hydrated by mobile_practice.js on first  -->
+                <!-- run. Encoded as JSON in a script tag so it's available    -->
+                <!-- synchronously — no extra fetch needed for the very first -->
+                <!-- card to render.                                          -->
+                <script type="application/json" id="lx-initial-cards">
+                    <t t-out="initial_cards_json"/>
+                </script>
+
+                <main id="lx-mp-root" class="lx-mp-root" aria-live="polite">
+                    <!-- ── Header ──────────────────────────────────── -->
+                    <header class="lx-mp-header">
+                        <div class="lx-mp-progress" id="lx-mp-progress">
+                            <span id="lx-mp-progress-current">0</span>
+                            <span class="lx-mp-progress-sep">/</span>
+                            <span id="lx-mp-progress-total">0</span>
+                        </div>
+                        <div class="lx-mp-actions">
+                            <button type="button" id="lx-mp-sync-btn"
+                                    class="lx-mp-icon-btn"
+                                    aria-label="Sync queued reviews"
+                                    title="Sync queued reviews">
+                                <span class="lx-mp-icon">↻</span>
+                                <span id="lx-mp-queue-badge" class="lx-mp-badge d-none">0</span>
+                            </button>
+                            <span id="lx-mp-conn"
+                                  class="lx-mp-conn lx-mp-conn-online"
+                                  aria-label="Online" title="Online">●</span>
+                        </div>
+                    </header>
+
+                    <!-- ── Card stage ──────────────────────────────── -->
+                    <section id="lx-mp-stage" class="lx-mp-stage">
+                        <!-- Loading state shown until JS hydrates -->
+                        <div id="lx-mp-loading" class="lx-mp-loading">
+                            <div class="lx-mp-spinner" aria-hidden="true"/>
+                            <p>Loading your practice deck…</p>
+                        </div>
+
+                        <!-- Empty state — no cards due -->
+                        <div id="lx-mp-empty" class="lx-mp-empty d-none">
+                            <div class="lx-mp-empty-emoji">🎉</div>
+                            <h2>All caught up!</h2>
+                            <p>No cards are due right now. Come back later.</p>
+                            <a href="/my/practice" class="lx-mp-link-btn">
+                                Open desktop practice
+                            </a>
+                        </div>
+
+                        <!-- The flip card (hidden until first card hydrates) -->
+                        <div id="lx-mp-card" class="lx-mp-card d-none"
+                             role="button" tabindex="0"
+                             aria-label="Practice card — tap to reveal translations">
+                            <div class="lx-mp-card-inner">
+                                <div class="lx-mp-card-face lx-mp-card-front">
+                                    <div class="lx-mp-card-state"
+                                         id="lx-mp-card-state">new</div>
+                                    <div class="lx-mp-card-word"
+                                         id="lx-mp-card-word">…</div>
+                                    <div class="lx-mp-card-hint">tap to reveal</div>
+                                </div>
+                                <div class="lx-mp-card-face lx-mp-card-back">
+                                    <div class="lx-mp-card-translations"
+                                         id="lx-mp-card-translations"/>
+                                </div>
+                            </div>
+                        </div>
+                    </section>
+
+                    <!-- ── Footer action row ───────────────────────── -->
+                    <footer id="lx-mp-actions-row" class="lx-mp-actions-row d-none">
+                        <button type="button" id="lx-mp-forgot"
+                                class="lx-mp-grade-btn lx-mp-forgot">
+                            <span class="lx-mp-grade-emoji" aria-hidden="true">✕</span>
+                            <span class="lx-mp-grade-label">Forgot</span>
+                        </button>
+                        <button type="button" id="lx-mp-remembered"
+                                class="lx-mp-grade-btn lx-mp-remembered">
+                            <span class="lx-mp-grade-emoji" aria-hidden="true">✓</span>
+                            <span class="lx-mp-grade-label">Remembered</span>
+                        </button>
+                    </footer>
+
+                    <!-- Toast region for ephemeral status messages -->
+                    <div id="lx-mp-toast" class="lx-mp-toast d-none"
+                         role="status" aria-live="polite"/>
+
+                    <!-- SW update banner (shown when a new SW is waiting) -->
+                    <div id="lx-mp-update-banner"
+                         class="lx-mp-update-banner d-none"
+                         role="alert">
+                        <span class="lx-mp-update-msg">
+                            Lexora was updated — refresh to load the new version.
+                        </span>
+                        <button type="button" id="lx-mp-update-refresh"
+                                class="lx-mp-update-refresh">
+                            Refresh
+                        </button>
+                    </div>
+                </main>
+
+                <!-- ── Scripts (load order matters) ────────────────── -->
+                <!-- vendor idb UMD MUST load before lexora_db.js because  -->
+                <!-- lexora_db.js looks for window.idb at module-load time. -->
+                <script type="text/javascript"
+                        src="/language_learning/static/src/js/vendor/idb.umd.js"/>
+                <script type="text/javascript"
+                        src="/language_learning/static/src/js/lexora_db.js"/>
+                <script type="text/javascript"
+                        src="/language_learning/static/src/js/mobile_practice.js"/>
+            </body>
+        </t>
+    </template>
+</odoo>
