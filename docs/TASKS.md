@@ -15,9 +15,28 @@
 
 ## Current Milestone
 
+(none — M37 closed on 2026-05-18; next milestone TBD)
+
+---
+
+## Completed Milestones (M37)
+
 ### M37 — Mobile PWA: Offline Dictionary (read-only)
 
-**Status:** Planning + code landing together (small additive milestone).
+**Status:** Complete and verified. End-to-end browser smoke confirmed
+by user: M36 update banner triggered cleanly on the VERSION bump;
+Dictionary tab renders 1000+ alphabetised entries; live filter
+responds within a frame; toggling back to Practice leaves the
+swipe-card UX intact; airplane mode preserves the dictionary
+because data lives in IndexedDB.
+**Branch:** `m37_offline_dictionary` (off `main` after M36 merged
+in PR #84).
+**Final commits:** `87b0410` feat(M37) (single-commit feature drop —
+Odoo route + IDB v2 + bottom-nav SPA + live filter + SW VERSION
+bump) · this commit S6 (ADR-036 + final docs flip).
+
+**Original status line (preserved for archive):**
+Planning + code landing together (small additive milestone).
 **Branch:** `m37_offline_dictionary` (off `main` after M36 merged in
 PR #84).
 **Started:** 2026-05-18

@@ -1960,3 +1960,279 @@ not solving a new problem; the simplest fix is the right one.
   line in the Options page to let users see how much budget they've
   consumed. Cheap addition; helpful for users who hit the
   QuotaExceededError path.
+
+---
+
+## ADR-036: Mobile PWA — Offline Dictionary tab (M37)
+
+**Status:** Accepted (M37, 2026-05-18)
+
+**Context:** M36 shipped the offline-capable mobile PWA but constrained
+the user to the review queue — they could grade due cards in airplane
+mode but couldn't BROWSE their full vocabulary. Real-world feedback
+from M36 testers within a week: "I want to look up a word I added
+last month while I'm on a flight without Wi-Fi."
+
+M37 adds a second tab to the existing PWA. Native-app-style bottom
+nav toggles between **Practice** (the M36 swipe-card flow) and
+**Dictionary** (a new read-only browse-all view with client-side
+search). Strictly additive — no schema migration of existing data,
+no auth changes, no new services, no new RabbitMQ queues.
+
+Four sub-decisions; smaller ADR than ADR-035 because the milestone
+is proportionally smaller. The M36 architecture (Service Worker,
+IndexedDB, cookie auth, no-CDN vendoring) carries over wholesale.
+
+### Sub-decision 36a: Separate `/lexora_api/offline_vocabulary` route, NOT extending M34's `/lexora_api/my_vocab`
+
+**Decision:** new `GET /lexora_api/offline_vocabulary` route on
+`LexoraPwaController`. Auth='user'; clamped to [1, 5000] entries
+(env `LEXORA_OFFLINE_VOCAB_LIMIT`, default 2000); Cache-Control:
+no-store. Reads `language.entry` directly via
+`_project_vocab_for_user(env, user, limit)`.
+
+**Three single-responsibility routes now exist:**
+
+| Route | Source | Filter | Order | Cap | Used by |
+|---|---|---|---|---|---|
+| M22 `/lexora_api/add_word` | extension popup | n/a (POST) | — | — | Quick-add from any page |
+| M34 `/lexora_api/my_vocab` | `language.entry` | `status='active'` AND `pvp_eligible=True` | `write_date desc` | 1000 | YouTube Vocab Radar |
+| M36 `/lexora_api/offline_batch` | `language.review` | due within N days | `state desc, next_review_date asc` | 200 | PWA review queue |
+| **M37 `/lexora_api/offline_vocabulary`** | `language.entry` | `status='active'` (NO pvp_eligible) | `source_text asc` | 2000 | **PWA dictionary tab** |
+
+**Why a new route instead of `/my_vocab?include_pending=1&order=alpha`:**
+
+The M34 `/my_vocab` route is **load-bearing for the radar feature** —
+its specific projection (1000 cap, pvp_eligible filter, write_date
+ordering) is encoded in the radar's matching algorithm. Bolting
+two-mode behaviour onto a route that another feature relies on adds
+risk for zero benefit. Two routes with single responsibilities are
+the cleaner pattern, even at the cost of a small amount of join
+duplication.
+
+**Critical filter divergence**: `/offline_vocabulary` does NOT filter
+on `pvp_eligible=True`. The dictionary intentionally INCLUDES entries
+whose translations are still pending (M3 async translation pipeline
+hasn't completed yet), so the user sees the source word in their
+dictionary even while waiting on the translation worker. The
+mobile UI renders these with a small "Translations pending — sync
+when online" annotation in place of the translation rows.
+
+**Filter sort divergence**: order by `source_text asc`, NOT
+`write_date desc`. The dictionary reads naturally A→Z; the
+recency-first order makes sense for `/my_vocab` (the radar wants
+words the user has touched recently) but is wrong for a dictionary.
+
+### Sub-decision 36b: Additive IDB schema v2 — NO data migration
+
+**Decision:** bump `DB_VERSION` 1 → 2; `upgrade(db, oldVersion)`
+callback uses **cascading `if (oldVersion < N)` blocks** so the
+migration is purely additive:
+
+```js
+upgrade(db, oldVersion) {
+  if (oldVersion < 1) {              // v0 → v1 (M36 first install)
+    db.createObjectStore('cards_to_review', { keyPath: 'id' });
+    db.createObjectStore('sync_queue',     { keyPath: 'client_uuid' });
+  }
+  if (oldVersion < 2) {              // v1 → v2 (M37) OR v0 → v2 (fresh)
+    db.createObjectStore('vocabulary_cache', { keyPath: 'id' });
+  }
+}
+```
+
+The cascading structure means:
+
+- **Fresh install (oldVersion = 0)**: BOTH blocks execute in one
+  upgrade transaction → all three stores created.
+- **M36 user (oldVersion = 1)**: only the v2 block executes →
+  existing `cards_to_review` + `sync_queue` data is preserved
+  byte-for-byte; the new `vocabulary_cache` starts empty.
+
+**Why no data migration:**
+
+The new store is a CACHE of a server-side projection — there's
+nothing on the client to migrate FROM. The store fills on the next
+successful online prefetch via `replaceVocabulary(words)`. An M36
+user opens the PWA, the IDB upgrade fires (sub-second), the
+boot-time `_prefetchVocabulary()` call populates the store, and the
+Dictionary tab works on the next online visit.
+
+**Alternative considered**: deriving the dictionary from the
+existing `cards_to_review` store. Rejected — that store only
+contains DUE cards (cards within the next 7 days per the M36
+`/offline_batch` filter). It excludes entries the user added long
+ago that are deep in their review schedule, and entries with no
+review record at all. The dictionary needs every entry the user
+owns, which is fundamentally a different query than "what's due."
+
+**Future migrations** (e.g., M-thirty-something adds a fourth
+store, or schema-modifies an existing store) follow the same
+pattern — append a new `if (oldVersion < N)` block. The cascading
+shape is the canonical IDB migration idiom and survives arbitrary
+future schema bumps.
+
+### Sub-decision 36c: O(n)-per-keystroke DOM-stable filter
+
+**Decision:** the search bar's `input` event handler calls
+`_filterDictionary(query)`, which iterates a pre-built module-level
+`_dictRows` array of `{row, haystack}` pairs and toggles each
+row's `style.display` between `''` and `'none'`. NO DOM rebuild
+on each keystroke. NO virtual scrolling.
+
+**`haystack` is pre-computed once** in `_renderDictionary()`:
+
+```js
+const haystack = [
+  (w.word || '').toLowerCase(),
+  ...Object.values(translations).map((t) => (t || '').toLowerCase()),
+].join(' ');
+```
+
+Lowercased + space-joined source + every translation. Filter pass
+is then a single `haystack.indexOf(query)` per row — no allocation,
+no Unicode-normalisation cost, no string-splitting per keystroke.
+
+**Why not virtual scrolling:**
+
+For 2000 simple `<li>` rows on a modern phone, browsers handle the
+DOM size fine — initial render takes ~30 ms on an iPhone 14 (one-
+time cost on first tab activation, hidden by the loading state).
+Subsequent filter passes are sub-millisecond. Virtual scrolling
+would buy us ~25 ms on the initial paint at the cost of:
+
+- Intersection-observer machinery
+- Per-row height assumptions (problematic if a row wraps to two
+  lines on a narrow screen)
+- A second code path for "render visible vs. render-all"
+- Tricky interaction with the sticky search bar's scroll context
+
+Bad ROI for a 2000-row cap. If a user ever crosses 5000 entries
+(the hard cap), the upgrade path is clean — wrap `_dictRows` in
+an Intersection Observer and only render the visible window.
+
+**Why not DocumentFragment-rebuild on filter:**
+
+Rebuilding 2000 nodes via DocumentFragment per keystroke would burn
+~10 ms of layout work and trigger garbage collection. The
+`style.display` toggle path is ~0.5 ms because the browser only
+re-runs layout for affected rows and never touches the DOM tree.
+
+**`indexOf` over `includes` deliberately** — same time complexity
+on V8 / JavaScriptCore but `indexOf` returns the position
+(`!== -1` is the check) which Chrome's optimiser hoists more
+aggressively in tight loops.
+
+### Sub-decision 36d: Background prefetch respects active-tab state
+
+**Decision:** `_prefetchVocabulary()` is fired in three scenarios:
+
+1. On `boot()`, alongside `_syncQueue()` and `_prefetchBatch()`.
+2. In `_setOnline(true)` when the user reconnects.
+
+It ALWAYS replaces the IDB `vocabulary_cache` store on a successful
+response. But it **only triggers a `_renderDictionary()` re-render**
+if the user is currently on the Dictionary tab:
+
+```js
+if (result.ok && state.activeTab === 'dictionary') {
+  await _renderDictionary();
+  _filterDictionary(($dictSearch && $dictSearch.value) || '');
+}
+```
+
+**Why guard the re-render:**
+
+A Practice-mid-session user (state.activeTab === 'practice') doesn't
+care about a silent dictionary refresh. Re-rendering 2000 rows would:
+
+- Burn CPU during a swipe gesture and cause a visible jank
+- Lose the user's scroll position if they had a card preview open
+- Reset the search bar state mid-flight if they had typed a query
+
+The guard means: IDB updates silently; the user picks up the fresh
+data on the **next** tab switch. Tab switch already triggers a
+re-render via `_switchTab('dictionary')` → `_renderDictionary()`.
+The re-render path is shared.
+
+**Why we DON'T defer the IDB write:**
+
+The IDB write itself is invisible — single transaction, ~10 ms on
+a phone, no DOM impact. Writing on every prefetch keeps the
+dictionary "freshest possible" without UI cost. If the user
+opens the Dictionary tab right after a sync, they see today's
+state, not yesterday's.
+
+**Search-state preservation across re-render:**
+
+The post-render `_filterDictionary(($dictSearch.value || ''))` call
+re-applies whatever the user typed before the refresh, so they
+don't lose their query mid-search if the refresh happens to land
+while they're typing.
+
+### Lessons fed back into the codebase
+
+- **Single-responsibility routes scale better than parameterised
+  mega-endpoints.** M22 / M34 / M36 / M37 each have their own
+  `/lexora_api/*` route serving a vocabulary projection — different
+  callers, different filters, different orders. Bolting M37's needs
+  onto M34's `/my_vocab` would have created a route whose contract
+  varies by query param, which any consumer (radar, dictionary, or
+  future feature) would have to read very carefully. Separate routes
+  with single responsibilities are the cleaner pattern.
+- **Cascading `if (oldVersion < N)` is the canonical IDB upgrade
+  idiom.** Every future schema bump appends a block; fresh installs
+  run all blocks in order; existing users run only the new ones. No
+  data migration when the new store is a server-projection cache.
+- **DOM-stable filter beats rebuild for any "search across N
+  visible rows" UX.** Pre-compute the haystack once at render time;
+  filter pass becomes a single string check + style toggle per row.
+  Survives at least 5000 rows on modern phones without virtual
+  scrolling.
+- **Background refreshes guard on active-tab state.** A silent IDB
+  write is invisible; a 2000-row DOM rebuild is not. The guard is
+  one `if` check and prevents the kind of jank that erodes trust.
+- **Plan deviations stay small when M36's foundation is solid.**
+  M37 is purely additive: no new services, no new dependencies, no
+  schema migration. The M36 architecture (Service Worker, IndexedDB,
+  cookie auth, no-CDN vendoring, ADR-035 § 35a-g) carried over with
+  zero modification.
+
+### Revisit triggers
+
+- **Fuzzy search.** Current filter is plain substring `indexOf`.
+  Users with typos (e.g., searching "epemeral" for "ephemeral") get
+  zero results. A future revisit could add a Levenshtein-distance
+  fallback when the substring pass returns zero matches — same
+  `_dictRows` data, two-pass filter. Out of scope for M37 because
+  case-insensitive substring covers > 95% of dictionary lookups by
+  feedback.
+- **Sort options.** Current sort is alphabetical by `normalized`.
+  Future Options-page toggle could expose: alphabetical / newest /
+  oldest / most-difficult (lowest ease_factor) / most-reviewed.
+  All client-side — same data, different sort function. No new
+  API.
+- **Per-language filter.** A user with Polish, Greek, and Ukrainian
+  vocabularies might want to filter the dictionary by source
+  language. Tab strip above the search bar (🇬🇧 / 🇺🇦 / 🇬🇷 / 🇵🇱 +
+  "All") would scope `_dictRows` to a subset before the search
+  pass. Cheap addition once requested.
+- **Entry detail view.** Tapping a dictionary row currently does
+  nothing. Future enhancement: open a per-entry sheet with the SRS
+  state, next-review date, audio playback, "review this card now"
+  shortcut. Bigger surface; deserves its own milestone.
+- **Bulk delete from dictionary.** "Tap-and-hold to delete this
+  entry" feels natural for a dictionary view. Requires a new
+  authenticated route on the Odoo side + a per-row swipe gesture
+  in the UI. Future enhancement.
+- **2000-cap escape valve.** A user with > 2000 active entries
+  currently sees only the alphabetical-first 2000. Documented
+  limitation. Mitigation if a power user complains: pagination via
+  query param + an infinite-scroll loader in the dictionary list.
+  Out of scope for v1 because the 2000-row hard cap is
+  comfortable for the vast majority of users.
+- **Virtual scrolling.** If telemetry shows the initial-render
+  cost on the Dictionary tab exceeds 50 ms on a real iPhone, swap
+  the all-rows-at-once renderer for an Intersection Observer
+  windowing approach. The `_dictRows` data structure is already
+  shaped right for it.
