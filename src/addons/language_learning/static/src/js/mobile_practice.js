@@ -38,7 +38,12 @@
   let $root, $progressCur, $progressTotal, $syncBtn, $queueBadge, $conn,
       $stage, $loading, $empty, $card, $cardWord, $cardState, $cardTrans,
       $actionsRow, $forgotBtn, $rememberedBtn, $toast,
-      $updateBanner, $updateRefresh;
+      $updateBanner, $updateRefresh,
+      // M37 — Dictionary tab DOM
+      $panelPractice, $panelDictionary, $dictSearch, $dictCount,
+      $dictLoading, $dictEmpty, $dictList, $dictNoResults,
+      $bottomNav;
+  let _navButtons = [];   // NodeList of bottom-nav buttons
 
   // ── Runtime state ──────────────────────────────────────────────
   // _cards is the in-memory snapshot of the current deck. We pull it
@@ -60,10 +65,21 @@
     hadControllerAtBoot: typeof navigator !== 'undefined' &&
                           navigator.serviceWorker &&
                           !!navigator.serviceWorker.controller,
+    // M37 — Dictionary tab state.
+    // activeTab     ∈ {'practice', 'dictionary'} — current panel.
+    // dictionaryLoaded — true once we've rendered the list at least once.
+    activeTab: 'practice',
+    dictionaryLoaded: false,
   };
+
+  // M37 — module-level cache of dictionary row references for the
+  // O(n)-per-keystroke filter. Populated by _renderDictionary; consumed
+  // by _filterDictionary. Each entry: { row: <li>, haystack: <string> }.
+  let _dictRows = [];
 
   // Static flag map for the translation rows on the card back.
   const LANG_FLAGS = { en: '🇬🇧', uk: '🇺🇦', el: '🇬🇷', pl: '🇵🇱' };
+  const LANG_NAMES = { en: 'English', uk: 'Ukrainian', el: 'Greek', pl: 'Polish' };
   const LANG_ORDER = ['uk', 'el', 'pl', 'en'];
 
   // Swipe gesture thresholds. Px from start that classifies as a
@@ -214,6 +230,226 @@
       }
     } catch (e) {
       console.warn('[lexora.mobile] /offline_batch fetch failed:', e);
+    }
+  }
+
+  // ── M37 — Background prefetch for the dictionary ───────────────
+  // Mirrors _prefetchBatch but targets /lexora_api/offline_vocabulary.
+  // Best-effort: a network failure just leaves whatever IDB had
+  // before. On 200, replaces the IDB store wholesale and re-renders
+  // the dictionary tab IFF it's the active panel — we never disturb
+  // the user mid-Practice-session.
+  async function _prefetchVocabulary() {
+    if (!state.online) return;
+    try {
+      const resp = await fetch('/lexora_api/offline_vocabulary?limit=2000', {
+        method: 'GET',
+        credentials: 'include',
+        cache: 'no-store',
+      });
+      if (resp.status === 401) {
+        // The /offline_batch path already surfaced the session-expired
+        // toast on the same fetch wave; suppress duplicate noise.
+        return;
+      }
+      if (!resp.ok) {
+        console.warn('[lexora.mobile] /offline_vocabulary HTTP', resp.status);
+        return;
+      }
+      const data = await resp.json();
+      if (data && data.status === 'ok' && Array.isArray(data.words)) {
+        const result = await NS.db.replaceVocabulary(data.words);
+        if (result.ok && state.activeTab === 'dictionary') {
+          // Re-render only when the user is actually looking at the
+          // dictionary. If they're on Practice we update IDB silently
+          // and let the next tab-switch pick up the fresh data.
+          await _renderDictionary();
+          _filterDictionary(($dictSearch && $dictSearch.value) || '');
+        }
+      }
+    } catch (e) {
+      console.warn('[lexora.mobile] /offline_vocabulary fetch failed:', e);
+    }
+  }
+
+  // ── M37 — Dictionary panel render ──────────────────────────────
+  // Build the <li> rows once and stash references in _dictRows for
+  // the filter pass. No virtual scrolling — 2000 simple rows on
+  // modern phones is well under the 16 ms frame budget. If this
+  // becomes a bottleneck later, the upgrade path is straightforward:
+  // intersection observers + windowing.
+  async function _renderDictionary() {
+    if (!$dictList || !$dictLoading || !$dictEmpty || !$dictNoResults) return;
+    _show($dictLoading);
+    _hide($dictList);
+    _hide($dictEmpty);
+    _hide($dictNoResults);
+
+    const res = await NS.db.getVocabulary();
+    const words = (res && res.ok && Array.isArray(res.words)) ? res.words : [];
+
+    // Reset stable state.
+    _dictRows = [];
+    $dictList.innerHTML = '';
+
+    if (!words.length) {
+      _hide($dictLoading);
+      _hide($dictList);
+      _show($dictEmpty);
+      _updateDictCount(0, 0);
+      return;
+    }
+
+    // Build via a DocumentFragment so we hit the DOM once.
+    const frag = document.createDocumentFragment();
+    for (const w of words) {
+      const li = document.createElement('li');
+      li.className = 'lx-mp-dict-row';
+      li.setAttribute('data-id', String(w.id || ''));
+
+      // Word + source-language flag pill.
+      const headRow = document.createElement('div');
+      headRow.className = 'lx-mp-dict-head';
+
+      const wordEl = document.createElement('span');
+      wordEl.className = 'lx-mp-dict-word';
+      wordEl.textContent = w.word || '';
+
+      const flagEl = document.createElement('span');
+      flagEl.className = 'lx-mp-dict-flag';
+      flagEl.textContent = LANG_FLAGS[w.lang] || (w.lang || '').toUpperCase();
+      flagEl.setAttribute('aria-label', LANG_NAMES[w.lang] || w.lang || '');
+
+      headRow.appendChild(wordEl);
+      headRow.appendChild(flagEl);
+      li.appendChild(headRow);
+
+      // Translations — each language gets its own row for readability.
+      const translations = w.translations || {};
+      const order = LANG_ORDER.filter((l) => l !== w.lang && translations[l]);
+      if (order.length) {
+        const transWrap = document.createElement('div');
+        transWrap.className = 'lx-mp-dict-trans';
+        for (const lang of order) {
+          const row = document.createElement('div');
+          row.className = 'lx-mp-dict-trans-row';
+          const fg = document.createElement('span');
+          fg.className = 'lx-mp-dict-trans-flag';
+          fg.textContent = LANG_FLAGS[lang] || lang.toUpperCase();
+          const tx = document.createElement('span');
+          tx.className = 'lx-mp-dict-trans-text';
+          tx.textContent = translations[lang];
+          row.appendChild(fg);
+          row.appendChild(tx);
+          transWrap.appendChild(row);
+        }
+        li.appendChild(transWrap);
+      } else {
+        const pending = document.createElement('div');
+        pending.className = 'lx-mp-dict-pending';
+        pending.textContent = 'Translations pending — sync when online';
+        li.appendChild(pending);
+      }
+
+      // Precompute the lowercased searchable haystack so the filter
+      // pass is just a string.includes() per row, no allocation.
+      const haystack = [
+        (w.word || '').toLowerCase(),
+        ...Object.values(translations).map((t) => (t || '').toLowerCase()),
+      ].join(' ');
+
+      frag.appendChild(li);
+      _dictRows.push({ row: li, haystack });
+    }
+    $dictList.appendChild(frag);
+
+    _hide($dictLoading);
+    _hide($dictEmpty);
+    _show($dictList);
+    _updateDictCount(words.length, words.length);
+    state.dictionaryLoaded = true;
+  }
+
+  // ── M37 — Dictionary filter (called on every keystroke) ────────
+  function _filterDictionary(rawQuery) {
+    const q = (rawQuery || '').toLowerCase().trim();
+    if (!_dictRows.length) {
+      _updateDictCount(0, 0);
+      return;
+    }
+    let visible = 0;
+    if (!q) {
+      // Empty query — show everything. Clearing display:none is
+      // cheaper than re-setting it on each row.
+      for (const r of _dictRows) {
+        if (r.row.style.display === 'none') r.row.style.display = '';
+        visible++;
+      }
+    } else {
+      for (const r of _dictRows) {
+        const match = r.haystack.indexOf(q) !== -1;
+        const desired = match ? '' : 'none';
+        if (r.row.style.display !== desired) r.row.style.display = desired;
+        if (match) visible++;
+      }
+    }
+    _updateDictCount(visible, _dictRows.length);
+    // Show "No matches" placeholder when the filter excludes everything.
+    if ($dictNoResults) {
+      if (visible === 0 && _dictRows.length > 0) _show($dictNoResults);
+      else _hide($dictNoResults);
+    }
+  }
+
+  function _updateDictCount(visible, total) {
+    if (!$dictCount) return;
+    if (total === 0) { $dictCount.textContent = ''; return; }
+    $dictCount.textContent = (visible === total)
+      ? total + ' word' + (total === 1 ? '' : 's')
+      : visible + ' of ' + total;
+  }
+
+  // ── M37 — Tab switch ───────────────────────────────────────────
+  // Toggles panel visibility + bottom-nav active state. First switch
+  // to Dictionary triggers _renderDictionary() lazily; subsequent
+  // switches are O(1).
+  function _switchTab(name) {
+    if (name !== 'practice' && name !== 'dictionary') return;
+    if (state.activeTab === name) return;
+    state.activeTab = name;
+
+    if (name === 'practice') {
+      _show($panelPractice);
+      _hide($panelDictionary);
+    } else {
+      _hide($panelPractice);
+      _show($panelDictionary);
+    }
+
+    // Bottom-nav active state.
+    for (const btn of _navButtons) {
+      const active = btn.getAttribute('data-tab') === name;
+      btn.classList.toggle('lx-mp-tab-active', active);
+      if (active) btn.setAttribute('aria-current', 'page');
+      else btn.removeAttribute('aria-current');
+    }
+
+    // Re-render dictionary on EVERY switch into the tab — not just the
+    // first one. Earlier code gated this on !state.dictionaryLoaded as
+    // an over-optimisation; the result was a real bug where a user who
+    // tab-bounced Practice ↔ Dictionary saw the original render even
+    // after the background _prefetchVocabulary had replaced IDB with a
+    // fresh (larger) word set. Symptom: "dictionary only shows N words"
+    // where N is whatever IDB happened to contain at the time of the
+    // first render. A full re-render reads the current IDB state and
+    // costs ~30 ms on 2000 rows — invisible, and worth the deterministic
+    // refresh.
+    if (name === 'dictionary') {
+      _renderDictionary().then(() => {
+        // If the user already started typing in the search field
+        // (unlikely on first load, but defensive), apply the filter.
+        _filterDictionary(($dictSearch && $dictSearch.value) || '');
+      });
     }
   }
 
@@ -419,6 +655,7 @@
       _toast('ok', 'Back online — syncing…', 1600);
       _syncQueue();
       _prefetchBatch();
+      _prefetchVocabulary();   // M37
     } else {
       _toast('warn', 'Offline — your reviews will sync when you reconnect', 2400);
     }
@@ -527,6 +764,20 @@
     $updateBanner = _$('lx-mp-update-banner');
     $updateRefresh = _$('lx-mp-update-refresh');
 
+    // M37 — Dictionary tab handles.
+    $panelPractice = _$('lx-mp-panel-practice');
+    $panelDictionary = _$('lx-mp-panel-dictionary');
+    $dictSearch = _$('lx-mp-dict-search');
+    $dictCount = _$('lx-mp-dict-count');
+    $dictLoading = _$('lx-mp-dict-loading');
+    $dictEmpty = _$('lx-mp-dict-empty');
+    $dictList = _$('lx-mp-dict-list');
+    $dictNoResults = _$('lx-mp-dict-noresults');
+    $bottomNav = _$('lx-mp-bottom-nav');
+    _navButtons = $bottomNav
+      ? Array.prototype.slice.call($bottomNav.querySelectorAll('button[data-tab]'))
+      : [];
+
     // 2. Wire button handlers.
     if ($forgotBtn) $forgotBtn.addEventListener('click', () => _grade(0, 'left'));
     if ($rememberedBtn) $rememberedBtn.addEventListener('click', () => _grade(2, 'right'));
@@ -539,6 +790,23 @@
         } else {
           window.location.reload();
         }
+      });
+    }
+
+    // M37 — Tab switching + search filter.
+    for (const btn of _navButtons) {
+      btn.addEventListener('click', () => {
+        _switchTab(btn.getAttribute('data-tab'));
+      });
+    }
+    if ($dictSearch) {
+      $dictSearch.addEventListener('input', (e) => {
+        _filterDictionary(e.target.value || '');
+      });
+      // 'search' event fires when the user clears via the native ✕
+      // button or hits Enter — same handler.
+      $dictSearch.addEventListener('search', (e) => {
+        _filterDictionary(e.target.value || '');
       });
     }
 
@@ -587,6 +855,7 @@
     if (state.online) {
       _syncQueue();
       _prefetchBatch();
+      _prefetchVocabulary();   // M37
     }
   }
 

@@ -31,7 +31,12 @@
 
 'use strict';
 
-const VERSION = 'lexora-pwa-v1';
+// VERSION bumped to v2 for M37. The byte change in this file
+// triggers the M36-S5 user-controlled-update flow on existing
+// users' next visit — a real production exercise of the banner
+// + Refresh chain. The activate handler prunes the old
+// `lexora-pwa-v1` cache automatically.
+const VERSION = 'lexora-pwa-v2';
 const LOG_PREFIX = '[lexora-sw]';
 
 // ── Precache list (the offline shell) ────────────────────────────────
@@ -63,7 +68,12 @@ const PRECACHE_URLS = [
 // fetch handler. Regex matchers for the two scoped path patterns.
 const PRECACHE_SET = new Set(PRECACHE_URLS);
 const MOBILE_PRACTICE_RE = /^\/my\/practice\/mobile(?:\/|$)/;
-const LEXORA_API_RE      = /^\/lexora_api\/(?:offline_batch|sync_offline)(?:\?|$)/;
+// M37 adds offline_vocabulary as the third always-network path. The
+// dictionary's IDB cache owns offline data; cached JSON responses
+// would surface stale word lists if they ever leaked back to the
+// app (they wouldn't actually — Cache-Control: no-store is set on
+// the route — but explicit listing is documentation + future-proofing).
+const LEXORA_API_RE      = /^\/lexora_api\/(?:offline_batch|sync_offline|offline_vocabulary)(?:\?|$)/;
 
 // ── install: open cache + addAll precache list ───────────────────────
 self.addEventListener('install', (event) => {
