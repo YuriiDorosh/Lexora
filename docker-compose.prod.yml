@@ -1,0 +1,292 @@
+# ============================================================
+# Lexora — Production Stack (M38)
+# ============================================================
+# Single unified compose file for production deployment on a
+# single Linux VPS.  Brought up via `make prod-up`.
+#
+# Topology:
+#   - One internal bridge network `lexora_prod_net`.
+#   - Only nginx publishes ports (80, 443).
+#   - Postgres / Redis / RabbitMQ / 4 workers are reachable only
+#     via Docker DNS service names on the internal bridge.
+#   - Six prod-scoped named volumes for persistence.
+#
+# Secrets:
+#   - .env.prod (gitignored) supplies POSTGRES_PASSWORD,
+#     ADMIN_PASSWD, DB_PASSWORD, RABBITMQ_USER/PASS, REDIS_PASSWORD,
+#     DOMAIN.  `.env.prod.example` is the committed template.
+#
+# TLS:
+#   - Let's Encrypt certs are host-managed under /etc/letsencrypt
+#     and bind-mounted read-only into nginx.
+#
+# See ADR-037 for the seven sub-decisions that shape this file.
+# ============================================================
+
+name: lexora-prod
+
+services:
+
+  # ──────────────────────────────────────────────────────────
+  # PostgreSQL 15 — Odoo's data store
+  # ──────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:15
+    container_name: lexora_postgres_prod
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    command: >
+      postgres
+      -c shared_preload_libraries=pg_stat_statements
+      -c pg_stat_statements.track=all
+      -c pg_stat_statements.max=10000
+      -c max_connections=500
+    volumes:
+      - postgres_prod_data:/var/lib/postgresql/data
+    networks:
+      - lexora_prod_net
+    # Intentionally NO ports: only reachable inside the bridge.
+
+  # ──────────────────────────────────────────────────────────
+  # Redis 7 — PvP ephemeral state + general caching
+  # ──────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: lexora_redis_prod
+    restart: unless-stopped
+    # AOF persistence + requirepass for prod (dev runs no auth).
+    command: >
+      redis-server
+      --appendonly yes
+      --requirepass ${REDIS_PASSWORD}
+    volumes:
+      - redis_prod_data:/data
+    networks:
+      - lexora_prod_net
+    # NO ports.
+
+  # ──────────────────────────────────────────────────────────
+  # RabbitMQ 3 — async message bus (translation, enrichment,
+  # anki, audio result queues).  No management UI port exposed
+  # in prod — admin must `docker exec` into the container or
+  # tunnel 15672 over SSH for one-off debugging.
+  # ──────────────────────────────────────────────────────────
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: lexora_rabbitmq_prod
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASS}
+      RABBITMQ_DEFAULT_VHOST: ${RABBITMQ_VHOST:-/}
+    volumes:
+      - rabbitmq_prod_data:/var/lib/rabbitmq
+    networks:
+      - lexora_prod_net
+    # NO ports (neither 5672 nor 15672).
+
+  # ──────────────────────────────────────────────────────────
+  # Odoo 18 — application server
+  # ──────────────────────────────────────────────────────────
+  # Uses an entrypoint script that envsubst-substitutes secrets
+  # from .env.prod into /etc/odoo/odoo.conf at container start.
+  # No --dev=all, no hot-reload.  workers=4, proxy_mode=True.
+  # ──────────────────────────────────────────────────────────
+  odoo:
+    build:
+      context: .
+      dockerfile: docker_compose/odoo/Dockerfile
+    container_name: lexora_odoo_prod
+    restart: unless-stopped
+    environment:
+      HOST: postgres
+      USER: ${POSTGRES_USER}
+      PASSWORD: ${POSTGRES_PASSWORD}
+      # Substituted into odoo.prod.conf.template by entrypoint
+      ADMIN_PASSWD: ${ADMIN_PASSWD}
+      DB_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - odoo_prod_data:/var/lib/odoo
+      - ./src/addons:/mnt/extra-addons:ro
+      - ./src/configs/odoo.prod.conf.template:/etc/odoo/odoo.prod.conf.template:ro
+      - ./docker_compose/odoo/entrypoint.prod.sh:/usr/local/bin/lexora-entrypoint:ro
+      - ./logs:/mnt/logs
+    entrypoint: ["/bin/sh", "/usr/local/bin/lexora-entrypoint"]
+    depends_on:
+      - postgres
+      - redis
+      - rabbitmq
+    networks:
+      - lexora_prod_net
+    # NO host port binding — nginx reaches odoo:8069 / odoo:8072
+    # internally.  Public traffic comes via nginx (443).
+
+  # ──────────────────────────────────────────────────────────
+  # Nginx — the ONLY service with published ports
+  # ──────────────────────────────────────────────────────────
+  # Official nginx:1.27-alpine image; no custom build.  The image's
+  # bundled /docker-entrypoint.d/20-envsubst-on-templates.sh
+  # renders the .template file using ${DOMAIN} from env.
+  # ──────────────────────────────────────────────────────────
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: lexora_nginx_prod
+    restart: unless-stopped
+    environment:
+      DOMAIN: ${DOMAIN}
+      # Allow-list the envsubst variables so $host, $remote_addr,
+      # $request_uri, etc. inside the template stay verbatim.
+      NGINX_ENVSUBST_TEMPLATE_DIR: /etc/nginx/templates
+      NGINX_ENVSUBST_OUTPUT_DIR: /etc/nginx/conf.d
+      NGINX_ENVSUBST_FILTER: '^(DOMAIN)$$'
+    volumes:
+      - ./docker_compose/nginx/nginx.prod.conf.template:/etc/nginx/templates/default.conf.template:ro
+      # Host-managed Let's Encrypt certs (certbot runs on the host;
+      # the nginx container can only read).  See ADR-037 §37f.
+      - /etc/letsencrypt:/etc/letsencrypt:ro
+      # Optional certbot webroot for the http-01 challenge.
+      - /var/www/certbot:/var/www/certbot:ro
+      - ./logs/nginx:/var/log/nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    depends_on:
+      - odoo
+    networks:
+      - lexora_prod_net
+
+  # ──────────────────────────────────────────────────────────
+  # Translation worker (M4c) — deep_translator → Google / MyMemory
+  # ──────────────────────────────────────────────────────────
+  translation-service:
+    build:
+      context: .
+      dockerfile: docker_compose/translation/Dockerfile
+    container_name: lexora_translation_prod
+    restart: unless-stopped
+    environment:
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_VHOST: ${RABBITMQ_VHOST:-/}
+      RABBITMQ_USER: ${RABBITMQ_USER}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASS}
+      TRANSLATE_PROVIDER: ${TRANSLATE_PROVIDER:-google}
+      TRANSLATE_FALLBACK_PROVIDER: ${TRANSLATE_FALLBACK_PROVIDER:-mymemory}
+      TRANSLATE_TIMEOUT_SECONDS: ${TRANSLATE_TIMEOUT_SECONDS:-10}
+    depends_on:
+      - rabbitmq
+    networks:
+      - lexora_prod_net
+    # NO ports — internal only.
+
+  # ──────────────────────────────────────────────────────────
+  # LLM enrichment worker (M4b) — Qwen2.5-1.5B GGUF via llama-cpp
+  # ──────────────────────────────────────────────────────────
+  llm-service:
+    build:
+      context: .
+      dockerfile: docker_compose/llm/Dockerfile
+    container_name: lexora_llm_prod
+    restart: unless-stopped
+    environment:
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_VHOST: ${RABBITMQ_VHOST:-/}
+      RABBITMQ_USER: ${RABBITMQ_USER}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASS}
+      LLM_MODEL_REPO: ${LLM_MODEL_REPO:-Qwen/Qwen2.5-1.5B-Instruct-GGUF}
+      LLM_MODEL_FILENAME: ${LLM_MODEL_FILENAME:-qwen2.5-1.5b-instruct-q4_k_m.gguf}
+      LLM_MODEL_DIR: ${LLM_MODEL_DIR:-/models}
+      LLM_N_CTX: ${LLM_N_CTX:-2048}
+      LLM_N_THREADS: ${LLM_N_THREADS:-0}
+      LLM_MAX_TOKENS: ${LLM_MAX_TOKENS:-512}
+      LLM_AUTO_DOWNLOAD: ${LLM_AUTO_DOWNLOAD:-1}
+    volumes:
+      - llm_models_prod:/models
+    depends_on:
+      - rabbitmq
+    networks:
+      - lexora_prod_net
+    # NO ports.
+
+  # ──────────────────────────────────────────────────────────
+  # Anki import worker (M5)
+  # ──────────────────────────────────────────────────────────
+  anki-service:
+    build:
+      context: .
+      dockerfile: docker_compose/anki/Dockerfile
+    container_name: lexora_anki_prod
+    restart: unless-stopped
+    environment:
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_VHOST: ${RABBITMQ_VHOST:-/}
+      RABBITMQ_USER: ${RABBITMQ_USER}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASS}
+    depends_on:
+      - rabbitmq
+    networks:
+      - lexora_prod_net
+    # NO ports.
+
+  # ──────────────────────────────────────────────────────────
+  # Audio worker (M6) — Edge TTS + Faster-Whisper STT
+  # ──────────────────────────────────────────────────────────
+  audio-service:
+    build:
+      context: .
+      dockerfile: docker_compose/audio/Dockerfile
+    container_name: lexora_audio_prod
+    restart: unless-stopped
+    environment:
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_VHOST: ${RABBITMQ_VHOST:-/}
+      RABBITMQ_USER: ${RABBITMQ_USER}
+      RABBITMQ_PASS: ${RABBITMQ_PASS}
+      TTS_ENGINE: ${TTS_ENGINE:-edge-tts}
+      TTS_FALLBACK_ENGINE: ${TTS_FALLBACK_ENGINE:-espeak-ng}
+      WHISPER_MODEL: ${WHISPER_MODEL:-base}
+      WHISPER_MODEL_DIR: /models/whisper
+      AUDIO_TRANSCRIPTION_ENABLED: ${AUDIO_TRANSCRIPTION_ENABLED:-1}
+      AUDIO_MAX_DURATION_SECONDS: ${AUDIO_MAX_DURATION_SECONDS:-300}
+      AUDIO_SYNC_MAX_SECONDS: ${AUDIO_SYNC_MAX_SECONDS:-90}
+      AUDIO_SYNC_MAX_BYTES: ${AUDIO_SYNC_MAX_BYTES:-15728640}
+    volumes:
+      - audio_models_prod:/models
+    depends_on:
+      - rabbitmq
+    networks:
+      - lexora_prod_net
+    # NO ports.
+
+# ──────────────────────────────────────────────────────────────
+# Named volumes — prod-scoped, distinct from dev names
+# ──────────────────────────────────────────────────────────────
+volumes:
+  postgres_prod_data:
+    name: lexora_postgres_prod_data
+  odoo_prod_data:
+    name: lexora_odoo_prod_data
+  redis_prod_data:
+    name: lexora_redis_prod_data
+  rabbitmq_prod_data:
+    name: lexora_rabbitmq_prod_data
+  llm_models_prod:
+    name: lexora_llm_models_prod
+  audio_models_prod:
+    name: lexora_audio_models_prod
+
+# ──────────────────────────────────────────────────────────────
+# Single internal bridge.  Declared inline (NOT external) so
+# `make prod-up` works without out-of-band network creation.
+# Workers need outbound HTTPS so we do NOT set `internal: true`.
+# ──────────────────────────────────────────────────────────────
+networks:
+  lexora_prod_net:
+    driver: bridge
+    name: lexora_prod_net

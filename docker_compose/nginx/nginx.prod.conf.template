@@ -1,0 +1,163 @@
+# ============================================================
+# Lexora — nginx production server template (M38)
+# ============================================================
+# Mounted to /etc/nginx/templates/default.conf.template inside the
+# nginx:1.27-alpine container.  The image's bundled hook
+# /docker-entrypoint.d/20-envsubst-on-templates.sh runs envsubst
+# on this file and writes the result to
+# /etc/nginx/conf.d/default.conf — no custom build needed.
+#
+# Only ${DOMAIN} is rendered.  Every other ${...} below is a
+# real nginx runtime variable ($host, $remote_addr, etc.) and
+# is NOT touched by envsubst because the image runs:
+#   envsubst '${DOMAIN}' < template > rendered
+# (the explicit allow-list keeps nginx vars intact).
+#
+# See ADR-037 §37e for the rationale.
+# ============================================================
+
+# ────────────────────────────────────────────────────────────
+# Upstreams
+# ────────────────────────────────────────────────────────────
+upstream odoo_app {
+    server odoo:8069 fail_timeout=0;
+}
+
+upstream odoo_websocket {
+    server odoo:8072 fail_timeout=0;
+}
+
+# ────────────────────────────────────────────────────────────
+# Common proxy + client settings
+# ────────────────────────────────────────────────────────────
+proxy_connect_timeout      600s;
+proxy_read_timeout         600s;
+proxy_send_timeout         600s;
+proxy_buffer_size          128k;
+proxy_buffers              16 128k;
+proxy_busy_buffers_size    256k;
+proxy_temp_file_write_size 256k;
+proxy_intercept_errors     on;
+proxy_redirect             off;
+
+client_max_body_size       2g;
+client_body_buffer_size    10m;
+client_body_timeout        600s;
+client_header_timeout      60s;
+send_timeout               600s;
+reset_timedout_connection  on;
+
+# ────────────────────────────────────────────────────────────
+# Server 1 — HTTP (port 80) → 301 redirect to HTTPS
+# ────────────────────────────────────────────────────────────
+server {
+    listen      80;
+    listen      [::]:80;
+    server_name ${DOMAIN};
+
+    # ACME http-01 challenge path (served from the host's
+    # /var/www/certbot when certbot is invoked in webroot mode).
+    # The certbot package's renewal flow on the host can use this
+    # path if it ever needs port 80 instead of standalone mode.
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+    }
+
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+# ────────────────────────────────────────────────────────────
+# Server 2 — HTTPS (port 443) → Odoo reverse proxy
+# ────────────────────────────────────────────────────────────
+server {
+    listen      443 ssl;
+    listen      [::]:443 ssl;
+    http2       on;
+    server_name ${DOMAIN};
+
+    # ── TLS hardening ──────────────────────────────────────
+    ssl_certificate     /etc/letsencrypt/live/${DOMAIN}/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/${DOMAIN}/privkey.pem;
+
+    ssl_protocols             TLSv1.2 TLSv1.3;
+    ssl_ciphers               'ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305';
+    ssl_prefer_server_ciphers off;
+    ssl_session_cache         shared:SSL:10m;
+    ssl_session_timeout       1d;
+    ssl_session_tickets       off;
+
+    # ── Security headers ──────────────────────────────────
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains; preload" always;
+    add_header X-Frame-Options            "SAMEORIGIN" always;
+    add_header X-Content-Type-Options     "nosniff" always;
+    add_header Referrer-Policy            "strict-origin-when-cross-origin" always;
+    add_header Permissions-Policy         "geolocation=(), microphone=(), camera=()" always;
+
+    # ── Common proxy headers ──────────────────────────────
+    proxy_set_header Host              $http_host;
+    proxy_set_header X-Real-IP         $remote_addr;
+    proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto https;
+
+    # ── Default location → Odoo HTTP ──────────────────────
+    location / {
+        proxy_pass http://odoo_app;
+    }
+
+    # ── DB manager (long timeouts for .zip restore) ───────
+    # Matches Odoo's native /web/database/{backup,restore,duplicate}
+    # paths.  A multi-hundred-megabyte .zip restore can take 5-15
+    # minutes; the 1800 s ceiling absorbs that comfortably.
+    location ~ ^/web/database/(backup|restore|duplicate) {
+        client_max_body_size 2g;
+        proxy_read_timeout   1800s;
+        proxy_send_timeout   1800s;
+        proxy_pass           http://odoo_app;
+    }
+
+    # ── Robots / sitemap ──────────────────────────────────
+    location ~ ^/(robots.txt|sitemap.*.xml) {
+        proxy_pass http://odoo_app$uri$is_args$args;
+    }
+
+    # ── WebSocket / long-poll ─────────────────────────────
+    location /websocket {
+        proxy_pass         http://odoo_websocket;
+        proxy_http_version 1.1;
+        proxy_set_header   Upgrade    $http_upgrade;
+        proxy_set_header   Connection "upgrade";
+        proxy_read_timeout 3600s;
+    }
+
+    # ── Static asset caching ──────────────────────────────
+    # Long cache for /web/static; short cache for everything else
+    # served via /web/content (which Odoo already versions).
+    location ~* ^/web/static/ {
+        proxy_pass        http://odoo_app;
+        proxy_cache_valid 200 60m;
+        expires           1h;
+        add_header        Cache-Control "public, max-age=3600";
+    }
+
+    # ── Gzip (mirrors the dev nginx.conf list) ────────────
+    gzip              on;
+    gzip_min_length   256;
+    gzip_comp_level   6;
+    gzip_proxied      any;
+    gzip_vary         on;
+    gzip_types
+        application/javascript
+        application/json
+        application/manifest+json
+        application/x-javascript
+        application/xml
+        font/eot
+        font/otf
+        font/ttf
+        image/svg+xml
+        text/css
+        text/plain
+        text/xml;
+}

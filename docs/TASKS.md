@@ -15,7 +15,149 @@
 
 ## Current Milestone
 
-(none — M37 closed on 2026-05-18; next milestone TBD)
+### M38 — Production Infrastructure & Deployment Readiness
+
+**Status:** In progress.
+**Branch:** `m38_production_readiness` (off `main` after M37 merged
+in PR #85).
+**Started:** 2026-05-18
+
+**Scope:** Pure infrastructure work — single unified
+`docker-compose.prod.yml` + nginx TLS template + Odoo envsubst
+entrypoint + `.env.prod.example` template + Makefile prod targets.
+No new Odoo modules. No new RabbitMQ queues. No new portal routes.
+No GitHub Actions — deploy is manual via Git pull + SSH on the host.
+
+**Architectural decisions** are detailed in PLAN.md §M38 and
+ADR-037 (in DECISIONS.md). Seven locked sub-decisions:
+
+1. Single unified compose file at repo root (vs. per-service files).
+2. Single internal Docker bridge `lexora_prod_net` (vs. external
+   network requiring out-of-band creation).
+3. Prod-scoped named volumes (`*_prod_data` / `*_prod`).
+4. Odoo secrets via envsubst entrypoint (vs. committed `odoo.conf`
+   containing real passwords).
+5. Nginx via the official-image template hook (no custom Dockerfile).
+6. Host-managed Let's Encrypt certs, bind-mounted read-only (vs.
+   certbot in a container).
+7. `.env.prod.example` template; `.env.prod` gitignored.
+
+#### Sub-steps
+
+**Step M38-S1 — Production compose file + named volumes + network**
+
+- [x] M38-S1-01 · Create `docker-compose.prod.yml` at repo root.
+- [x] M38-S1-02 · Declare `lexora_prod_net` bridge inline (NOT external).
+- [x] M38-S1-03 · Declare six prod-scoped named volumes at top level:
+  `postgres_prod_data`, `odoo_prod_data`, `redis_prod_data`,
+  `rabbitmq_prod_data`, `llm_models_prod`, `audio_models_prod`.
+- [x] M38-S1-04 · All nine services have `restart: unless-stopped`.
+- [x] M38-S1-05 · Nginx is the ONLY service with `ports:` —
+  publishes `80:80` and `443:443`. All others rely on the internal
+  network.
+- [x] M38-S1-06 · `env_file: - .env.prod` on every service that
+  needs secrets; `${VAR}` interpolation for the rest.
+
+**Step M38-S2 — Odoo prod config template + entrypoint**
+
+- [x] M38-S2-01 · Create `src/configs/odoo.prod.conf.template` with
+  `@@ADMIN_PASSWD@@` and `@@DB_PASSWORD@@` placeholders.
+- [x] M38-S2-02 · `proxy_mode = True`, `workers = 4`, NO `--dev`
+  flag, NO `--update`. Keep `list_db = True` so `/web/database/manager`
+  is reachable for the restore flow.
+- [x] M38-S2-03 · Create `docker_compose/odoo/entrypoint.prod.sh` —
+  PID-1 shell script that copies the template, sed-substitutes the
+  two placeholders, `chmod 600` the result, and `exec`s Odoo with
+  the resolved config.
+- [x] M38-S2-04 · `chmod +x` the entrypoint before committing.
+- [x] M38-S2-05 · Compose mounts `odoo.prod.conf.template` and
+  `entrypoint.prod.sh` into the Odoo container; `command:` overridden
+  to run the script.
+
+**Step M38-S3 — Nginx prod config template + TLS hardening**
+
+- [x] M38-S3-01 · Create `docker_compose/nginx/nginx.prod.conf.template`
+  with `${DOMAIN}` placeholders (rendered by the
+  `nginx:1.27-alpine` image's `/docker-entrypoint.d/20-envsubst-on-templates.sh`
+  hook).
+- [x] M38-S3-02 · `server { listen 80; ... return 301 https://...; }`
+  global HTTP→HTTPS redirect.
+- [x] M38-S3-03 · `server { listen 443 ssl http2; ... }` with
+  `ssl_certificate /etc/letsencrypt/live/${DOMAIN}/fullchain.pem;`
+  + `ssl_certificate_key /etc/letsencrypt/live/${DOMAIN}/privkey.pem;`.
+- [x] M38-S3-04 · TLSv1.2 + TLSv1.3 only;
+  `ssl_prefer_server_ciphers off`; modern cipher suite (ECDHE +
+  AES-GCM + ChaCha20).
+- [x] M38-S3-05 · Security headers via `add_header`:
+  `Strict-Transport-Security "max-age=31536000; includeSubDomains; preload" always;`
+  + `X-Frame-Options SAMEORIGIN always;`
+  + `X-Content-Type-Options nosniff always;`
+  + `Referrer-Policy strict-origin-when-cross-origin always;`
+  + `Permissions-Policy "geolocation=(), microphone=(), camera=()" always;`.
+- [x] M38-S3-06 · WebSocket pass-through for `/websocket` → `odoo:8072`
+  (Upgrade + Connection headers, 3600 s read timeout).
+- [x] M38-S3-07 · DB-manager long-timeout regex location
+  (`^/web/database/(backup|restore|duplicate)`) with `proxy_read_timeout 1800s`
+  and `client_max_body_size 2g`.
+- [x] M38-S3-08 · Compose mounts `/etc/letsencrypt:/etc/letsencrypt:ro`
+  from host into the nginx container.
+
+**Step M38-S4 — `.env.prod.example` template**
+
+- [x] M38-S4-01 · Create `.env.prod.example` with `CHANGE_ME_*`
+  placeholders for: `POSTGRES_PASSWORD`, `ADMIN_PASSWD`,
+  `DB_PASSWORD`, `RABBITMQ_USER`, `RABBITMQ_PASS`, `REDIS_PASSWORD`.
+- [x] M38-S4-02 · `DOMAIN=example.com` placeholder.
+- [x] M38-S4-03 · Carry over the M4b/M4c/M6/M29 env defaults
+  (LLM model, translation provider, audio engine) with prod-sensible
+  values.
+- [x] M38-S4-04 · Confirm `.gitignore` already excludes `.env.prod`
+  (matches `.env.*` and `*.env.prod` rules).
+
+**Step M38-S5 — Makefile production targets**
+
+- [x] M38-S5-01 · `prod-env-check` — fails if `.env.prod` missing
+  or contains any `CHANGE_ME_` placeholder.
+- [x] M38-S5-02 · `prod-up` — depends on `prod-env-check`; runs
+  `docker compose -f docker-compose.prod.yml --env-file .env.prod up -d`.
+- [x] M38-S5-03 · `prod-down` — `docker compose ... down`
+  (volumes preserved).
+- [x] M38-S5-04 · `prod-build` — `docker compose ... build`
+  (rebuilds custom images: odoo, translation, llm, anki, audio).
+- [x] M38-S5-05 · `prod-logs` — tails logs from the prod stack.
+- [x] M38-S5-06 · `prod-ps` — lists prod containers.
+- [x] M38-S5-07 · `prod-restore-db FILE=…` — documentation-style
+  target that prints the steps to use Odoo's `/web/database/manager`
+  with the `.zip` backup. (Not an automation — the user runs the
+  restore via the web UI; the target reminds them of the URL and the
+  `ADMIN_PASSWD` source.)
+
+**Step M38-S6 — Static validation + ADR-037 + commit + push**
+
+- [x] M38-S6-01 · `docker compose -f docker-compose.prod.yml config
+  --quiet` exits 0 (with placeholder env vars set inline).
+- [x] M38-S6-02 · `bash -n docker_compose/odoo/entrypoint.prod.sh`
+  exits 0.
+- [x] M38-S6-03 · Containerised `nginx -t` against the rendered
+  template (envsubst + `nginx -t` in throwaway `nginx:1.27-alpine`).
+- [x] M38-S6-04 · ADR-037 appended to `docs/DECISIONS.md` with the
+  seven sub-decisions.
+- [x] M38-S6-05 · Commit on `m38_production_readiness`; push to
+  `origin/m38_production_readiness`.
+
+#### Out of scope (recorded as future revisits)
+
+- Backup automation (currently delegated to Odoo's native
+  `/web/database/manager` + `make prod-restore-db` wrapper).
+- Monitoring stack (Prometheus / Grafana / Loki). Dev compose
+  has them; prod intentionally ships without alerting.
+- CI/CD via GitHub Actions. Explicit non-goal.
+- Multi-node / load-balanced topology.
+- HSTS preload list submission (operator step, not code).
+
+#### Blockers
+
+(none)
 
 ---
 

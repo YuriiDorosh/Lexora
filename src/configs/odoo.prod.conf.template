@@ -1,0 +1,58 @@
+[options]
+; ============================================================
+; Lexora — Odoo production config template (M38)
+; ============================================================
+; This file is committed safely because both secrets below are
+; placeholders that `docker_compose/odoo/entrypoint.prod.sh`
+; substitutes from the container's environment at startup
+; (sourced from `.env.prod`).  The rendered file at runtime
+; lives only inside the container at `/etc/odoo/odoo.conf`,
+; chmod 600.  See ADR-037 §37d.
+; ============================================================
+
+; -- Master password (Odoo DB manager) ------------------------
+admin_passwd = @@ADMIN_PASSWD@@
+
+; -- Database connection --------------------------------------
+db_host     = postgres
+db_port     = 5432
+db_user     = odoo
+db_password = @@DB_PASSWORD@@
+
+; -- Database listing ----------------------------------------
+; list_db = True keeps /web/database/manager reachable so a fresh
+; production host can restore a .zip backup produced by the dev
+; environment.  Production operators may switch this to False
+; once initial setup is done.
+list_db = True
+
+; -- Addons path ---------------------------------------------
+addons_path = /usr/lib/python3/dist-packages/odoo/addons,/mnt/extra-addons
+
+; -- Reverse proxy --------------------------------------------
+; Behind nginx (which terminates TLS).  proxy_mode = True makes
+; Odoo respect X-Forwarded-Proto and emit correct https:// URLs.
+proxy_mode = True
+
+; -- Logging --------------------------------------------------
+logfile      = /mnt/logs/odoo-server.log
+logrotate    = False
+log_level    = info
+log_handler  = :INFO
+log_db_level = warning
+
+; -- Workers --------------------------------------------------
+; workers = 4 matches the dev config (E5-2680 v2 / 6 vCPU host).
+; max_cron_threads = 2 covers the translation/enrichment/audio/
+; anki result consumers without saturating the host.
+max_cron_threads = 2
+workers          = 4
+
+; -- Memory / connection limits (production-tuned) ------------
+; Defaults below are conservative for an 8 GiB target host.
+; Raise on bigger hardware.
+limit_memory_soft = 671088640    ; 640 MB
+limit_memory_hard = 805306368    ; 768 MB
+limit_request     = 8192
+limit_time_cpu    = 600
+limit_time_real   = 1200

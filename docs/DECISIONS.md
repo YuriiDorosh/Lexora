@@ -2268,3 +2268,307 @@ data may be refreshed by a background prefetch, do NOT memoise
 the render. The IDB read is the cache; the DOM is the view. Treat
 the view as derived state, not as a permanent artefact of first
 hydration.
+
+---
+
+## ADR-037: Production Infrastructure & Deployment Readiness (M38)
+
+**Status:** Accepted (M38, 2026-05-18)
+
+**Context:** M0–M37 shipped on a development Docker Compose stack
+split across `docker_compose/<service>/docker-compose.yml` files,
+all sharing an externally-created `backend` bridge network. The
+`src/configs/odoo.conf` contains a real `admin_passwd` and
+`db_password` (acceptable for a localhost dev sandbox, unsafe for
+prod). Every worker service publishes its port to the host
+(translation 8001, llm 8002, anki 8003, audio 8004) so dev `curl`
+smokes can hit them directly. Redis runs with no auth; RabbitMQ
+runs as `guest/guest`; nginx serves HTTP only on port 5433.
+
+M38 moves the project to a deployable substrate for a single Linux
+VPS. **Manual deployment** — `git pull` + `make prod-build` +
+`make prod-up` over SSH — is the explicit choice. **No GitHub
+Actions, no CI/CD pipeline.** Rationale: a single-VPS hobby/SMB
+deployment doesn't pay the complexity tax of pipeline tooling;
+manual deploys keep the attack surface small and the deploy story
+legible to one ops engineer.
+
+Pure infrastructure work — zero application code changes, zero new
+Odoo modules, zero new RabbitMQ queues, zero new endpoints. Every
+sub-decision below is a configuration shape.
+
+### Sub-decision 37a: Single unified `docker-compose.prod.yml` at repo root
+
+**Decision:** one compose file at the repository root contains all
+nine production services (postgres, redis, rabbitmq, odoo, nginx,
+translation-service, llm-service, anki-service, audio-service).
+
+**Alternatives considered:**
+
+- **Mirror the dev layout** (per-service `docker-compose-prod.yml`
+  files under `docker_compose/<service>/`). Rejected: `make prod-up`
+  would need a fragile multi-file `-f a.yml -f b.yml -f c.yml ...`
+  chain, and Docker Compose's behaviour when the same service is
+  defined across files is order-dependent — easy to get wrong.
+- **Compose profiles** (single file, `profiles: [prod]` keys on each
+  service). Rejected: profiles work well for opt-in dev tools
+  (monitoring, debug containers) but not for an entirely different
+  production topology with different volume names, port bindings,
+  and command overrides.
+
+**Rationale:** one file = one source of truth for the prod
+topology. `make prod-*` targets stay one-liners. Per-service dev
+compose files are untouched, so the dev workflow keeps working.
+
+### Sub-decision 37b: Single internal Docker bridge `lexora_prod_net`, declared inline
+
+**Decision:** the compose file declares a single bridge network
+`lexora_prod_net` at the top level. Every service joins it. The
+network is NOT marked `external: true` (no out-of-band creation
+required) and NOT marked `internal: true` (workers still need
+outbound HTTPS).
+
+**Port exposure rule:**
+
+- **Nginx alone has `ports:` entries.** Publishes `80:80` and
+  `443:443`.
+- **Every other service has NO `ports:` entry.** Postgres, Redis,
+  RabbitMQ (both 5672 and 15672), translation 8001, llm 8002, anki
+  8003, audio 8004 — all reachable only via service name on the
+  internal bridge.
+- Internal service-to-service communication uses Docker DNS:
+  `postgres`, `redis`, `rabbitmq`, `llm-service`, etc.
+
+**Why not `internal: true`:** the LLM service downloads the GGUF
+model from Hugging Face on first start; the audio service calls
+Microsoft Edge TTS over HTTPS; the translation service hits
+Google Translate / MyMemory. Outbound HTTPS is load-bearing.
+
+**Rationale:** minimal attack surface — only ports 80/443 are
+reachable from outside the host. An attacker who breaches the
+host's network perimeter still has no direct path to Postgres /
+Redis / RabbitMQ.
+
+### Sub-decision 37c: Prod-scoped named volumes
+
+**Decision:** six new volumes, all prefixed to make `docker volume ls`
+self-documenting:
+
+| Volume | Mounted at | Purpose |
+|---|---|---|
+| `postgres_prod_data` | `/var/lib/postgresql/data` (postgres) | PG datadir |
+| `odoo_prod_data` | `/var/lib/odoo` (odoo) | Filestore + sessions |
+| `redis_prod_data` | `/data` (redis) | AOF persistence |
+| `rabbitmq_prod_data` | `/var/lib/rabbitmq` (rabbitmq) | Queues + Mnesia |
+| `llm_models_prod` | `/models` (llm-service) | Qwen GGUF cache |
+| `audio_models_prod` | `/models` (audio-service) | Whisper model cache |
+
+**Why not reuse dev volume names** (`postgres_data_odoo`, `odoo-data`,
+`redis_data`, `lexora_llm_models`, `lexora_audio_models`): if a user
+runs `make up-dev` and `make prod-up` on the same host (e.g. staging
+machine doubling as a test bench), separate volume names guarantee
+zero data crossover. The cost — re-downloading the LLM model on the
+prod host's first boot — is a one-time ~1 GiB transfer.
+
+**Why named volumes, not host bind mounts:** named volumes are
+managed by Docker (resilient to host path changes, easy to back up
+via `docker run --rm -v <volume>:/data -v $(pwd):/backup ubuntu tar
+...`), and they survive `docker compose down` (only `down -v` drops
+them). Host bind mounts couple datadirs to specific host paths,
+which makes moving between servers messier.
+
+### Sub-decision 37d: Odoo secrets via envsubst entrypoint, NOT a committed `odoo.conf`
+
+**Problem:** `src/configs/odoo.conf` already contains a hardcoded
+real `admin_passwd` and `db_password`. Anyone with read access to
+the repo (collaborators, CI runners, exfiltrated git history) has
+the dev master password. Acceptable for localhost; unsafe for prod.
+
+**Decision:**
+
+1. **`src/configs/odoo.prod.conf.template`** — a config file with
+   `@@ADMIN_PASSWD@@` and `@@DB_PASSWORD@@` placeholders. Safe to
+   commit because it contains no real secrets.
+2. **`docker_compose/odoo/entrypoint.prod.sh`** — a tiny shell
+   script that runs as PID 1 inside the Odoo container:
+   - `cp /etc/odoo/odoo.prod.conf.template /etc/odoo/odoo.conf`
+   - `sed -i "s|@@ADMIN_PASSWD@@|${ADMIN_PASSWD}|g" /etc/odoo/odoo.conf`
+   - `sed -i "s|@@DB_PASSWORD@@|${DB_PASSWORD}|g" /etc/odoo/odoo.conf`
+   - `chmod 600 /etc/odoo/odoo.conf`
+   - `exec odoo --config /etc/odoo/odoo.conf "$@"`
+3. **`.env.prod`** (gitignored) provides `ADMIN_PASSWD` and
+   `DB_PASSWORD` to the container as env vars. The substitution
+   happens once at container start; the resulting `odoo.conf` lives
+   only inside the container's filesystem at chmod 600.
+
+**Alternatives considered:**
+
+- **Docker secrets** (`secrets:` block in compose). Rejected:
+  requires a Swarm mode or different syntax for plain Compose; adds
+  complexity for a single-host deployment.
+- **Mount `.env.prod` directly into Odoo and use Odoo's env-var
+  config support.** Odoo 18 reads only a small subset of options
+  from env vars (`HOST`, `USER`, `PASSWORD` for the DB); `admin_passwd`
+  is NOT in that set — must come from a config file.
+- **`envsubst` in the compose `command:` block.** Rejected: makes
+  the compose file harder to read and couples secrets to the
+  compose-file rendering layer rather than to the container's
+  startup.
+
+**Rationale:** secrets never reach git. The container's
+`/etc/odoo/odoo.conf` is chmod 600, owned by the `odoo` user. An
+operator with shell access can still `cat` the file — that's
+fine; the threat model is "secrets in git history", not "host root
+compromise".
+
+**`proxy_mode = True`, `workers = 4`, NO `--dev=all`, NO
+`--update`.** Confirmed by reading the prod entrypoint and the
+compose `command:` override.
+
+### Sub-decision 37e: Nginx via the official-image template hook
+
+**Decision:** use the unmodified `nginx:1.27-alpine` image. Mount
+`docker_compose/nginx/nginx.prod.conf.template` to
+`/etc/nginx/templates/default.conf.template:ro`. The image's bundled
+`/docker-entrypoint.d/20-envsubst-on-templates.sh` runs envsubst on
+every `*.template` file under `/etc/nginx/templates/` and writes the
+result to `/etc/nginx/conf.d/<basename>` (stripping the `.template`
+suffix). Nginx then loads the rendered config.
+
+**Why not a custom Dockerfile-prod:** the dev path uses a custom
+`docker_compose/nginx/Dockerfile` that `COPY`s `nginx.conf` and
+deletes the default config. For prod, the official image's template
+hook does exactly what we need without a custom build step. Less
+machinery; one image to pull instead of one to build per host.
+
+**Template variables:** only `${DOMAIN}` is rendered. `server_name`,
+`ssl_certificate`, and `ssl_certificate_key` paths all use
+`${DOMAIN}`.
+
+**TLS hardening:**
+
+- `ssl_protocols TLSv1.2 TLSv1.3;` — TLSv1.0 and TLSv1.1 are
+  long-deprecated.
+- `ssl_prefer_server_ciphers off;` — modern clients pick from a
+  curated cipher list; server-preferred ordering is a TLS 1.2-era
+  pattern that hurts more than it helps with TLS 1.3.
+- Cipher suite favours ECDHE + AES-GCM + ChaCha20.
+- `ssl_session_cache shared:SSL:10m;` + `ssl_session_timeout 1d;`
+  for handshake reuse.
+
+**Security headers** (all with `always` so they're emitted on error
+pages too):
+
+- `Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"`
+- `X-Frame-Options SAMEORIGIN` — Odoo backend uses some iframes;
+  `SAMEORIGIN` keeps them working while blocking embedding by
+  third-party sites.
+- `X-Content-Type-Options nosniff`
+- `Referrer-Policy strict-origin-when-cross-origin`
+- `Permissions-Policy "geolocation=(), microphone=(), camera=()"`
+  — explicit allow-list lockdown (M6 audio is `recorded` via the
+  browser's MediaRecorder, which requires `microphone=(self)` — but
+  the production deployment uses TTS only, not user recording, so
+  the policy stays locked. If user-recording is later required,
+  flip `microphone=(self)` and document the change here.)
+
+**WebSocket pass-through** for `/websocket` → `odoo:8072` with
+`Upgrade` + `Connection` headers and a 3600 s read timeout.
+
+**DB-manager paths** (`^/web/database/(backup|restore|duplicate)`)
+get `proxy_read_timeout 1800s` and `client_max_body_size 2g` — large
+DB dumps can take 5-15 minutes on a slow VPS.
+
+### Sub-decision 37f: Host-managed Let's Encrypt certs, bind-mounted read-only
+
+**Decision:** certbot runs on the host (NOT in a container). It
+writes to `/etc/letsencrypt/live/${DOMAIN}/`. The nginx container
+mounts `/etc/letsencrypt:/etc/letsencrypt:ro`.
+
+**Renewal:** a host cron job runs `certbot renew --quiet` weekly.
+On successful renewal, the post-renew hook runs
+`docker exec nginx_prod nginx -s reload` so the new cert is picked
+up without container restart. (Documented in the README deployment
+section; not part of the compose file.)
+
+**Alternatives considered:**
+
+- **Certbot-as-a-container** (one of the many compose-friendly
+  patterns). Rejected: adds a second moving piece for a
+  once-every-90-days operation. The host has a stable `certbot`
+  package in its repos; renewal is one cron line.
+- **traefik / Caddy with built-in ACME.** Rejected: replacing nginx
+  is much bigger surgery than M38 wants. nginx is already known and
+  trusted by the team.
+
+**Rationale:** standard practice for single-VPS deployments.
+`ro` mount means the nginx container cannot mangle the certs even
+if compromised. Certbot's privileges live on the host where they
+already exist for the package manager.
+
+### Sub-decision 37g: `.env.prod.example` template; `.env.prod` gitignored
+
+**Decision:** commit `.env.prod.example` with every secret as a
+`CHANGE_ME_*` placeholder. The real `.env.prod` is created on the
+host by the operator (`cp .env.prod.example .env.prod` → edit), and
+is excluded from git by the existing `.gitignore` patterns (`.env.*`,
+`*.env.prod`).
+
+**Validation gate:** `make prod-env-check` greps for `CHANGE_ME_`
+in `.env.prod`; if any placeholder remains, the target exits 1 with
+a friendly error pointing at the unfilled variable. `prod-up`
+depends on `prod-env-check`, so an operator who forgets to fill in
+secrets gets a clear failure instead of a stack with default creds.
+
+**Secrets parameterised:**
+
+- `DOMAIN` (e.g. `lexora.example.com`)
+- `POSTGRES_PASSWORD` — Postgres superuser
+- `DB_PASSWORD` — substituted into Odoo's `db_password`
+- `ADMIN_PASSWD` — substituted into Odoo's `admin_passwd`
+- `RABBITMQ_USER`, `RABBITMQ_PASS` — non-default (NOT guest/guest)
+- `REDIS_PASSWORD` — Redis `requirepass`
+
+Application-level env vars (LLM model repo, translation provider,
+audio engine) carry over from the dev `.env` with prod-sensible
+defaults.
+
+### What we explicitly do NOT do in M38
+
+- **No CI/CD via GitHub Actions.** Explicit user direction. Deploy
+  is `git pull && make prod-build && make prod-up` on the host.
+- **No backup automation** beyond what Odoo's own
+  `/web/database/manager` offers. `make prod-restore-db FILE=...`
+  is documentation, not automation — it prints the URL and the
+  source of the master password. A future milestone can add
+  scheduled `pg_dump` + offsite sync (S3 / B2 / rsync).
+- **No monitoring stack** (Prometheus, Grafana, Loki). Dev compose
+  has them; prod intentionally ships without alerting. The operator
+  can `make prod-logs` and lean on `docker stats`. Add monitoring
+  when there's a real incident to learn from.
+- **No multi-node / load-balanced topology.** Single-VPS.
+- **No certbot inside Docker.** Host-managed.
+- **No HSTS preload submission.** The header is set with
+  `preload; includeSubDomains` so the technical posture is
+  preload-ready, but the actual hstspreload.org submission is
+  an operator step.
+
+### Revisit triggers
+
+- **Secrets via Docker Compose `secrets:` blocks.** Move there when
+  a multi-host swarm or k8s migration happens — the entrypoint
+  envsubst pattern is the simplest correct answer for single-host
+  Compose, but proper secret stores have audit and rotation
+  affordances that an envsubst sed pattern can't match.
+- **TLS via Caddy** if certbot renewal hooks ever become flaky.
+  Caddy's built-in ACME is more maintenance-free than the
+  certbot + cron + nginx-reload chain.
+- **Multi-node deployment.** Compose isn't the right tool past
+  one host; either Compose-on-Swarm or a switch to k8s.
+- **Sidecar `postgres_backup` container reactivated** if Odoo's
+  own backup interface proves too coarse for daily ops.
+- **`Permissions-Policy: microphone=(self)`** if the production
+  deployment ever needs to support M6 user-recorded audio (currently
+  the prod feature surface is TTS-only).
+- **WAF / Cloudflare** in front of nginx. The current TLS + headers
+  setup is the right floor; a CDN/WAF is the next ceiling.

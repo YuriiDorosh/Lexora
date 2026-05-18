@@ -24,6 +24,10 @@ backups/*
 *.env.prod
 *.env.stage
 .envrc
+# Allow committed *.example templates (they hold only placeholders).
+!env.example
+!.env.prod.example
+!*.env.example
 
 # Secrets / keys / certs
 *.pem
