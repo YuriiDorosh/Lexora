@@ -2236,3 +2236,35 @@ while they're typing.
   the all-rows-at-once renderer for an Intersection Observer
   windowing approach. The `_dictRows` data structure is already
   shaped right for it.
+
+### Post-merge fix — JS tab-switch re-render (commit `a16a9d9`)
+
+Within hours of M37 landing, a user reported "the dictionary only
+shows 200 words." Their hypothesised cause: the new `/lexora_api/
+offline_vocabulary` route was wrongly reusing the M36 review
+projection (`_project_cards_for_user`, capped at 200).
+
+Diagnostic chain refuted the hypothesis: `git log -p` showed the
+route was never wired to the wrong helper, and a live `curl
+/lexora_api/offline_vocabulary` returned the full 1061 active
+entries. So the data layer was fine.
+
+**Actual root cause** was in `mobile_practice.js _switchTab()`. The
+initial implementation gated `_renderDictionary()` on a
+`!state.dictionaryLoaded` flag — meaning: render once, then never
+again. That was fine on a cold cache but **buggy on warm cache**:
+when `_prefetchVocabulary()` ran in the background and IDB picked
+up a fresh, larger word set, a user who tab-bounced Practice ↔
+Dictionary kept seeing the **first** render (often the stale 200
+entries from a pre-M37 IDB v1 copy or a partial first hydration).
+
+**Fix:** drop the gate. `_renderDictionary` now fires on every
+switch into the Dictionary tab. Renders are cheap (DOM-stable
+filter, ~10 ms for 1000 rows), so the perf cost is invisible and
+the correctness win is decisive.
+
+**Rule fed back into the codebase:** for read-from-IDB tabs whose
+data may be refreshed by a background prefetch, do NOT memoise
+the render. The IDB read is the cache; the DOM is the view. Treat
+the view as derived state, not as a permanent artefact of first
+hydration.

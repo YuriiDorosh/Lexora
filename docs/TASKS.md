@@ -33,7 +33,10 @@ because data lives in IndexedDB.
 in PR #84).
 **Final commits:** `87b0410` feat(M37) (single-commit feature drop —
 Odoo route + IDB v2 + bottom-nav SPA + live filter + SW VERSION
-bump) · this commit S6 (ADR-036 + final docs flip).
+bump) · `4906436` docs(M37) (ADR-036 + final docs flip) ·
+`a16a9d9` fix(M37) (post-merge: re-render dictionary on every tab
+switch — closes the "only 200 words" report; see ADR-036
+post-merge fix section).
 
 **Original status line (preserved for archive):**
 Planning + code landing together (small additive milestone).
