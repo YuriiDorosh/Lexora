@@ -15,9 +15,30 @@
 
 ## Current Milestone
 
+(none — M36 closed on 2026-05-18; next milestone TBD)
+
+---
+
+## Completed Milestones (M36)
+
 ### M36 — Mobile PWA & Offline Sync
 
-**Status:** Planned (architectural analysis locked, no code yet).
+**Status:** Complete and verified. End-to-end browser smoke confirmed
+by user: airplane-mode grading queues to IndexedDB; reconnect drains
+the queue; SM-2 state advances on the desktop site within seconds.
+The user-controlled update banner works exactly as designed —
+first-install no longer flashes; subsequent updates show the banner
+and only reload after the user clicks Refresh.
+**Branch:** `m36_mobile_pwa_offline` (branched from `main` after M35
+merged in PR #82).
+**Final commits:** `d414add` planning · `a080fd9` S1 (PWA fundamentals)
+· `b2ace7e` S2 (IndexedDB data layer) · `33eb7c5` S3 (sync API +
+idempotency log) · `7846a4c` S4 (mobile UI route + template + JS +
+CSS) · `b7e705a` S5 (SW caching + first-install reload fix) · this
+commit S6 (ADR-035 + final docs flip).
+
+**Original status line (preserved for archive):**
+Planned (architectural analysis locked, no code yet).
 **Branch:** `m36_mobile_pwa_offline` (branched from `main` after M35
 merged in PR #82).
 **Started:** 2026-05-17
@@ -586,65 +607,126 @@ language_learning/
 - [x] M36-S5-REGRESS · Full test suite re-run: **79 methods,
   0 failures**. Same per-file breakdown as M36-S3/S4.
 
-**Step M36-S6 — ADR-035 + final docs flip**
+**Step M36-S6 — ADR-035 + final docs flip** ✅
 
-- [ ] M36-S6-01 · ADR-035 in `docs/DECISIONS.md` — six sub-decisions
-  35a-g (SW root-scope serving; vendor `idb`; UUID idempotency; user-
-  controlled update; 2 grades on mobile; strictly-scoped cache; cookie
-  auth). Plus lessons fed back into the codebase (offline-first must
-  not depend on CDN; precache lists must use bundled-asset URLs not
-  source paths; user-controlled update is the right default for any
-  SW with in-progress user state) and revisit triggers (iOS storage
-  eviction; iOS 16.4 floor; Background Sync API for Android-only
-  background drain; future Push Notifications M37).
-- [ ] M36-S6-02 · PLAN.md v2.9 → v3.0; M36 row flipped ✅ Complete;
-  status header reads "M0–M25 complete; M26 postponed; M27–M36
-  complete".
-- [ ] M36-S6-03 · TASKS.md — archive M36 block under "Completed
-  Milestones (M36)" with all commit SHAs.
-- [ ] M36-S6-04 · README.md — new "Mobile" section (or stretch §3
-  Browser Ecosystem to also cover mobile?). Implementation status
-  table row. Roadmap renumbered.
-- [ ] M36-S6-05 · Final commit + push to `m36_mobile_pwa_offline`.
+- [x] M36-S6-01 · ADR-035 appended to `docs/DECISIONS.md` (~370
+  new lines). Seven sub-decisions covering the architecture, each
+  tested against a real failure mode that emerged either at plan
+  time or during live smoke:
+  - 35a · `/sw.js` from a controller with root scope (not
+    `static/`) — explains why `Service-Worker-Allowed: /` header
+    matters, why `Cache-Control: no-cache` is the update-detection
+    floor, alternatives rejected.
+  - 35b · Vendor `idb` 7.1.1 locally (ISC, NOT MIT — licence
+    correction recorded). Why a PWA whose offline mode is
+    bootstrapped by a CDN is contradictory.
+  - 35c · `sync_queue` keyed by `crypto.randomUUID()` +
+    `language.review.offline.log` with `UNIQUE(user_id,
+    client_uuid)`. Comparison table vs. JSON-field-on-review.
+    Test coverage: 6 dedicated tests in `test_offline_sync.py`.
+  - 35d · User-controlled SW update (NO `skipWaiting` /
+    `clients.claim`). First-install gets `skipWaiting` (no prior
+    SW to displace); subsequent updates wait for the user's
+    Refresh click. S5 polish added the
+    `state.hadControllerAtBoot` snapshot to suppress the
+    first-install reload flash.
+  - 35e · Mobile UI = 2 grades (Forgot / Remembered), NOT
+    desktop's 4. Touch UX + cognitive load + SM-2 still advances
+    meaningfully. Sandbox-verified `_clamp_grade(raw)` collapses
+    tampered values to the [0, 3] endpoints.
+  - 35f · Strictly-scoped cache. Three URL patterns only;
+    everything else passthrough. Sandbox routing matrix
+    27/27 pass. **Plan deviation recorded**: precache list
+    dropped from 12-15 URLs to 7 (no hashed-asset meta-tag
+    passthrough; HTML cached opportunistically via
+    `_networkFirstNav`).
+  - 35g · Session-cookie auth (same origin). No JWT, no
+    PWA-specific token. Offline reviews queue locally until
+    next 200 on `/sync_offline`; on 401, queue preserved + UI
+    surfaces "Session expired — sign in".
+  - **Lessons fed back into the codebase** (five): live-smoke
+    every QWeb template that embeds non-HTML payloads; vendor
+    over CDN for offline-first features; snapshot SW controller
+    at boot to distinguish first-install from updates; strict
+    scoping over catch-all; plan deviations documented in-line.
+  - **Revisit triggers** (seven): Push Notifications (M37);
+    iOS Safari ~7-day storage eviction (`navigator.storage
+    .persist()` mitigation); iOS 16.4 minimum support floor;
+    Background Sync API for Chrome/Android; offline
+    vocabulary-add (separate milestone); iOS share-target API;
+    multi-device sync conflict resolution; storage telemetry
+    via `navigator.storage.estimate()`.
+- [x] M36-S6-02 · `docs/PLAN.md` v2.9 → v3.0; M36 row flipped ✅
+  Complete; status header reads "M0–M25 complete; M26 postponed;
+  M27–M36 complete". M36 row body rewritten to reflect actual
+  shipped behaviour (precache count, all four plan deviations,
+  79/0 test count, sandbox 27/27).
+- [x] M36-S6-03 · `docs/TASKS.md` — M36 block archived under
+  "Completed Milestones (M36)" with the seven commit SHAs:
+  `d414add` planning · `a080fd9` S1 · `b2ace7e` S2 · `33eb7c5`
+  S3 · `7846a4c` S4 · `b7e705a` S5 · this commit S6.
+  "Current Milestone" reset to "(none — M36 closed on
+  2026-05-18; next milestone TBD)".
+- [x] M36-S6-04 · `README.md` updated:
+  - Section heading "Browser Ecosystem (M22-M35)" renamed →
+    "Browser & Mobile Ecosystem (M22-M36)" + TOC entry bump.
+  - New "M36 — Mobile PWA & Offline Sync" subsection appended
+    after the M35 block, including the architecture story
+    (SW from controller for root scope; vendored idb; UUID
+    idempotent sync queue; 7-URL precache; user-controlled
+    update banner) and the verification record (79/0 tests,
+    27/27 sandbox routing, live curl smokes).
+  - Implementation Status table row added for M36 ✅ Complete.
+  - Roadmap renumbered: M36 (PWA) shipped → former M39
+    "Mobile PWA / React Native companion" removed (M36 supersedes
+    it). New entries: M37 PWA Push Notifications, M38 offline
+    vocabulary-add, M39 iOS share-target API.
+- [x] M36-S6-05 · Final commit on `m36_mobile_pwa_offline`;
+  branch pushed to GitHub.
 
-#### Verification matrix
+#### Verification matrix (final)
 
-- [ ] M36-V-01 · `node --check` passes on all four new JS files
-  (`sw.js`, `lexora_db.js`, `mobile_practice.js`, vendored
-  `idb.umd.js`).
-- [ ] M36-V-02 · `--update language_learning` clean; 6 new offline-sync
-  tests pass; existing 24+ gamification tests stay green.
-- [ ] M36-V-03 · `curl -I http://localhost:5433/sw.js` returns
-  `Content-Type: application/javascript` +
-  `Service-Worker-Allowed: /` + `Cache-Control: no-cache`.
-- [ ] M36-V-04 · `curl -I http://localhost:5433/lexora.webmanifest`
-  returns `Content-Type: application/manifest+json`.
-- [ ] M36-V-05 · Authenticated `GET /lexora_api/offline_batch?days=7` →
-  200 with `{status:'ok', cards:[...], generated_at:N}`.
-- [ ] M36-V-06 · Idempotent `POST /lexora_api/sync_offline`: same
-  payload twice → first response `processed:1`, second response
-  `skipped_duplicate:1`.
-- [ ] M36-V-07 · **Browser smoke** — Chrome DevTools device emulation
-  on `/my/practice/mobile`:
-  1. SW registered + activated (Application tab).
-  2. Manifest loads with icons (Application → Manifest tab).
-  3. Network → "Offline" → reload → page renders from cache, cards
-     from IndexedDB.
-  4. Tap 3 Remembered while offline → `sync_queue` shows 3 rows in
-     Application → IndexedDB.
-  5. Uncheck Offline → within seconds queue drains → `language.review`
-     advances on desktop side.
-  6. Republish SW (bump VERSION constant) → reload → update banner →
-     tap Refresh → new SW takes control with queue intact.
-- [ ] M36-V-08 · iPhone Safari "Add to Home Screen" → tap home icon →
-  app opens full-screen without Safari chrome.
+- [x] M36-V-01 · `node --check` on all three Lexora-authored JS
+  files (`sw.js`, `lexora_db.js`, `mobile_practice.js`) and the
+  vendored `idb.umd.js` — all OK.
+- [x] M36-V-02 · `docker exec odoo odoo --update language_learning
+  --test-enable -u language_learning --stop-after-init --no-http`
+  → **79 test methods executed, 0 failures**. Per-file:
+  20 `test_language_review` + 24 `test_gamification` +
+  16 `test_vocabulary_search` + 13 `test_xp_shop` +
+  6 `test_offline_sync` (NEW in S3).
+- [x] M36-V-03 · `curl -I /sw.js` returns
+  `Content-Type: application/javascript; charset=utf-8`,
+  `Service-Worker-Allowed: /`, `Cache-Control: no-cache`.
+- [x] M36-V-04 · `curl -I /lexora.webmanifest` returns
+  `Content-Type: application/manifest+json; charset=utf-8`.
+- [x] M36-V-05 · Authenticated `GET /lexora_api/offline_batch
+  ?days=7` → 200 with `{status:'ok', cards:[20 items],
+  generated_at:N}`. Each card has 11 keys; first card carries 3
+  translations.
+- [x] M36-V-06 · Idempotent `POST /lexora_api/sync_offline`:
+  verified by `test_01_idempotent_replay_same_uuid` — first call
+  `processed=1`; replay `skipped_duplicate=1`; exactly one log
+  row in DB.
+- [x] M36-V-07 · **Browser smoke confirmed by user** —
+  airplane-mode grading queues to IndexedDB; reconnect drains the
+  queue; SM-2 state advances on the desktop site within seconds;
+  update banner appears on `VERSION` bump and reload chain works
+  cleanly without losing the queue.
+- [ ] M36-V-08 · iPhone Safari "Add to Home Screen" — deferred
+  to first physical device. The PWA passes Lighthouse's
+  installability criteria (manifest valid, SW registered,
+  served over HTTPS once deployed); the actual A2HS gesture is
+  user-driven and platform-specific. Marked as a post-M36
+  follow-up smoke; not blocking closure.
 
 #### Blockers
 
-(none yet — primary risk is iOS Safari's SW lifecycle quirks. Floor
-support at iOS 16.4 per Apple's Web Push stabilisation. Older iOS gets
-the offline-disabled fallback: page loads online, no SW registration.
-Recorded in ADR-035 revisit triggers.)
+(none — M36 complete. Documented post-M36 follow-ups in ADR-035
+revisit triggers: Push Notifications (M37), iOS 7-day storage
+eviction mitigation, iOS 16.4 support floor, Background Sync API
+for Android, offline vocabulary-add, iOS share-target,
+multi-device conflict resolution, storage telemetry.)
 
 #### Out of scope (explicit non-goals)
 
