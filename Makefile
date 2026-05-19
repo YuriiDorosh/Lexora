@@ -538,3 +538,108 @@ check:
 	$(MAKE) fmt-check
 	$(MAKE) typecheck
 	$(MAKE) security
+
+# ============================================================
+# M38 — Production targets
+# ============================================================
+# Manual deployment workflow (NO GitHub Actions):
+#   git pull
+#   cp .env.prod.example .env.prod  # first time only
+#   vi .env.prod                    # fill in real secrets
+#   make prod-env-check
+#   make prod-build
+#   make prod-up
+#
+# See docs/DECISIONS.md ADR-037 for the architectural rationale.
+# ============================================================
+
+PROD_COMPOSE = docker compose -f docker-compose.prod.yml
+PROD_ENV     = --env-file .env.prod
+
+.PHONY: prod-env-check prod-up prod-down prod-build prod-logs prod-ps prod-restart prod-restore-db
+
+## Validate .env.prod exists and has no CHANGE_ME_ placeholders
+prod-env-check:
+	@if [ ! -f .env.prod ]; then \
+	  echo "ERROR: .env.prod is missing.  Run: cp .env.prod.example .env.prod && \$$EDITOR .env.prod"; \
+	  exit 1; \
+	fi
+	@if grep -q '^[A-Z_]*=CHANGE_ME_' .env.prod; then \
+	  echo "ERROR: .env.prod still contains CHANGE_ME_ placeholders.  Unfilled variables:"; \
+	  grep -n '^[A-Z_]*=CHANGE_ME_' .env.prod | sed 's/^/  /'; \
+	  echo ""; \
+	  echo "Generate strong secrets with: openssl rand -base64 32 | tr -d '/='"; \
+	  exit 1; \
+	fi
+	@echo "prod-env-check: OK (.env.prod exists and contains no CHANGE_ME_ placeholders)"
+
+## Build (or rebuild) custom production images: odoo + 4 worker services
+prod-build: prod-env-check
+	$(PROD_COMPOSE) $(PROD_ENV) build
+
+## Build with no cache (slower but pulls fresh base images)
+prod-build-no-cache: prod-env-check
+	$(PROD_COMPOSE) $(PROD_ENV) build --no-cache
+
+## Start the full production stack (detached)
+prod-up: prod-env-check
+	$(PROD_COMPOSE) $(PROD_ENV) up -d
+	@echo ""
+	@echo "Production stack starting.  Health-check after ~60 s:"
+	@echo "  curl -I https://\$$DOMAIN"
+	@echo "  make prod-logs        # tail every service"
+	@echo "  make prod-ps          # list containers"
+
+## Stop the production stack (volumes preserved)
+prod-down:
+	$(PROD_COMPOSE) $(PROD_ENV) down
+
+## DESTRUCTIVE — stop AND remove named volumes.  Only run if you
+## intend to lose ALL production data (Postgres, Odoo filestore,
+## Redis, RabbitMQ, model caches).  Required to type the literal
+## word YES to proceed.
+prod-down-volumes:
+	@read -p "Type YES to permanently delete ALL production volumes: " confirm; \
+	if [ "$$confirm" = "YES" ]; then \
+	  $(PROD_COMPOSE) $(PROD_ENV) down -v; \
+	else \
+	  echo "Aborted."; exit 1; \
+	fi
+
+## Tail logs from every prod service (Ctrl-C to detach)
+prod-logs:
+	$(PROD_COMPOSE) $(PROD_ENV) logs -f --tail=200
+
+## List prod containers
+prod-ps:
+	$(PROD_COMPOSE) $(PROD_ENV) ps
+
+## Restart a single prod service.  Usage: make prod-restart SVC=odoo
+prod-restart:
+	@if [ -z "$(SVC)" ]; then \
+	  echo "Usage: make prod-restart SVC=<service-name>"; \
+	  echo "Services: postgres redis rabbitmq odoo nginx translation-service llm-service anki-service audio-service"; \
+	  exit 1; \
+	fi
+	$(PROD_COMPOSE) $(PROD_ENV) restart $(SVC)
+
+## Documentation-only helper: prints the steps to restore a .zip
+## backup via Odoo's /web/database/manager.  No automation —
+## the operator does the restore via the web UI.
+prod-restore-db:
+	@echo "════════════════════════════════════════════════════════════"
+	@echo " Restore an Odoo .zip backup on the production host"
+	@echo "════════════════════════════════════════════════════════════"
+	@echo ""
+	@echo " 1. Make sure the prod stack is up: make prod-up"
+	@echo " 2. Browse to:  https://\$$DOMAIN/web/database/manager"
+	@echo " 3. Click 'Restore Database'"
+	@echo " 4. Master Password:  value of ADMIN_PASSWD in .env.prod"
+	@echo " 5. File:             your .zip backup (max 2 GB)"
+	@echo " 6. Database Name:    a name for the restored DB"
+	@echo " 7. Click 'Continue'"
+	@echo ""
+	@echo " If the upload exceeds 2 GB, raise nginx's client_max_body_size"
+	@echo " in docker_compose/nginx/nginx.prod.conf.template and run"
+	@echo " 'make prod-restart SVC=nginx'."
+	@echo "════════════════════════════════════════════════════════════"

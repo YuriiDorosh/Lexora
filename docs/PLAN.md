@@ -1,8 +1,8 @@
 # Lexora — Implementation Plan (MVP)
 
-> Version: 3.1 (M37 — Offline Dictionary — Complete)
+> Version: 3.2 (M38 — Production Infrastructure — In Progress)
 > Last updated: 2026-05-18
-> Status: M0–M25 complete; M26 postponed (resource constraints); M27–M37 complete
+> Status: M0–M25 complete; M26 postponed (resource constraints); M27–M37 complete; M38 in progress
 
 ---
 
@@ -64,6 +64,7 @@
 | M34 | Browser Extension — YouTube Vocab Radar | ✅ Complete | Passive vocabulary radar for YouTube. Background fetches the user's vocabulary via new `GET /lexora_api/my_vocab`; main-world inject patches `XMLHttpRequest.prototype` + `window.fetch` to sniff `/api/timedtext` (JSON3 primary, SRV3/SRV1 XML fallback, DOM-observer for live streams). Content script builds a longest-match sliding-window index over the cue track and pauses the video ~4 s before a known word. Glassmorphism Shadow-DOM card shows the word + all-language translations (🇺🇦/🇬🇷/🇵🇱/🇬🇧) + the surrounding cue with the word highlighted, plus ⏪ Rewind 5 s & Play / ▶ Continue / 🔕 Skip this word / ✖ Disable for this video. Cooldown timer (default 120 s) starts at overlay close, not at fire, so the user can read the alert at their pace. Three Options-page controls + per-tab skip set + per-video kill switch. No persistence by default (ADR-033) |
 | M35 | Browser Extension — Multi-word YouTube Subtitle Selection | ✅ Complete | Multi-word phrase lookup on YouTube subtitles via **Ctrl/⌘-Click multi-select** (Strategy C). Native browser selection (Strategy A) was implemented end-to-end and failed in browser smoke — YT's player aggressively re-applies `user-select: none` via JS on every cue render and the `selectstart` interception runs below event listeners. Strategy B (manual drag state machine) was rejected without smoke for the same cue-segment-volatility reason. Strategy C wins: the user Ctrl-clicks each word in the phrase (toggle semantics on re-click); the buffer is finalised on the LAST `Control`/`Meta` keyup (multi-key safe via post-event `e.ctrlKey \|\| e.metaKey` check); the concatenated phrase routes through the same `_openLookupOverlay` pipeline as M24's single-word click. Plain-click anywhere / Escape / `yt-navigate-finish` clear the buffer. Click order preserved (NOT spatial). Every downstream Quick Look feature (Add to Vocabulary, Explain Grammar M28, Explain Slang/Idiom M32, Practice Pronunciation M33) inherits phrase support unchanged. Visually robust, deterministic (always whole-word), immune to YT's selection-suppression. 16/16 sandbox cases pass; browser smoke confirmed (ADR-034) |
 | M36 | Mobile PWA & Offline Sync | ✅ Complete | Lexora installs to the iPhone / Android home screen and reviews SRS cards in airplane mode. Web App Manifest at `/lexora.webmanifest` + Service Worker served from an Odoo controller at `/sw.js` (root scope; `Cache-Control: no-cache` for update detection). IndexedDB layer via vendored `idb` 7.1.1 UMD (ISC licence; no CDN dependency) with two stores: `cards_to_review` (prefetched from `GET /lexora_api/offline_batch`, capped 200 cards / 30 days) and `sync_queue` (offline review results, keyed by `crypto.randomUUID()` for idempotent replay). Mobile route `/my/practice/mobile` renders a touch-first card UI: tap-to-flip 3D glassmorphism card, swipe left/right for grading (60-px commit threshold, 600 ms time budget, vertical-scroll detection), huge Forgot / Remembered buttons (80 px tall × ~half-viewport wide). `POST /lexora_api/sync_offline` dedupes via the new `language.review.offline.log` table on `UNIQUE(user_id, client_uuid)`, then routes each row through the existing `action_register_review(grade)` SM-2 pipeline. SW caching: precache 7 stable static-asset URLs (cache-first + SWR); HTML cached opportunistically via network-first-nav; `/lexora_api/*` ALWAYS network; everything else passthrough. User-controlled update banner (NOT `skipWaiting` / `clients.claim`) with a first-install-suppression guard so brand-new visits don't auto-reload. Six dedicated tests + 73 prior tests stay green (79/0). Sandbox routing matrix 27/27. ADR-035 records seven sub-decisions (35a-g) + plan deviations (precache list dropped from 12 to 7; idb licence corrected to ISC; first-install reload suppression; markupsafe.Markup for embedded JSON). Zero new services, zero new permissions, zero new RabbitMQ queues (ADR-035) |
+| M38 | Production Infrastructure & Deployment Readiness | 🟡 In Progress | Production-grade deployment surface. Single unified `docker-compose.prod.yml` at repo root with strict `restart: unless-stopped` on every service, prod-only named volumes (`postgres_prod_data`, `odoo_prod_data`, `redis_prod_data`, `rabbitmq_prod_data`, `llm_models_prod`, `audio_models_prod`), and a single internal Docker bridge `lexora_prod_net`. Internal data stores (Postgres, RabbitMQ, Redis) and the four FastAPI worker services lose their host port bindings — only nginx exposes 80 + 443. Nginx is rewritten as `nginx.prod.conf.template`: HTTP→HTTPS 301 on 80, TLSv1.2/1.3-only on 443, HSTS + X-Frame-Options + X-Content-Type-Options + Referrer-Policy headers, WebSocket pass-through, generous DB-manager timeouts (1800 s) and 2 GB upload cap so `.zip` backup restore via `/web/database/manager` works. SSL certs are host-managed via Let's Encrypt and bind-mounted `/etc/letsencrypt:/etc/letsencrypt:ro`. Domain rendered through the official nginx-image envsubst template hook. Odoo runs from `odoo.prod.conf.template` with `@@ADMIN_PASSWD@@` and `@@DB_PASSWORD@@` placeholders that an `entrypoint.prod.sh` substitutes from `.env.prod` at container start (chmod 600); no secrets committed to git. NO `--dev=all`, NO hot-reload. New `.env.prod.example` template with `CHANGE_ME_*` placeholders for every secret. Makefile gains `prod-up / prod-down / prod-build / prod-logs / prod-ps / prod-env-check / prod-restore-db` targets. No GitHub Actions — deployment is manual via Git pull + SSH. ADR-037 documents the seven sub-decisions |
 | M37 | Mobile PWA — Offline Dictionary | ✅ Complete | Extends the M36 mobile PWA with a **read-only offline dictionary**. New `GET /lexora_api/offline_vocabulary` returns the user's full active vocabulary (capped 2000 entries by default, 5000 max) with all completed translations; `auth='user'` + `Cache-Control: no-store` (IndexedDB owns offline data; SW never caches). IndexedDB schema bumped v1 → v2 via additive `upgrade(db, oldVersion)` callback — new `vocabulary_cache` store (keyPath `id`) sits alongside M36's `cards_to_review` + `sync_queue` stores; cascading `if (oldVersion < N)` blocks mean existing M36 users get only the new store while fresh installs create all three in one transaction. Two new DB methods: `replaceVocabulary(words)` (wholesale clear + bulk-put) and `getVocabulary()` (alphabetical sort by `normalized`). `stats()` extended with `vocabCount`. Mobile UI gets a native-app-style **bottom navigation bar** with two tabs: **Practice** (the M36 swipe-card flow, unchanged) and **Dictionary** (new). Dictionary panel: sticky search bar (`font-size: 16px` so iOS Safari doesn't auto-zoom on focus), glassmorphism row cards, **O(n)-per-keystroke DOM-stable filter** (pre-computed `_dictRows = [{row, haystack}]` array; toggles `display:none` rather than rebuilding the DOM — sub-millisecond on 2000 rows). Background `_prefetchVocabulary` fires on boot + reconnect; **re-renders only if the Dictionary tab is currently active** (silent IDB update otherwise — never disturbs a Practice-mid-session user). SW VERSION bumped to `lexora-pwa-v2`, triggering the M36-S5 user-controlled-update banner in production for the first time; `LEXORA_API_RE` regex extended with `offline_vocabulary` as the third always-network alternative. 19/19 IDB sandbox + 12/12 SW routing assertions pass; 79/0 regression. Architecture locked in ADR-036 (36a-d): separate route over parameterised `/my_vocab`; additive IDB upgrade without data migration; DOM-stable filter; user-state-respecting prefetch (ADR-036) |
 
 ---
@@ -4217,3 +4218,201 @@ in dictionary mode).
 **Acceptance:** the user opens the mobile PWA on a plane, taps the
 Dictionary tab, searches for a word from their saved vocabulary, and
 sees the translations instantly — all without network.
+
+---
+
+## M38 — Production Infrastructure & Deployment Readiness
+
+**Goal:** Move from local development configs to a resilient,
+production-ready environment that an operator can deploy on a single
+Linux VPS via Git pull + SSH. **No GitHub Actions / no automated CI/CD
+pipeline.** Manual deployment is the explicit choice — keeps the
+attack surface minimal and the deploy story legible to a single ops
+engineer.
+
+This is **pure infrastructure work** — zero new Odoo modules, zero new
+RabbitMQ queues, zero new LLM endpoints, zero new portal routes. Every
+sub-decision is a configuration choice; the running application code is
+unchanged.
+
+### Architectural sub-decisions (locked at S0, formalised in ADR-037)
+
+**Decision 1 — Single unified `docker-compose.prod.yml` at repo root.**
+The dev layout splits each service into its own
+`docker_compose/<service>/docker-compose.yml`. For prod we collapse to
+one file so `docker compose -f docker-compose.prod.yml up -d` is the
+single entry point and `make prod-*` targets stay one line each.
+Per-service compose files stay untouched (dev path keeps working).
+
+**Decision 2 — Single internal Docker bridge `lexora_prod_net`,
+declared inline (not external).** The dev path uses an external
+`backend` network that must be created out-of-band; production declares
+the network inside the compose file so `make prod-up` works without
+preflight. Only nginx publishes ports (80, 443). Postgres / Redis /
+RabbitMQ / translation / llm / anki / audio have NO `ports:` entries
+— they are reachable only by service name on the internal network.
+Workers still need outbound HTTPS (HF model download, Edge TTS,
+deep_translator), so the network is NOT marked `internal: true`.
+
+**Decision 3 — Prod-scoped named volumes.** Six new volumes,
+prefix-isolated from dev: `postgres_prod_data`, `odoo_prod_data`,
+`redis_prod_data`, `rabbitmq_prod_data`, `llm_models_prod`,
+`audio_models_prod`. `docker volume ls` lets the operator see at a
+glance which data belongs to which stack.
+
+**Decision 4 — Odoo secrets via envsubst entrypoint, NOT a
+committed odoo.conf.** The dev `src/configs/odoo.conf` contains a real
+`admin_passwd` and `db_password` — fine for a dev sandbox, unsafe for
+prod. M38 introduces `src/configs/odoo.prod.conf.template` with
+`@@ADMIN_PASSWD@@` and `@@DB_PASSWORD@@` placeholders, plus
+`docker_compose/odoo/entrypoint.prod.sh` that runs as PID 1, `cp`s the
+template into `/etc/odoo/odoo.conf`, sed-substitutes the two values
+from `$ADMIN_PASSWD` / `$DB_PASSWORD` env vars (sourced from
+`.env.prod`), chmod 600s the result, and `exec`s odoo. No secret ever
+hits git. `proxy_mode = True`, `workers = 4`, NO `--dev` flag.
+
+**Decision 5 — Nginx via the official-image template hook.** Nginx
+1.27-alpine's bundled `/docker-entrypoint.d/20-envsubst-on-templates.sh`
+reads any file under `/etc/nginx/templates/*.template`, runs envsubst
+on it, and writes the result to `/etc/nginx/conf.d/`. M38 introduces
+`docker_compose/nginx/nginx.prod.conf.template` with `${DOMAIN}`
+references for `server_name` and the SSL certificate paths; nginx
+renders it at container start. No custom nginx Dockerfile for prod.
+The config: port 80 issues a 301 to HTTPS; port 443 runs
+TLSv1.2/TLSv1.3 with HSTS (1 year, includeSubDomains, preload),
+`X-Frame-Options: SAMEORIGIN`, `X-Content-Type-Options: nosniff`,
+`Referrer-Policy: strict-origin-when-cross-origin`,
+`Permissions-Policy` lockdown. WebSocket pass-through for
+`/websocket`; long timeouts (1800 s) and 2 GB upload cap on
+`/web/database/(backup|restore|duplicate)` so DB-manager restore works.
+
+**Decision 6 — Host-managed Let's Encrypt certs, bind-mounted
+read-only.** Certbot runs on the host (NOT in a container), writes to
+`/etc/letsencrypt/live/${DOMAIN}/{fullchain.pem,privkey.pem}`. The
+nginx container mounts `/etc/letsencrypt:/etc/letsencrypt:ro`. Renewal
+is a host cron job that issues `docker exec nginx_prod nginx -s reload`
+after a successful renewal. Rationale: certbot-as-a-container adds a
+second moving piece for a once-every-90-days operation; the host
+cron is simpler and standard practice for single-VPS deployments.
+
+**Decision 7 — `.env.prod.example` template; `.env.prod` gitignored.**
+`.gitignore` already excludes `.env*` patterns. The example file
+contains `CHANGE_ME_*` placeholders for every secret (POSTGRES_PASSWORD,
+ADMIN_PASSWD, DB_PASSWORD, RABBITMQ_USER, RABBITMQ_PASS, REDIS_PASSWORD,
+plus the DOMAIN). `make prod-env-check` greps for `CHANGE_ME_` and
+refuses to start the stack if any remain. Redis runs with
+`--requirepass $REDIS_PASSWORD` (dev runs no auth). RabbitMQ uses
+non-default credentials.
+
+### Sub-steps (single-shot — all S1-S5 land in one feature commit)
+
+**Step M38-S1 — Production compose file + named volumes + network**
+
+- [ ] `docker-compose.prod.yml` at repo root with all eight services
+  (postgres, redis, rabbitmq, odoo, nginx, translation-service,
+  llm-service, anki-service, audio-service) on `lexora_prod_net`.
+- [ ] Six named volumes declared at top level.
+- [ ] `restart: unless-stopped` on every service.
+- [ ] NO host port bindings on internal services; nginx publishes
+  80 + 443 only.
+- [ ] `env_file: - .env.prod` on every service that needs secrets.
+
+**Step M38-S2 — Odoo prod config template + entrypoint**
+
+- [ ] `src/configs/odoo.prod.conf.template` with `@@ADMIN_PASSWD@@`
+  and `@@DB_PASSWORD@@` placeholders. `proxy_mode = True`,
+  `workers = 4`, NO dev flag.
+- [ ] `docker_compose/odoo/entrypoint.prod.sh` substitutes env vars
+  → chmod 600 → exec odoo with the resolved config.
+- [ ] Compose mounts the template and the entrypoint into the Odoo
+  container; `command:` / `entrypoint:` overridden to run the script.
+
+**Step M38-S3 — Nginx prod config template + TLS hardening**
+
+- [ ] `docker_compose/nginx/nginx.prod.conf.template` with
+  `${DOMAIN}` placeholders.
+- [ ] HTTP→HTTPS 301 on port 80; full TLS stack on 443.
+- [ ] Modern TLS: TLSv1.2 + TLSv1.3 only; cipher suite favouring
+  ECDHE + AES-GCM / ChaCha20.
+- [ ] Security headers: HSTS, X-Frame-Options, X-Content-Type-Options,
+  Referrer-Policy, Permissions-Policy.
+- [ ] DB-manager paths get the 1800 s timeouts + 2 GB upload cap.
+- [ ] `/etc/letsencrypt:/etc/letsencrypt:ro` bind-mount in compose.
+
+**Step M38-S4 — `.env.prod.example` template**
+
+- [ ] All secrets as `CHANGE_ME_*` placeholders.
+- [ ] `DOMAIN=example.com` placeholder.
+- [ ] Existing dev env vars (LLM model, translation provider, audio
+  engine) carried over with prod-sensible defaults.
+
+**Step M38-S5 — Makefile production targets**
+
+- [ ] `prod-env-check` — verifies `.env.prod` exists and contains no
+  `CHANGE_ME_` placeholders.
+- [ ] `prod-up` — depends on `prod-env-check`; brings up the full
+  stack detached.
+- [ ] `prod-down` — stops the stack (volumes preserved).
+- [ ] `prod-build` — rebuilds custom images (odoo, translation, llm,
+  anki, audio).
+- [ ] `prod-logs` — tails logs from all services.
+- [ ] `prod-ps` — lists prod containers.
+- [ ] `prod-restore-db FILE=…` — wraps the Odoo DB manager restore
+  path; documented as the upgrade trigger if user prefers `pg_restore`.
+
+**Step M38-S6 — Static syntax validation + commit + push**
+
+- [ ] `docker compose -f docker-compose.prod.yml config --quiet`
+  → exits 0 (yaml + interpolation validates).
+- [ ] `bash -n docker_compose/odoo/entrypoint.prod.sh`
+  → exits 0 (shell syntax).
+- [ ] Containerised `nginx -t` against the rendered template
+  (envsubst + nginx -t in a throwaway nginx:alpine container).
+- [ ] ADR-037 in `docs/DECISIONS.md` with the seven sub-decisions.
+- [ ] Commit on `m38_production_readiness`; push to GitHub.
+
+### Out-of-scope for M38 (deliberate, recorded for future revisits)
+
+- **Backup automation.** Dev compose has a `postgres_backup` container
+  + scheduled `backup.sh`. Prod inherits the same pattern is the
+  current dev habit, but for the **infrastructure readiness**
+  milestone we ship only the substrate: backups via Odoo's own
+  `/web/database/manager` + a `make prod-restore-db` wrapper. A
+  future M-thirty-something can wire scheduled `pg_dump` + offsite
+  uploads.
+- **Monitoring** (Prometheus / Grafana / Loki). Dev compose has them;
+  prod intentionally omits them. Add when the operator actually needs
+  alerting.
+- **CI/CD.** Explicit non-goal per user direction. Deploy = `git pull`
+  + `make prod-build` + `make prod-up` on the host.
+- **Horizontal scaling / multiple Odoo workers behind a load balancer.**
+  Single-VPS topology only. Multi-node is a separate milestone.
+- **HSTS preload submission.** The header is set with
+  `preload; includeSubDomains` but the actual hstspreload.org
+  submission is an operator step, not a code change.
+
+### Verification (post-S6)
+
+```bash
+# yaml + variable interpolation
+DOMAIN=example.com ADMIN_PASSWD=stub DB_PASSWORD=stub POSTGRES_PASSWORD=stub \
+  REDIS_PASSWORD=stub RABBITMQ_USER=stub RABBITMQ_PASS=stub \
+  docker compose -f docker-compose.prod.yml config --quiet
+
+# shell script syntax
+bash -n docker_compose/odoo/entrypoint.prod.sh
+
+# nginx config syntax (envsubst + nginx -t in a throwaway container)
+docker run --rm \
+  -e DOMAIN=example.com \
+  -v "$PWD/docker_compose/nginx/nginx.prod.conf.template:/etc/nginx/templates/default.conf.template:ro" \
+  nginx:1.27-alpine nginx -t
+```
+
+**Acceptance:** the three commands above all exit 0. An operator can
+clone `main`, copy `.env.prod.example` to `.env.prod`, fill in real
+secrets, place Let's Encrypt certs under `/etc/letsencrypt/live/${DOMAIN}/`,
+run `make prod-build && make prod-up`, browse to `https://${DOMAIN}`,
+and reach Odoo's setup screen. The `/web/database/manager` page accepts
+the `ADMIN_PASSWD` from `.env.prod` and restores a `.zip` produced from
+the dev environment.
