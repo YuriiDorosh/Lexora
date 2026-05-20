@@ -1,0 +1,393 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- ============================================================ -->
+    <!-- Lexora Privacy Policy  /privacy                              -->
+    <!-- ============================================================ -->
+    <!-- Mirror of docs/PRIVACY_POLICY.md, served as a public web     -->
+    <!-- page (no login required) so it can be linked from the Chrome -->
+    <!-- Web Store listing.  Update both files in lock-step.          -->
+    <!-- ============================================================ -->
+
+    <template id="portal_privacy_page" name="Lexora Privacy Policy">
+        <t t-call="portal.frontend_layout">
+            <div id="wrap" class="oe_structure lx-premium-theme">
+                <section class="container" style="max-width:860px;padding-top:3rem;padding-bottom:4rem">
+
+                    <h1 class="mb-2" style="font-size:clamp(1.9rem,4vw,2.6rem)">
+                        Lexora — Privacy Policy
+                    </h1>
+                    <p class="text-muted mb-4">
+                        <strong>Effective date:</strong> 2026-05-20 ·
+                        <strong>Last updated:</strong> 2026-05-20
+                    </p>
+
+                    <div class="lx-privacy-body" style="line-height:1.65">
+
+                        <p>
+                            This privacy policy explains what information <strong>Lexora</strong>
+                            and the <strong>Lexora Companion</strong> browser extension collect,
+                            how it is used, and what choices you have.  By using the service or
+                            the extension, you agree to the terms below.
+                        </p>
+                        <p>
+                            If you have any questions or want to exercise your rights, write to
+                            <a href="mailto:contact.yuriidorosh@gmail.com">contact.yuriidorosh@gmail.com</a>.
+                        </p>
+
+                        <hr/>
+
+                        <h2 id="who-we-are">1. Who we are</h2>
+                        <p>
+                            Lexora is a personal language-learning platform operated by
+                            <strong>Yurii Dorosh</strong> (trading as <strong>Avantgarde Systems</strong>),
+                            based in Ukraine.  The platform is reachable at
+                            <code>https://lexora.avantgarde.systems</code>.  The Lexora Companion
+                            browser extension is distributed via the Chrome Web Store and talks
+                            to that same instance by default.
+                        </p>
+                        <p>
+                            For data-protection purposes, the operator listed above is the
+                            <strong>data controller</strong> of any personal data described in this policy.
+                        </p>
+
+                        <h2 id="scope">2. What this policy covers</h2>
+                        <p>This single policy covers:</p>
+                        <ul>
+                            <li>The <strong>Lexora web platform</strong> at <code>https://lexora.avantgarde.systems</code>
+                                (portal pages under <code>/my/*</code>, public landing pages, and the API at <code>/lexora_api/*</code>).</li>
+                            <li>The <strong>Lexora Companion</strong> browser extension (Chrome / Chromium-based
+                                browsers), version 1.0.0 and later.</li>
+                            <li>The four backend worker services that the platform calls on your behalf
+                                (translation, LLM enrichment, audio, Anki import).</li>
+                        </ul>
+                        <p>
+                            It does <strong>not</strong> cover third-party websites you visit while the
+                            extension is installed — Lexora does not log, track, or sell your general
+                            browsing activity.
+                        </p>
+
+                        <h2 id="information-we-collect">3. Information we collect</h2>
+
+                        <h3>3.1 Information you provide directly</h3>
+                        <div class="table-responsive">
+                            <table class="table table-sm">
+                                <thead>
+                                    <tr><th>Data</th><th>Where it comes from</th><th>Why we have it</th></tr>
+                                </thead>
+                                <tbody>
+                                    <tr><td>Email address, password (hashed)</td><td>You enter it at signup</td><td>Authenticate you, send security notifications</td></tr>
+                                    <tr><td>Display name, avatar</td><td>Your profile page</td><td>Show you in leaderboards, comments, posts</td></tr>
+                                    <tr><td>Native language, learning languages</td><td>Your profile page</td><td>Personalise translations, PvP duels, dashboard</td></tr>
+                                    <tr><td>Vocabulary entries (words, phrases, sentences)</td><td>You add them via portal, extension, or Anki import</td><td>Core feature — your personal vocabulary list</td></tr>
+                                    <tr><td>Translations, enrichment results</td><td>Generated by the platform when you request them</td><td>Show on vocabulary entry pages</td></tr>
+                                    <tr><td>Posts, articles, comments</td><td>You write them</td><td>Display on the community pages after moderation</td></tr>
+                                    <tr><td>Chat messages (public channels and DMs)</td><td>You send them</td><td>Deliver to recipients</td></tr>
+                                    <tr><td>PvP duel results, XP, streak</td><td>Computed from your activity</td><td>Gamification, leaderboards</td></tr>
+                                    <tr><td>Audio recordings (Audio / Speaking Coach / Shadowing)</td><td>You record them in-browser</td><td>Pronunciation practice, speaking coach</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <h3>3.2 Information collected automatically</h3>
+                        <div class="table-responsive">
+                            <table class="table table-sm">
+                                <thead><tr><th>Data</th><th>When</th><th>Retention</th></tr></thead>
+                                <tbody>
+                                    <tr><td>Session cookie (<code>session_id</code>)</td><td>When you log in</td><td>Browser session + up to 7 days persistent</td></tr>
+                                    <tr><td>Server-side access logs (IP, user agent, URL, timestamp)</td><td>Every HTTPS request</td><td>30 days, then deleted</td></tr>
+                                    <tr><td>Nginx error logs</td><td>On request errors</td><td>30 days</td></tr>
+                                    <tr><td>Postgres query stats (anonymous, aggregate)</td><td>Continuous</td><td>Reset on container restart</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <h3>3.3 Information sent by the Lexora Companion extension</h3>
+                        <p>
+                            Each feature only sends data to your configured Lexora instance
+                            (default: <code>https://lexora.avantgarde.systems</code>).  The extension
+                            talks to <strong>no other server</strong>.  The Lexora server may forward
+                            parts of your request to third parties as described in §5.
+                        </p>
+                        <div class="table-responsive">
+                            <table class="table table-sm">
+                                <thead><tr><th>Feature</th><th>What is sent</th><th>When</th></tr></thead>
+                                <tbody>
+                                    <tr><td>Add Word</td><td>The word/phrase you typed, optional translation/context/source URL</td><td>When you click Save in the popup or context menu</td></tr>
+                                    <tr><td>Contextual Capture</td><td>The selected text + the surrounding sentence + the page URL</td><td>When you choose "Add to Lexora" in the right-click menu</td></tr>
+                                    <tr><td>Quick Look</td><td>The selected text + a language hint</td><td>When you select text and click the floating L icon</td></tr>
+                                    <tr><td>YouTube Overlay</td><td>The clicked subtitle word + the cue text</td><td>When you click a word in a YouTube caption</td></tr>
+                                    <tr><td>Known-word Highlighting</td><td><strong>Nothing</strong> (the vocab list is fetched once, matching happens entirely in your browser)</td><td>On page load</td></tr>
+                                    <tr><td>Grammar Explainer</td><td>The selected phrase + language code</td><td>When you click "Explain Grammar"</td></tr>
+                                    <tr><td>Lexora Writer</td><td>The full text in the focused textarea/contenteditable + an optional context label</td><td>When you click the floating L FAB on a text field</td></tr>
+                                    <tr><td>Slang Explainer</td><td>The selected phrase + source/native language</td><td>When you click "Explain Slang/Idiom"</td></tr>
+                                    <tr><td>Pronunciation Practice</td><td>A short audio recording (WebM/Opus, capped at ~30 s) + the reference text</td><td>When you click "Stop Recording"</td></tr>
+                                    <tr><td>YouTube Vocab Radar</td><td><strong>Nothing</strong> (vocab list fetched once; matching happens entirely in your browser)</td><td>On YouTube page load</td></tr>
+                                    <tr><td>New Tab</td><td>A request for one random vocabulary entry to display</td><td>When you open a new browser tab</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                        <p>
+                            The extension also reads your Lexora session cookie via
+                            <code>chrome.cookies</code> and forwards it as the
+                            <code>X-Lexora-Session-Id</code> header so the server can identify you
+                            across browsers that block third-party cookies.  This cookie is read
+                            <strong>only</strong> for the configured Lexora URL — never from any other site.
+                        </p>
+
+                        <h3>3.4 Information stored locally in your browser</h3>
+                        <p>
+                            The extension persists the following inside Chrome's local storage.
+                            None of this leaves your computer.
+                        </p>
+                        <div class="table-responsive">
+                            <table class="table table-sm">
+                                <thead><tr><th>Key</th><th>Storage area</th><th>Purpose</th></tr></thead>
+                                <tbody>
+                                    <tr><td><code>lexoraBaseUrl</code></td><td><code>chrome.storage.sync</code></td><td>Your Lexora instance URL</td></tr>
+                                    <tr><td><code>lexora_writer_enabled</code></td><td><code>chrome.storage.sync</code></td><td>Writer assistant toggle</td></tr>
+                                    <tr><td><code>lexora_native_language</code></td><td><code>chrome.storage.sync</code></td><td>Slang-explainer language preference</td></tr>
+                                    <tr><td><code>lexora_radar_*</code></td><td><code>chrome.storage.sync</code></td><td>YouTube radar preferences</td></tr>
+                                    <tr><td><code>lx_word_cache</code></td><td><code>chrome.storage.local</code></td><td>Vocabulary list, refreshed every 15 min</td></tr>
+                                    <tr><td><code>lx_radar_vocab_cache</code></td><td><code>chrome.storage.local</code></td><td>Vocabulary list for the radar, refreshed every 15 min</td></tr>
+                                    <tr><td><code>pendingCapture</code></td><td><code>chrome.storage.session</code></td><td>Most recent right-click capture, transient</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                        <p>
+                            You can clear all of this at any time by removing the extension or via
+                            <strong>Chrome → Settings → Privacy &amp; Security → Site settings →
+                            View permissions and data stored across sites</strong>.
+                        </p>
+
+                        <h3>3.5 What the extension does NOT collect</h3>
+                        <ul>
+                            <li><strong>Your general browsing history.</strong>  The extension does <strong>not</strong>
+                                record which pages you visit.</li>
+                            <li><strong>Analytics or telemetry.</strong>  No Google Analytics, no Mixpanel,
+                                no Sentry, no Segment.</li>
+                            <li><strong>Cookies from other sites.</strong>  Scoped to your Lexora URL only.</li>
+                            <li><strong>Microphone access in the background.</strong>  The mic is requested
+                                only when you explicitly click <em>Start Recording</em>.</li>
+                            <li><strong>Form-field contents on pages other than where you click the L FAB.</strong>
+                                The Writer only reads the field after you explicitly click the floating L button.</li>
+                        </ul>
+
+                        <h2 id="how-we-use">4. How we use your information</h2>
+                        <p>We process the data described in §3 only for these purposes:</p>
+                        <ol>
+                            <li><strong>Provide the service.</strong>  Translate vocabulary, generate enrichments,
+                                transcribe audio, run PvP duels, show your dashboard.</li>
+                            <li><strong>Authenticate you.</strong>  Verify your session cookie on every API call.</li>
+                            <li><strong>Improve reliability.</strong>  Read server logs to debug crashes and slow endpoints.</li>
+                            <li><strong>Respond to your requests.</strong>  When you write to the contact email above.</li>
+                            <li><strong>Comply with the law.</strong>  Respond to lawful requests from authorities.</li>
+                        </ol>
+                        <p>We do <strong>not</strong>:</p>
+                        <ul>
+                            <li>Sell, rent, or trade your personal data to anyone.</li>
+                            <li>Run ad networks, retargeting, or behavioural advertising.</li>
+                            <li>Use your vocabulary entries, audio recordings, or chat messages to train ML models.</li>
+                            <li>Share your data with other Lexora users beyond what you explicitly choose to share (see §6).</li>
+                        </ul>
+
+                        <h2 id="third-parties">5. Third parties that process your data on our behalf</h2>
+                        <p>
+                            The Lexora platform calls a small number of external services to provide
+                            specific features.  These calls are made from the Lexora server,
+                            <strong>not from your browser</strong>.
+                        </p>
+                        <div class="table-responsive">
+                            <table class="table table-sm">
+                                <thead><tr><th>Provider</th><th>What is sent</th><th>Purpose</th><th>Their policy</th></tr></thead>
+                                <tbody>
+                                    <tr>
+                                        <td>Google Translate (free public endpoint)</td>
+                                        <td>Text snippets, source/target language codes</td>
+                                        <td>Default translation backend</td>
+                                        <td><a href="https://policies.google.com/privacy" target="_blank" rel="noopener">policies.google.com/privacy</a></td>
+                                    </tr>
+                                    <tr>
+                                        <td>MyMemory (free API)</td>
+                                        <td>Same as above</td>
+                                        <td>Fallback translation backend</td>
+                                        <td><a href="https://mymemory.translated.net/doc/usagelimits.php" target="_blank" rel="noopener">mymemory.translated.net</a></td>
+                                    </tr>
+                                    <tr>
+                                        <td>Microsoft Edge TTS (free public endpoint)</td>
+                                        <td>Text + language code</td>
+                                        <td>Generate pronunciation audio</td>
+                                        <td><a href="https://privacy.microsoft.com/en-us/privacystatement" target="_blank" rel="noopener">privacy.microsoft.com</a></td>
+                                    </tr>
+                                    <tr>
+                                        <td>Hugging Face</td>
+                                        <td>None at runtime; the Lexora server downloads the Qwen LLM model file once on first start</td>
+                                        <td>Initial model download</td>
+                                        <td><a href="https://huggingface.co/privacy" target="_blank" rel="noopener">huggingface.co/privacy</a></td>
+                                    </tr>
+                                    <tr>
+                                        <td>Let's Encrypt</td>
+                                        <td>Domain name only, no user data</td>
+                                        <td>TLS certificate issuance</td>
+                                        <td><a href="https://letsencrypt.org/privacy" target="_blank" rel="noopener">letsencrypt.org/privacy</a></td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                        <p>
+                            The LLM enrichment service (Qwen2.5) runs <strong>entirely on the Lexora server's
+                            own CPU</strong>.  No text leaves the Lexora server for enrichment, grammar
+                            explanation, slang lookup, writing analysis, roleplay, or speaking-coach feedback.
+                        </p>
+                        <p>
+                            The platform does <strong>not</strong> use any analytics provider (Google Analytics,
+                            Plausible, Matomo, etc.), error-tracking provider (Sentry, Rollbar), CDN with
+                            logging, or marketing/email automation system at this time.
+                        </p>
+
+                        <h2 id="platform-visibility">6. Privacy inside the platform</h2>
+                        <div class="table-responsive">
+                            <table class="table table-sm">
+                                <thead><tr><th>Object</th><th>Default</th><th>Sharing</th></tr></thead>
+                                <tbody>
+                                    <tr><td>Vocabulary entries</td><td>Private to you</td><td>You can mark individual entries or your whole list as shared</td></tr>
+                                    <tr><td>Translations, enrichments, audio</td><td>Private to you</td><td>Same visibility as the parent entry</td></tr>
+                                    <tr><td>Profile, level, streak</td><td>Public to other Language Users</td><td>Visible on leaderboards</td></tr>
+                                    <tr><td>Posts and articles</td><td>Draft until you submit; public after moderator approval</td><td>Public when published</td></tr>
+                                    <tr><td>Public chat messages</td><td>Visible to all Language Users in the channel</td><td>N/A</td></tr>
+                                    <tr><td>Private DMs</td><td>Visible to the two participants only</td><td>N/A</td></tr>
+                                    <tr><td>PvP battle history</td><td>Public stats; the vocabulary used is NOT exposed to your opponent</td><td>N/A</td></tr>
+                                    <tr><td>Speaking coach sessions</td><td>Private to you (owner-only record rule)</td><td>N/A</td></tr>
+                                    <tr><td>Pronunciation practice recordings</td><td><strong>Not stored on the server by default</strong></td><td>N/A</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <h2 id="cookies">7. Cookies</h2>
+                        <p>Lexora sets exactly one cookie: <code>session_id</code>.  It is:</p>
+                        <ul>
+                            <li><strong>Strictly necessary</strong> — without it you cannot log in.</li>
+                            <li><strong>HTTPS-only</strong> in production (the <code>Secure</code> flag is set).</li>
+                            <li><strong>HttpOnly</strong> — JavaScript on the page cannot read it.</li>
+                            <li><strong>SameSite=Lax</strong> — sent with top-level navigation only.</li>
+                        </ul>
+                        <p>
+                            We do <strong>not</strong> set any analytics, advertising, or social-media cookies.
+                            We do not embed third-party scripts from analytics or ad networks.
+                        </p>
+
+                        <h2 id="retention">8. Data retention</h2>
+                        <div class="table-responsive">
+                            <table class="table table-sm">
+                                <thead><tr><th>Data</th><th>Retention</th></tr></thead>
+                                <tbody>
+                                    <tr><td>Account, vocabulary, posts, chat, leaderboard stats</td><td>For the lifetime of your account</td></tr>
+                                    <tr><td>Server access logs</td><td>30 days</td></tr>
+                                    <tr><td>Pronunciation practice audio</td><td>Discarded immediately after transcription + scoring</td></tr>
+                                    <tr><td>Speaking coach audio</td><td>Private attachment, deleted when you delete the session row</td></tr>
+                                    <tr><td>Nginx error logs</td><td>30 days</td></tr>
+                                    <tr><td>Translation / LLM requests</td><td>Not logged (only stats counters)</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                        <p>
+                            When you delete your account, we apply the policy in our SPEC §6:
+                            private vocabulary, audio, import logs, and private DMs are
+                            <strong>hard-deleted</strong>; public posts, comments, public chat messages, PvP
+                            battle records, and leaderboard standings are <strong>anonymised</strong>
+                            (author becomes "Deleted User") to preserve thread integrity.
+                        </p>
+
+                        <h2 id="rights">9. Your rights</h2>
+                        <p>
+                            If you are in the European Economic Area, the United Kingdom, Ukraine,
+                            or any other jurisdiction with similar data-protection laws, you have:
+                        </p>
+                        <ul>
+                            <li><strong>Access</strong> — request a copy of the personal data we hold about you.</li>
+                            <li><strong>Rectification</strong> — correct inaccurate data.</li>
+                            <li><strong>Erasure</strong> — delete your account and the data tied to it as described in §8.</li>
+                            <li><strong>Restriction</strong> — ask us to stop processing your data in specific ways.</li>
+                            <li><strong>Portability</strong> — receive your vocabulary and posts in a machine-readable format.</li>
+                            <li><strong>Objection</strong> — object to processing based on our legitimate interests.</li>
+                            <li><strong>Withdraw consent</strong> — at any time without affecting the lawfulness of past processing.</li>
+                        </ul>
+                        <p>
+                            To exercise any of these rights, write to
+                            <a href="mailto:contact.yuriidorosh@gmail.com">contact.yuriidorosh@gmail.com</a>.
+                            We will respond within 30 days.
+                        </p>
+                        <p>
+                            You also have the right to <strong>complain to your local data-protection
+                            authority</strong> if you believe we have mishandled your data.
+                        </p>
+
+                        <h2 id="security">10. Security</h2>
+                        <ul>
+                            <li>All connections to <code>https://lexora.avantgarde.systems</code> use TLS 1.2 or 1.3.</li>
+                            <li>HSTS is set with <code>max-age=31536000; includeSubDomains; preload</code>.</li>
+                            <li>Passwords are stored using Odoo's standard salted hashes (<code>pbkdf2_sha512</code>).</li>
+                            <li>The session cookie is <code>HttpOnly</code>, <code>Secure</code>, <code>SameSite=Lax</code>.</li>
+                            <li>Strict response headers (<code>X-Frame-Options</code>, <code>X-Content-Type-Options</code>,
+                                <code>Referrer-Policy</code>, <code>Permissions-Policy</code>).</li>
+                            <li>Postgres, Redis, and RabbitMQ are not reachable from the public Internet.</li>
+                            <li>The master password is stored encrypted on disk inside the running container only.</li>
+                        </ul>
+                        <p>
+                            If you believe you have found a vulnerability, please write to
+                            <a href="mailto:contact.yuriidorosh@gmail.com">contact.yuriidorosh@gmail.com</a>
+                            before public disclosure.
+                        </p>
+
+                        <h2 id="children">11. Children</h2>
+                        <p>
+                            Lexora is not directed at children under 13 (or under 16 in the EU and UK).
+                            We do not knowingly collect personal data from children.
+                        </p>
+
+                        <h2 id="international">12. International transfers</h2>
+                        <p>
+                            Lexora is hosted on a single VPS located in the United States.  If you access
+                            the service from outside the United States, your data will cross borders.
+                            We rely on the legitimate-interests basis under the GDPR and on the standard
+                            contractual clauses of the third-party providers listed in §5 to provide an
+                            adequate level of protection.
+                        </p>
+
+                        <h2 id="changes">13. Changes to this policy</h2>
+                        <p>
+                            We may update this policy as Lexora evolves.  The <strong>Last updated</strong>
+                            date at the top of this page changes whenever we make a substantive change.
+                            If the change is material, we will also notify logged-in users via a banner
+                            on their dashboard or by email.  Older versions are tracked in the project's
+                            public git history at <code>docs/PRIVACY_POLICY.md</code>.
+                        </p>
+
+                        <h2 id="contact">14. Contact</h2>
+                        <div class="table-responsive">
+                            <table class="table table-sm">
+                                <tbody>
+                                    <tr><td>Privacy questions, data-subject requests</td>
+                                        <td><a href="mailto:contact.yuriidorosh@gmail.com">contact.yuriidorosh@gmail.com</a></td></tr>
+                                    <tr><td>Security vulnerability reports</td>
+                                        <td><a href="mailto:contact.yuriidorosh@gmail.com">contact.yuriidorosh@gmail.com</a></td></tr>
+                                    <tr><td>Operator (data controller)</td>
+                                        <td>Yurii Dorosh (Avantgarde Systems), Ukraine</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <hr/>
+                        <p class="text-muted small">
+                            <em>This policy is provided under the same proprietary licence as the Lexora
+                            source code.  It is not a substitute for legal advice; if you operate a fork
+                            of Lexora at a different URL, you must publish your own policy.</em>
+                        </p>
+
+                    </div>
+                </section>
+            </div>
+        </t>
+    </template>
+
+</odoo>
