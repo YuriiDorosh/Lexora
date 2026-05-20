@@ -1,6 +1,6 @@
 'use strict';
 
-const DEFAULT_BASE_URL = 'http://localhost:5433';
+const DEFAULT_BASE_URL = 'https://lexora.avantgarde.systems';
 
 document.addEventListener('DOMContentLoaded', () => {
   const input    = document.getElementById('lx-base-url');

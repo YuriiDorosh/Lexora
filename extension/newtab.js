@@ -10,7 +10,7 @@
 //   - Refresh and Practice CTAs
 // ---------------------------------------------------------------------------
 
-const DEFAULT_BASE_URL = 'http://localhost:5433';
+const DEFAULT_BASE_URL = 'https://lexora.avantgarde.systems';
 
 const LANG_FLAGS = { en: '🇬🇧', uk: '🇺🇦', el: '🇬🇷', pl: '🇵🇱' };
 const LANG_NAMES = { en: 'English', uk: 'Ukrainian', el: 'Greek', pl: 'Polish' };

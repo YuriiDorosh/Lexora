@@ -1,6 +1,6 @@
 'use strict';
 
-const DEFAULT_BASE_URL = 'http://localhost:5433';
+const DEFAULT_BASE_URL = 'https://lexora.avantgarde.systems';
 const ADD_WORD_PATH = '/lexora_api/add_word';
 
 const $ = id => document.getElementById(id);
@@ -14,11 +14,12 @@ async function getBaseUrl() {
 }
 
 // ---------------------------------------------------------------------------
-// Session bridge: Chrome blocks SameSite=Lax cookies on cross-origin fetches
-// from extension → HTTP localhost.  We read the cookie explicitly via the
-// chrome.cookies API (requires "cookies" permission + host_permissions) and
-// forward it as a custom header X-Lexora-Session-Id.  Odoo reads that header
-// and loads the session from its store, bypassing the SameSite restriction.
+// Session bridge: Chrome treats extension → Lexora as a cross-origin fetch,
+// which means SameSite=Lax cookies are not automatically attached.  We read
+// the session cookie explicitly via the chrome.cookies API (requires the
+// "cookies" permission + host_permissions) and forward it as a custom
+// header X-Lexora-Session-Id.  Odoo reads that header and loads the session
+// from its store, bypassing the SameSite restriction.
 // ---------------------------------------------------------------------------
 async function getSessionHeader(baseUrl) {
   return new Promise(resolve => {
@@ -128,7 +129,7 @@ async function init() {
     const linkWrap = $('lx-login-link-wrap');
     linkWrap.innerHTML = `<a href="${baseUrl}/web/login" target="_blank">Log in to Lexora →</a>`;
 
-    // Surface the localhost vs 127.0.0.1 tip
+    // Surface the self-hosting tip (Options page link)
     const tip = document.getElementById('lx-url-tip');
     if (tip) tip.style.display = 'block';
     return;

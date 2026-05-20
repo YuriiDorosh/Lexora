@@ -11,7 +11,9 @@
 // Badge feedback: ✓ saved (green) | = duplicate (amber) | ! error (red)
 // ---------------------------------------------------------------------------
 
-const DEFAULT_BASE_URL = 'http://localhost:5433';
+// Default Lexora instance the extension talks to.  Self-hosters can
+// override via the Options page (chrome.storage.sync.lexoraBaseUrl).
+const DEFAULT_BASE_URL = 'https://lexora.avantgarde.systems';
 const ADD_WORD_PATH = '/lexora_api/add_word';
 
 async function getBaseUrl() {
@@ -109,7 +111,7 @@ async function handleDefine({ word, lang }) {
   if (!word) return { status: 'error', message: 'word required' };
 
   const baseUrl = await getBaseUrl();
-  console.log('[Lexora BG] baseUrl from storage:', baseUrl, '(must be http://localhost:5433 or your Lexora URL)');
+  console.log('[Lexora BG] baseUrl:', baseUrl);
   const sessionHeaders = await getSessionHeader(baseUrl);
   console.log('[Lexora BG] session headers:', sessionHeaders);
 

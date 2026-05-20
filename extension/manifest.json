@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "Lexora — Save Words",
-  "version": "0.1.0",
-  "description": "Save words and phrases to your Lexora vocabulary with one click.",
+  "name": "Lexora Companion",
+  "version": "1.0.0",
+  "description": "Save vocabulary from any page, see your known words highlighted, look up grammar & idioms, and practice pronunciation with Lexora.",
   "permissions": [
     "storage",
     "contextMenus",
