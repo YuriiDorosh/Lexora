@@ -19,7 +19,16 @@
 set -eu
 
 TPL=/etc/odoo/odoo.prod.conf.template
-OUT=/etc/odoo/odoo.conf
+# Render to /tmp: the official odoo:18 image owns /etc/odoo as root:root
+# (mode 755) and runs the container as the unprivileged `odoo` user, which
+# can overwrite existing files in /etc/odoo but cannot create new files
+# there.  `sed -i` needs to create a tempfile in the target directory
+# before atomically renaming it, so writing the rendered conf inside
+# /etc/odoo crashes with "Permission denied" on every restart.
+# /tmp is universally writable and the rendered conf is re-generated on
+# every container start anyway — no need for it to live on a persistent
+# path.  See ADR-037 §37d.
+OUT=/tmp/odoo.prod.conf
 
 if [ ! -f "$TPL" ]; then
     echo "[entrypoint.prod] FATAL: template not found at $TPL" >&2
