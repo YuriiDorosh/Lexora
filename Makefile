@@ -586,7 +586,7 @@ prod-up: prod-env-check
 	$(PROD_COMPOSE) $(PROD_ENV) up -d
 	@echo ""
 	@echo "Production stack starting.  Health-check after ~60 s:"
-	@echo "  curl -I https://\$$DOMAIN"
+	@echo "  curl -I https://lexora.avantgarde.systems"
 	@echo "  make prod-logs        # tail every service"
 	@echo "  make prod-ps          # list containers"
 
@@ -632,7 +632,7 @@ prod-restore-db:
 	@echo "════════════════════════════════════════════════════════════"
 	@echo ""
 	@echo " 1. Make sure the prod stack is up: make prod-up"
-	@echo " 2. Browse to:  https://\$$DOMAIN/web/database/manager"
+	@echo " 2. Browse to:  https://lexora.avantgarde.systems/web/database/manager"
 	@echo " 3. Click 'Restore Database'"
 	@echo " 4. Master Password:  value of ADMIN_PASSWD in .env.prod"
 	@echo " 5. File:             your .zip backup (max 2 GB)"
@@ -640,6 +640,6 @@ prod-restore-db:
 	@echo " 7. Click 'Continue'"
 	@echo ""
 	@echo " If the upload exceeds 2 GB, raise nginx's client_max_body_size"
-	@echo " in docker_compose/nginx/nginx.prod.conf.template and run"
+	@echo " in docker_compose/nginx/nginx.prod.conf and run"
 	@echo " 'make prod-restart SVC=nginx'."
 	@echo "════════════════════════════════════════════════════════════"
