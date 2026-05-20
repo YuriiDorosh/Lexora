@@ -51,8 +51,14 @@ workers          = 4
 ; -- Memory / connection limits (production-tuned) ------------
 ; Defaults below are conservative for an 8 GiB target host.
 ; Raise on bigger hardware.
-limit_memory_soft = 671088640    ; 640 MB
-limit_memory_hard = 805306368    ; 768 MB
+; NOTE: inline comments on the same line as a value are NOT
+; supported by Odoo's option parser; keep numeric values clean
+; and put any annotation on the line above.
+;
+; limit_memory_soft = 640 MB
+limit_memory_soft = 671088640
+; limit_memory_hard = 768 MB
+limit_memory_hard = 805306368
 limit_request     = 8192
 limit_time_cpu    = 600
 limit_time_real   = 1200
