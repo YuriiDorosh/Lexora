@@ -643,3 +643,50 @@ prod-restore-db:
 	@echo " in docker_compose/nginx/nginx.prod.conf and run"
 	@echo " 'make prod-restart SVC=nginx'."
 	@echo "════════════════════════════════════════════════════════════"
+
+# ============================================================
+# Lexora Companion — Chrome Web Store packaging
+# ============================================================
+# Produces a reproducible upload-ready .zip from extension/.
+# Reads the version straight out of extension/manifest.json so the
+# filename and the manifest never drift.
+#
+# Usage:
+#   make ext-package
+#
+# Output:
+#   dist/lexora-companion-<version>.zip
+#
+# What's excluded (so they never reach the store reviewer):
+#   - macOS metadata (.DS_Store, __MACOSX)
+#   - editor backups (*.swp, *~, *.bak, *.orig)
+#   - VCS dirs (.git, .gitignore)
+#   - any node_modules/ folder if one ever appears
+# ============================================================
+
+.PHONY: ext-package
+
+ext-package:
+	@which zip > /dev/null || (echo "ERROR: 'zip' is not installed.  apt install zip"; exit 1)
+	@which python3 > /dev/null || (echo "ERROR: python3 is required to read manifest.json"; exit 1)
+	@VERSION=$$(python3 -c "import json; print(json.load(open('extension/manifest.json'))['version'])"); \
+	NAME="lexora-companion-$$VERSION"; \
+	OUT="dist/$$NAME.zip"; \
+	mkdir -p dist; \
+	rm -f "$$OUT"; \
+	echo ""; \
+	echo "Packaging Lexora Companion v$$VERSION …"; \
+	(cd extension && zip -r -q "../$$OUT" . \
+	    -x "*.DS_Store" \
+	    -x "__MACOSX/*" \
+	    -x "*.swp" -x "*~" -x "*.bak" -x "*.orig" \
+	    -x ".git/*" -x ".gitignore" \
+	    -x "node_modules/*"); \
+	echo ""; \
+	echo "Wrote $$OUT"; \
+	ls -lh "$$OUT"; \
+	echo ""; \
+	echo "Contents:"; \
+	unzip -l "$$OUT" | tail -n +4 | head -n -2; \
+	echo ""; \
+	echo "Upload at: https://chrome.google.com/webstore/devconsole"

@@ -36,6 +36,7 @@
         'views/portal_phrasebook.xml',
         'views/portal_sentence_builder.xml',
         'views/portal_speaking.xml',
+        'views/portal_privacy.xml',
     ],
     'assets': {
         'web.assets_frontend': [
