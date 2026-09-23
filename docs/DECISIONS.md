@@ -2591,6 +2591,13 @@ clarification round with the user.
 
 ### Sub-decision 38a: rule-based parser, LLM only as a fallback classifier
 
+> **Amended same-day by § 38g** — real Preply canvas content turned out
+> not to resemble the marker format at all (see below). The rule-based
+> parser and its "LLM classifies stray lines" mandate described here are
+> unchanged and remain the fast path for marker-formatted text; § 38g
+> adds a document-level LLM extraction fallback for text with zero
+> recognised markers, which this sub-decision did not anticipate.
+
 **Decision:** `language_lessons.models.lesson_parser.parse_lesson_text()`
 is a pure Python function with **no ORM and no LLM call**. It recognises
 explicit section markers (`Topic:` / `Vocab:` / `Phrases:` / `Mistakes:`
@@ -2706,8 +2713,111 @@ the Phase 1 data model (`language.lesson.user_id`, no `channel_id` yet)
 doesn't need a breaking shape change when Phase 2 adds the tutor-access
 mechanism.
 
+### Sub-decision 38g: LLM extraction fallback for freeform canvas text (amendment, same day)
+
+**Context that forced this amendment:** § 38a's marker format
+(`Topic:`/`Vocab:`/...) was designed as something a *user* types by
+hand for a quick note. Real Preply lesson content pasted straight from
+the canvas turned out to be nothing like it — two actual lesson
+documents supplied by the user during Phase-1 smoke testing were full
+methodology pages: objectives, "Category | Words" and "Function |
+Phrase | Example" tables (each cell on its own line when copy-pasted
+as plain text, no visible pipe delimiters), full dialogues, role-play
+prompts, homework instructions, and correction exercises that use the
+same `->` convention § 38a expected but under headings like `"Exercise
+- Rewrite These Answers"` that the parser doesn't recognise. Neither
+document contains a single line matching any of the six section
+keywords. Fed through the § 38a parser as-is, both produced garbage:
+multi-word comma lists collapsed into a single unusable `note` blob,
+multiple dash-bulleted words crammed onto one line became one item,
+table header cells (`Category`, `Words`) got mis-filed as vocab, and
+the `->` correction pairs — physically present in the text — were
+never split because no recognised section was active when the parser
+reached them.
+
+**Decision:** `language.lesson.action_parse()` runs the rule-based
+parser first, unchanged. `parse_lesson_text()` now also returns
+`markers_found: bool` — true iff at least one of the six section
+headers matched anywhere in the text. When `markers_found` is `False`,
+`action_parse()` discards the (mostly-garbage) rule-based result and
+calls a new sync LLM endpoint, `POST /extract-lesson` on the LLM
+service, sending the **whole raw pasted text** (capped at 3000 chars —
+see below) and getting back the identical `{topic, items[]}` shape
+`parse_lesson_text()` produces. Every downstream consumer — item
+creation, novelty analysis, the portal templates — is unaware of which
+path ran; a new `language.lesson.parse_method` field
+(`rule_based`/`llm`) records which one did, surfaced as a small "🤖
+AI-extracted" badge in the portal so the user can calibrate trust
+accordingly (the LLM path has non-zero mis-extraction risk; the
+rule-based path is deterministic by construction).
+
+**Why a document-level gate, not per-line LLM fallback:** § 38a's
+original "LLM only reclassifies stray lines" plan assumed the overall
+document structure (which lines belong to which conceptual group) was
+already correctly recovered by the rule-based pass, and only individual
+ambiguous lines needed a second opinion. The real failure mode is
+different: the rule-based pass doesn't even correctly SEGMENT a
+freeform document — there's no reliable per-line signal at all once
+there are no headers and content spans multi-line tables and dialogues.
+Trying to patch that with more line-level heuristics is chasing whatever
+lesson-plan template this or the next tutor happens to use (this was
+explicitly the "Option 3" alternative discussed with the user and
+rejected as too brittle). A single "does this ENTIRE document have any
+markers" gate is deterministic, cheap to compute, and cleanly explains
+which of two completely different extraction strategies ran.
+
+**Why extraction targets the same `{topic, items[]}` JSON shape:**
+matches the established sync-endpoint contract table (ADR-031 § 31a) —
+Pydantic request, plain-prose system prompt with the shape inlined, one
+worked few-shot example (distilled from the user's own household-items
+lesson: title → table-cell splitting → phrase+example extraction →
+skip-objectives → arrow-pair correction, all in one compact example,
+per the M30/M31/M32 lesson that a worked example teaches a 1.5B model
+far more reliably than a description), `_parse_enrichment_json`
+tolerant parsing, defensive server-side coercion (`_coerce_lesson_items`,
+capped at 40 items, enum-clamped `item_type`), and an explicit stub
+response (`items: []`, `stub: true`) rather than a guess when the model
+isn't loaded. Reusing the exact shape means zero changes anywhere in
+`language.lesson.item` creation, novelty analysis, or the portal
+templates — the LLM path is a drop-in alternative producer for the same
+parser contract, not a parallel code path.
+
+**Input cap and its consequence:** `_LESSON_EXTRACT_MAX_CHARS = 3000`
+on the LLM service, truncating (never rejecting) longer input, with a
+`truncated: bool` flag in the response for future UI use. This is a
+real, accepted limitation — `LLM_N_CTX` defaults to 2048 tokens
+(ADR-027); system prompt + few-shot example + a long lesson + up to 40
+JSON items in the completion would blow that budget. Both of the user's
+real example lessons (~500-800 words) fit comfortably under the cap;
+a much longer lesson would currently lose its tail. Documented as a
+revisit trigger, not solved now.
+
+**What did NOT change:** the § 38a rule-based parser itself, its 20
+unit tests, the marker-format fast path, and every piece of § 38b-38f.
+A hand-typed quick note using the marker convention still never touches
+the LLM, costs nothing, and returns instantly — exactly as § 38a
+intended. This amendment only widens what happens when that fast path's
+precondition (recognisable markers) isn't met.
+
 ### Revisit triggers
 
+- **`_LESSON_EXTRACT_MAX_CHARS` (§ 38g).** 3000 chars comfortably covers
+  the two real lessons seen so far but will truncate longer lesson
+  documents. If that turns out to matter in practice: raise `LLM_N_CTX`
+  for the whole service (RAM/latency trade-off per ADR-027), or chunk
+  long lessons into multiple extraction calls and merge the item lists.
+- **Extraction quality on real lessons has not yet been measured
+  end-to-end against a live model** — the Phase-1 code path was
+  verified with mocked HTTP responses in tests; the first real
+  extraction against the user's own two example lessons should be
+  smoke-tested once deployed, the same way M30/M31/M32's few-shot
+  anchors were tuned after real failures, not before.
+- **Curated per-tutor templates.** If one tutor's lesson-plan shape
+  recurs often enough, a light rule-based pre-processor specific to
+  that shape (Option 3 from the discussion, rejected as the general
+  solution) could still be added as a THIRD path ahead of the LLM
+  fallback for that one template — cheaper and more reliable than LLM
+  extraction for a shape seen often enough to be worth hand-coding.
 - **Lemmatization.** If false-new rates from conjugated/declined forms
   turn out to be a real nuisance in practice, add `simplemma` (or
   equivalent) as an explicit follow-up with its own ADR sub-decision —

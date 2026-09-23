@@ -1537,3 +1537,172 @@ def evaluate_pronunciation_endpoint(req: EvaluatePronunciationRequest):
     result = _evaluate_pronunciation(reference, transcript, req.language)
     result["status"] = "ok"
     return result
+
+
+# ---------------------------------------------------------------------------
+# Lesson extraction (M39 ADR-038 § 38g) — freeform-canvas fallback for the
+# language_lessons rule-based marker parser. Only called by Odoo when the
+# rule-based parser found ZERO recognised section markers in the pasted
+# text; the marker-based fast path never touches this endpoint. Output
+# shape mirrors language_lessons/models/lesson_parser.py's
+# parse_lesson_text() exactly, so the novelty-analysis pipeline downstream
+# is completely unaware of which path produced the items.
+# ---------------------------------------------------------------------------
+
+
+class ExtractLessonRequest(BaseModel):
+    raw_text: str
+    language: str = "en"
+
+
+_VALID_LESSON_ITEM_TYPES = {"vocab", "phrase", "correction", "grammar", "note"}
+_LESSON_EXTRACT_MAX_ITEMS = 40
+
+# Plain prose, explicit JSON shape (M18-FIX-09 rule). The few-shot example
+# below carries most of the structural teaching — a 1.5B model generalises
+# from a worked example far more reliably than from a description alone
+# (same lesson learned in M30/M31/M32).
+_EXTRACT_LESSON_SYSTEM_PROMPT = (
+    "You extract structured study material from a messy, pasted English-"
+    "tutoring lesson document (it may contain tables, dialogues, homework "
+    "instructions, and objectives all mixed together). Reply with ONLY a "
+    "JSON object — no preamble, no markdown — with two keys: \"topic\" "
+    "(a short title string, or null) and \"items\" (a list of objects). "
+    "Each item has: \"item_type\" (one of vocab, phrase, correction, "
+    "grammar, note), \"text\", \"translation_hint\" (or null), "
+    "\"corrected_text\" (or null, only for corrections), \"context\" (an "
+    "example sentence, or null). Split comma-separated word lists and "
+    "table cells into SEPARATE vocab items — one word or short expression "
+    "per item, never a whole list crammed into one item. Single words are "
+    "vocab; multi-word expressions are phrase. Extract wrong -> correct "
+    "sentence pairs as correction items. Extract named grammar or language "
+    "topics as grammar items. SKIP lesson objectives, homework "
+    "instructions, role-play prompts, and full dialogues entirely — do "
+    "not turn them into items. Limit to the 40 most useful items."
+)
+
+_EXTRACT_LESSON_EXAMPLE_INPUT = (
+    "Household Items\n"
+    "Lesson Objectives\n"
+    "• Name common rooms and furniture\n\n"
+    "Category | Words\n"
+    "Rooms | living room, kitchen, bathroom\n\n"
+    "Function | Phrase | Example\n"
+    "Describing home | There is / there are | There is a small kitchen.\n\n"
+    "Exercise\n"
+    "\"I think I worked with it maybe.\" -> \"I worked with it.\"\n"
+)
+
+_EXTRACT_LESSON_EXAMPLE_OUTPUT = json.dumps({
+    "topic": "Household Items",
+    "items": [
+        {"item_type": "vocab", "text": "living room", "translation_hint": None,
+         "corrected_text": None, "context": None},
+        {"item_type": "vocab", "text": "kitchen", "translation_hint": None,
+         "corrected_text": None, "context": None},
+        {"item_type": "vocab", "text": "bathroom", "translation_hint": None,
+         "corrected_text": None, "context": None},
+        {"item_type": "phrase", "text": "There is / there are", "translation_hint": None,
+         "corrected_text": None, "context": "There is a small kitchen."},
+        {"item_type": "correction", "text": "I think I worked with it maybe.",
+         "translation_hint": None, "corrected_text": "I worked with it.", "context": None},
+    ],
+})
+
+
+def _coerce_lesson_items(raw_items) -> list[dict]:
+    """Defensive server-side coerce — the Odoo caller does its own pass
+    too (belt-and-suspenders, same as every other sync endpoint's
+    contract table in ADR-031 § 31a)."""
+    if not isinstance(raw_items, list):
+        return []
+    cleaned = []
+    for raw in raw_items[:_LESSON_EXTRACT_MAX_ITEMS]:
+        if not isinstance(raw, dict):
+            continue
+        item_type = str(raw.get("item_type") or "").strip().lower()
+        text = str(raw.get("text") or "").strip()
+        if item_type not in _VALID_LESSON_ITEM_TYPES or not text:
+            continue
+
+        def _opt(key):
+            val = raw.get(key)
+            val = str(val).strip() if val else ""
+            return val or None
+
+        cleaned.append({
+            "item_type": item_type,
+            "text": text[:300],
+            "translation_hint": _opt("translation_hint"),
+            "corrected_text": _opt("corrected_text"),
+            "context": _opt("context"),
+        })
+    return cleaned
+
+
+def _extract_lesson(raw_text: str, language: str) -> dict:
+    """Return {topic, items[]} extracted from freeform lesson text.
+
+    Stub on _llm_ready=False — returns an empty item list (with stub=True)
+    rather than guessing, so a badly-timed request never produces
+    fabricated vocabulary.
+    """
+    if not _llm_ready or _llm is None:
+        return {"topic": None, "items": [], "stub": True}
+
+    lang_name = LANG_NAMES.get(language, language or "English")
+    user_content = (
+        "Extract structured items from this lesson document. Follow the "
+        "exact JSON shape from the example.\n\n"
+        f"Example input:\n{_EXTRACT_LESSON_EXAMPLE_INPUT}\n\n"
+        f"Example output:\n{_EXTRACT_LESSON_EXAMPLE_OUTPUT}\n\n"
+        f"Now extract from this document (language: {lang_name}):\n{raw_text}"
+    )
+    messages = [
+        {"role": "system", "content": _EXTRACT_LESSON_SYSTEM_PROMPT},
+        {"role": "user", "content": user_content},
+    ]
+
+    try:
+        result = _llm.create_chat_completion(
+            messages=messages,
+            response_format={"type": "json_object"},
+            max_tokens=1500,
+            temperature=0.3,
+            repeat_penalty=1.1,
+        )
+        raw = result["choices"][0]["message"]["content"]
+    except Exception as exc:
+        _logger.error("extract-lesson generation failed: %s", exc)
+        return {"topic": None, "items": [], "error": str(exc)}
+
+    try:
+        parsed = _parse_enrichment_json(raw)
+    except Exception as exc:
+        _logger.error("extract-lesson JSON parse failed: %s — raw=%r", exc, raw[:300])
+        return {"topic": None, "items": [], "parse_error": True}
+
+    topic = parsed.get("topic")
+    topic = str(topic).strip() if isinstance(topic, str) and topic.strip() else None
+    return {"topic": topic, "items": _coerce_lesson_items(parsed.get("items"))}
+
+
+# Input is capped well below LLM_N_CTX (2048 tokens default, ADR-027) to
+# leave room for the system prompt + few-shot example + completion. A
+# very long lesson gets truncated rather than rejected — better a partial
+# extraction than none. Revisit if LLM_N_CTX is raised for other reasons.
+_LESSON_EXTRACT_MAX_CHARS = 3000
+
+
+@app.post("/extract-lesson")
+def extract_lesson_endpoint(req: ExtractLessonRequest):
+    text = (req.raw_text or "").strip()
+    if not text:
+        return {"status": "error", "message": "raw_text is required", "topic": None, "items": []}
+    truncated = len(text) > _LESSON_EXTRACT_MAX_CHARS
+    text = text[:_LESSON_EXTRACT_MAX_CHARS]
+
+    result = _extract_lesson(text, req.language)
+    result["status"] = "ok"
+    result["truncated"] = truncated
+    return result

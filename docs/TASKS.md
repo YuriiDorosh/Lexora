@@ -88,8 +88,50 @@ user** (full rationale in ADR-038):
   stays seen) / known (SRS review) / seen (prior lesson only, no
   active entry) / longest sub-phrase match / recurring mistake /
   idempotent re-parse (no duplicate entries on re-run) / parse
-  state+topic / reparse item replacement. **Not yet executed** —
-  needs the user's Docker stack (`make up-dev`); see M39-S6.
+  state+topic / reparse item replacement.
+
+**Step M39-S3-FIX — LLM extraction fallback (ADR-038 § 38g, same day)**
+
+Real Preply canvas text (two actual lesson exports the user pasted
+during smoke testing) turned out not to resemble the marker format at
+all — full lesson-plan documents with tables/dialogues/homework, zero
+recognised markers. The § 38a rule-based parser mangled both (comma
+vocab lists collapsed into unusable `note` blobs, table headers
+mis-filed as vocab, `->` correction pairs never split since no section
+was active). See ADR-038 § 38g for the full before/after analysis.
+
+- [x] M39-S3-FIX-01 · `models/lesson_parser.py` — `parse_lesson_text()`
+  now returns `markers_found: bool`. Confirmed via a standalone script:
+  both real lesson examples → `markers_found=False`; the clean
+  marker-formatted synthetic example → `markers_found=True`.
+- [x] M39-S3-FIX-02 · `services/llm/main.py` — new sync
+  `POST /extract-lesson` endpoint (Pydantic request, plain-prose system
+  prompt, one worked few-shot example distilled from the user's own
+  household-items lesson, `response_format=json_object`,
+  `_parse_enrichment_json` reuse, defensive `_coerce_lesson_items`
+  capped at 40 items, stub response when `_llm_ready=False`,
+  `_LESSON_EXTRACT_MAX_CHARS=3000` truncation with a `truncated` flag).
+- [x] M39-S3-FIX-03 · `models/language_lesson.py` — `action_parse()`
+  branches on `markers_found`; on `False`, calls
+  `_llm_extract_lesson()` (POSTs to the LLM service, returns the
+  identical `{topic, items[]}` shape, raises a user-facing `UserError`
+  on any HTTP failure). New `parse_method` field
+  (`rule_based`/`llm`) records which path ran. Empty LLM extraction
+  result → `state='error'` with a clear message, never a silently-empty
+  "analyzed" lesson.
+- [x] M39-S3-FIX-04 · `views/portal_lessons.xml` — "🤖 AI-extracted"
+  badge next to the status line when `parse_method == 'llm'`.
+  `views/language_lesson_views.xml` — `parse_method` field on the
+  backend form.
+- [x] M39-S3-FIX-05 · `tests/test_language_lesson.py` — 4 new tests,
+  `requests.post` mocked (no live LLM call in the test env, same
+  pattern as the RabbitMQ-publish mock): LLM path used + items created
+  when no markers found; LLM never called when markers ARE found;
+  service-down → `state='error'` with a helpful message; empty LLM
+  result → `state='error'` (not a silently-empty analyzed lesson).
+- [x] M39-S3-FIX-06 · Static checks (`py_compile`, `ast.parse`,
+  `xml.etree`) all green. **`--test-enable` has not yet been run** —
+  see M39-S6 below.
 
 **Step M39-S4 — Security + backend views**
 

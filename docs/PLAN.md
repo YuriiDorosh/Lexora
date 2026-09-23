@@ -4456,6 +4456,18 @@ material.
   / ADR-033 § 34e) — ported to server-side Python since there's no DOM or
   network interception involved here, just a short lesson-item string
   checked against the user's own entry set.
+- **Amendment (same day, ADR-038 § 38g):** real Preply canvas text turned
+  out not to resemble the marker format at all — it's full lesson-plan
+  documents (objective lists, "Category | Words" / "Function | Phrase |
+  Example" tables, dialogues, homework), confirmed against two real
+  lesson exports the user supplied. `action_parse()` now runs the
+  rule-based parser first; if it finds **zero** section markers anywhere
+  in the text, the whole raw text is sent to a new sync LLM endpoint
+  (`POST /extract-lesson`) instead, which returns the identical
+  `{topic, items[]}` shape. Every downstream step (entry creation,
+  novelty analysis, portal templates) is unaware of which path ran; a
+  new `parse_method` field (`rule_based`/`llm`) records which one did.
+  A hand-typed marker-formatted note still never touches the LLM.
 
 ### Phase 1 — parser, novelty analysis, manual portal import (this milestone)
 

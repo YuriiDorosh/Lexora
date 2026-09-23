@@ -5,13 +5,14 @@ Every ``language.entry.create()`` call auto-enqueues translation jobs
 translation tests do — no real RabbitMQ connection in the test env.
 """
 
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from odoo.tests.common import TransactionCase
 
 _PUBLISHER_PATH = (
     'odoo.addons.language_core.models.rabbitmq_publisher.RabbitMQPublisher.publish'
 )
+_REQUESTS_POST_PATH = 'odoo.addons.language_lessons.models.language_lesson.requests.post'
 
 
 def _patch_publish():
@@ -245,3 +246,71 @@ class TestLanguageLesson(TransactionCase):
             ]),
             1,
         )
+
+    # ------------------------------------------------------------------
+    # LLM extraction fallback (ADR-038 § 38g) — triggered when the
+    # rule-based parser finds zero section markers, i.e. real freeform
+    # Preply-canvas text rather than a hand-typed marker-formatted note.
+    # ------------------------------------------------------------------
+
+    def test_no_markers_routes_to_llm_extraction(self):
+        raw = (
+            'Household Items\n'
+            'Lesson Objectives\n'
+            '• Name common rooms and furniture\n\n'
+            'Category | Words\n'
+            'Rooms | living room, kitchen, bathroom\n'
+        )
+        lesson = self._make_lesson(raw)
+
+        fake_response = MagicMock()
+        fake_response.content = b'''{
+            "status": "ok",
+            "topic": "Household Items",
+            "items": [
+                {"item_type": "vocab", "text": "living room", "translation_hint": null,
+                 "corrected_text": null, "context": null},
+                {"item_type": "vocab", "text": "kitchen", "translation_hint": null,
+                 "corrected_text": null, "context": null},
+                {"item_type": "vocab", "text": "bathroom", "translation_hint": null,
+                 "corrected_text": null, "context": null}
+            ]
+        }'''
+        fake_response.raise_for_status = lambda: None
+
+        with patch(_REQUESTS_POST_PATH, return_value=fake_response) as mock_post:
+            lesson.action_parse()
+
+        mock_post.assert_called_once()
+        self.assertEqual(lesson.state, 'parsed')
+        self.assertEqual(lesson.parse_method, 'llm')
+        self.assertEqual(lesson.name, 'Household Items')
+        self.assertEqual(len(lesson.item_ids), 3)
+        self.assertSetEqual(
+            {i.text for i in lesson.item_ids},
+            {'living room', 'kitchen', 'bathroom'},
+        )
+
+    def test_markers_present_never_calls_llm(self):
+        lesson = self._make_lesson('Vocab:\n- gate')
+        with patch(_REQUESTS_POST_PATH) as mock_post:
+            lesson.action_parse()
+        mock_post.assert_not_called()
+        self.assertEqual(lesson.parse_method, 'rule_based')
+
+    def test_llm_extraction_service_down_sets_error_state(self):
+        lesson = self._make_lesson('Household Items\nJust some prose, no markers at all here.')
+        with patch(_REQUESTS_POST_PATH, side_effect=ConnectionError('boom')):
+            lesson.action_parse()
+        self.assertEqual(lesson.state, 'error')
+        self.assertIn('AI', lesson.error_message)
+
+    def test_llm_extraction_empty_result_sets_error_state(self):
+        lesson = self._make_lesson('Some freeform text with no markers whatsoever in it.')
+        fake_response = MagicMock()
+        fake_response.content = b'{"status": "ok", "topic": null, "items": []}'
+        fake_response.raise_for_status = lambda: None
+        with patch(_REQUESTS_POST_PATH, return_value=fake_response):
+            lesson.action_parse()
+        self.assertEqual(lesson.state, 'error')
+        self.assertEqual(len(lesson.item_ids), 0)

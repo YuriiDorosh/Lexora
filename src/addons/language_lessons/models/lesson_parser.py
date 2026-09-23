@@ -93,11 +93,19 @@ def parse_lesson_text(raw_text):
                 },
                 ...
             ],
+            "markers_found": bool,  # True iff at least one section header
+                                    # (Topic:/Vocab:/...) was recognised.
+                                    # False signals freeform/unstructured
+                                    # canvas text — the caller (language.
+                                    # lesson.action_parse) falls back to
+                                    # the LLM extraction endpoint in that
+                                    # case (ADR-038 § 38g).
         }
     """
     topic = None
     items = []
     current_section = None
+    markers_found = False
 
     for raw_line in (raw_text or '').splitlines():
         line = raw_line.strip()
@@ -106,6 +114,7 @@ def parse_lesson_text(raw_text):
 
         header_match = _HEADER_RE.match(line)
         if header_match:
+            markers_found = True
             keyword = header_match.group(1).lower()
             remainder = header_match.group(2).strip()
             section = _SECTION_ALIASES[keyword]
@@ -138,7 +147,7 @@ def parse_lesson_text(raw_text):
 
         items.append(_build_item(section, content))
 
-    return {'topic': topic, 'items': items}
+    return {'topic': topic, 'items': items, 'markers_found': markers_found}
 
 
 def _build_item(section, content):

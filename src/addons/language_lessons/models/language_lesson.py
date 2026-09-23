@@ -1,9 +1,23 @@
+import json
+import logging
+import os
+
+import requests
+
 from odoo import api, fields, models
 from odoo.exceptions import UserError, ValidationError
 
 from odoo.addons.language_words.models.language_lang import LANGUAGE_SELECTION
 
 from .lesson_parser import parse_lesson_text
+
+_logger = logging.getLogger(__name__)
+
+# Reachable via the internal Docker network hostname in every compose
+# file (dev + prod) — same env-var-with-default pattern every other
+# sync LLM proxy in this codebase uses (portal_api.py, portal_roleplay.py).
+_LLM_SVC = os.environ.get('LLM_SERVICE_URL', 'http://llm-service:8000').rstrip('/')
+_LLM_EXTRACT_TIMEOUT = 90
 
 SOURCE_TYPE_SELECTION = [
     ('manual_text', 'Manual Text'),
@@ -17,6 +31,11 @@ STATE_SELECTION = [
     ('analyzed', 'Analyzed'),
     ('published', 'Published'),
     ('error', 'Error'),
+]
+
+PARSE_METHOD_SELECTION = [
+    ('rule_based', 'Rule-based (markers found)'),
+    ('llm', 'AI-extracted (no markers found)'),
 ]
 
 
@@ -76,6 +95,13 @@ class LanguageLesson(models.Model):
         index=True,
     )
     error_message = fields.Text(string='Error Message')
+    parse_method = fields.Selection(
+        selection=PARSE_METHOD_SELECTION,
+        string='Parse Method',
+        help='Which path produced the current item_ids: the deterministic '
+             'marker parser, or the LLM extraction fallback for freeform '
+             'canvas text with no recognisable markers (ADR-038 § 38g).',
+    )
 
     new_count = fields.Integer(string='New', compute='_compute_counts', store=True)
     seen_count = fields.Integer(string='Seen', compute='_compute_counts', store=True)
@@ -92,7 +118,8 @@ class LanguageLesson(models.Model):
             lesson.correction_count = len(items.filtered(lambda i: i.item_type == 'correction'))
 
     # ------------------------------------------------------------------
-    # Parsing (ADR-038 § 38a — rule-based, no ORM inside the parser itself)
+    # Parsing (ADR-038 § 38a rule-based fast path; § 38g LLM fallback for
+    # freeform/unmarked canvas text)
     # ------------------------------------------------------------------
 
     def action_parse(self):
@@ -103,9 +130,21 @@ class LanguageLesson(models.Model):
                 lesson.write({'state': 'error', 'error_message': str(exc)})
                 continue
 
+            parse_method = 'rule_based'
+            if not parsed.get('markers_found'):
+                # No Topic:/Vocab:/... markers anywhere in the pasted text —
+                # this is real freeform canvas content (ADR-038 § 38g), not
+                # a hand-typed quick note. Fall back to LLM extraction.
+                try:
+                    parsed = lesson._llm_extract_lesson(lesson.raw_payload, lesson.language)
+                    parse_method = 'llm'
+                except UserError as exc:
+                    lesson.write({'state': 'error', 'error_message': str(exc)})
+                    continue
+
             lesson.item_ids.unlink()
 
-            vals = {}
+            vals = {'parse_method': parse_method}
             if not lesson.name or lesson.name == 'New Lesson':
                 if parsed.get('topic'):
                     vals['name'] = parsed['topic']
@@ -125,9 +164,79 @@ class LanguageLesson(models.Model):
             if item_vals_list:
                 self.env['language.lesson.item'].create(item_vals_list)
 
+            if not item_vals_list and parse_method == 'llm':
+                # The LLM path found no markers AND extracted nothing —
+                # surface this as an error rather than a silently-empty
+                # "analyzed" lesson, so the user knows to retry / edit.
+                lesson.write({
+                    'state': 'error',
+                    'error_message': (
+                        'No recognisable structure found in this text, and '
+                        'AI extraction returned nothing usable. Try adding '
+                        'explicit markers (Topic:/Vocab:/Phrases:/Mistakes:/'
+                        'Grammar:/Notes:), or click Re-parse to retry the AI '
+                        'extraction.'
+                    ),
+                })
+                continue
+
             vals.update({'state': 'parsed', 'error_message': False})
             lesson.write(vals)
         return True
+
+    def _llm_extract_lesson(self, raw_text, language):
+        """POST to the LLM service's /extract-lesson sync endpoint and
+        return the same {topic, items[]} shape parse_lesson_text() does,
+        so the caller (action_parse) doesn't need to know which path ran.
+
+        Raises UserError (never a raw exception) on any failure so
+        action_parse can write a clean, user-facing error state.
+        """
+        self.ensure_one()
+        try:
+            resp = requests.post(
+                f'{_LLM_SVC}/extract-lesson',
+                json={'raw_text': raw_text or '', 'language': language},
+                timeout=_LLM_EXTRACT_TIMEOUT,
+            )
+            resp.raise_for_status()
+            data = json.loads(resp.content.decode('utf-8', errors='replace'))
+        except Exception as exc:
+            _logger.warning('Lesson %s: LLM extraction unavailable: %s', self.id, exc)
+            raise UserError(
+                'This lesson has no recognisable Topic:/Vocab:/... markers, so '
+                'Lexora tried AI extraction instead, but the AI service is '
+                'currently unavailable. Try again in a moment, or add explicit '
+                'markers to the pasted text.'
+            ) from exc
+
+        raw_items = data.get('items') if isinstance(data, dict) else None
+        items = []
+        if isinstance(raw_items, list):
+            for raw_item in raw_items:
+                if not isinstance(raw_item, dict):
+                    continue
+                item_type = str(raw_item.get('item_type') or '').strip().lower()
+                text = str(raw_item.get('text') or '').strip()
+                if item_type not in ('vocab', 'phrase', 'correction', 'grammar', 'note') or not text:
+                    continue
+
+                def _opt(key):
+                    val = raw_item.get(key)
+                    val = str(val).strip() if val else ''
+                    return val or None
+
+                items.append({
+                    'item_type': item_type,
+                    'text': text[:300],
+                    'translation_hint': _opt('translation_hint'),
+                    'corrected_text': _opt('corrected_text'),
+                    'context': _opt('context'),
+                })
+
+        topic = data.get('topic') if isinstance(data, dict) else None
+        topic = topic.strip() if isinstance(topic, str) and topic.strip() else None
+        return {'topic': topic, 'items': items}
 
     def action_reparse(self):
         for lesson in self:

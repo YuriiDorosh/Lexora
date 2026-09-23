@@ -41,6 +41,7 @@
                         <group>
                             <field name="language"/>
                             <field name="source_type"/>
+                            <field name="parse_method"/>
                             <field name="new_count"/>
                             <field name="seen_count"/>
                             <field name="known_count"/>

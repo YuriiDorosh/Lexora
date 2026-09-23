@@ -157,6 +157,11 @@
                     <t t-esc="lang_names.get(lesson.language, lesson.language)"/>
                     <t t-if="lesson.tutor_name"> · with <t t-esc="lesson.tutor_name"/></t>
                     · status: <t t-esc="lesson.state"/>
+                    <t t-if="lesson.parse_method == 'llm'">
+                        <span class="badge bg-info text-dark ms-1" title="No Topic:/Vocab:/... markers were found, so this lesson was structured by AI instead of the deterministic parser.">
+                            🤖 AI-extracted
+                        </span>
+                    </t>
                 </p>
 
                 <t t-if="lesson.state == 'error'">
