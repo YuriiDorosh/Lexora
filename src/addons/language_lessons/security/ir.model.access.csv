@@ -1,0 +1,5 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_language_lesson_user,language.lesson.user,model_language_lesson,language_security.group_language_user,1,1,1,1
+access_language_lesson_admin,language.lesson.admin,model_language_lesson,language_security.group_language_admin,1,1,1,1
+access_language_lesson_item_user,language.lesson.item.user,model_language_lesson_item,language_security.group_language_user,1,1,1,1
+access_language_lesson_item_admin,language.lesson.item.admin,model_language_lesson_item,language_security.group_language_admin,1,1,1,1

@@ -1,0 +1,89 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="view_language_lesson_list" model="ir.ui.view">
+        <field name="name">language.lesson.list</field>
+        <field name="model">language.lesson</field>
+        <field name="arch" type="xml">
+            <list decoration-danger="state == 'error'" decoration-success="state in ('analyzed', 'published')">
+                <field name="name"/>
+                <field name="user_id"/>
+                <field name="lesson_date"/>
+                <field name="language"/>
+                <field name="new_count"/>
+                <field name="seen_count"/>
+                <field name="known_count"/>
+                <field name="correction_count"/>
+                <field name="state"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_language_lesson_form" model="ir.ui.view">
+        <field name="name">language.lesson.form</field>
+        <field name="model">language.lesson</field>
+        <field name="arch" type="xml">
+            <form>
+                <header>
+                    <button name="action_parse" type="object" string="Parse" invisible="state != 'draft'" class="btn-primary"/>
+                    <button name="action_reparse" type="object" string="Re-parse" invisible="state == 'draft'"/>
+                    <button name="action_analyze_novelty" type="object" string="Analyze Novelty" invisible="state != 'parsed'" class="btn-primary"/>
+                    <field name="state" widget="statusbar" statusbar_visible="draft,parsed,analyzed"/>
+                </header>
+                <sheet>
+                    <group>
+                        <group>
+                            <field name="name"/>
+                            <field name="user_id"/>
+                            <field name="lesson_date"/>
+                            <field name="tutor_name"/>
+                        </group>
+                        <group>
+                            <field name="language"/>
+                            <field name="source_type"/>
+                            <field name="new_count"/>
+                            <field name="seen_count"/>
+                            <field name="known_count"/>
+                            <field name="correction_count"/>
+                        </group>
+                    </group>
+                    <field name="error_message" invisible="state != 'error'"/>
+                    <notebook>
+                        <page string="Raw Text">
+                            <field name="raw_payload"/>
+                        </page>
+                        <page string="Items">
+                            <field name="item_ids">
+                                <list editable="bottom">
+                                    <field name="sequence" widget="handle"/>
+                                    <field name="item_type"/>
+                                    <field name="text"/>
+                                    <field name="translation_hint"/>
+                                    <field name="corrected_text"/>
+                                    <field name="novelty"/>
+                                    <field name="seen_source"/>
+                                    <field name="entry_id"/>
+                                    <field name="emphasis_weight"/>
+                                    <field name="is_recurring_mistake"/>
+                                </list>
+                            </field>
+                        </page>
+                    </notebook>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_language_lesson" model="ir.actions.act_window">
+        <field name="name">Lessons</field>
+        <field name="res_model">language.lesson</field>
+        <field name="view_mode">list,form</field>
+    </record>
+
+    <menuitem id="menu_lexora_lessons"
+              name="Lessons"
+              parent="language_words.menu_lexora_root"
+              action="action_language_lesson"
+              sequence="45"/>
+
+</odoo>

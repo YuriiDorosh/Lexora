@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data noupdate="1">
+
+        <record id="param_weight_new" model="ir.config_parameter">
+            <field name="key">language_lessons.weight.new</field>
+            <field name="value">3</field>
+        </record>
+        <record id="param_weight_seen" model="ir.config_parameter">
+            <field name="key">language_lessons.weight.seen</field>
+            <field name="value">2</field>
+        </record>
+        <record id="param_weight_known" model="ir.config_parameter">
+            <field name="key">language_lessons.weight.known</field>
+            <field name="value">1</field>
+        </record>
+        <record id="param_weight_correction" model="ir.config_parameter">
+            <field name="key">language_lessons.weight.correction</field>
+            <field name="value">3</field>
+        </record>
+        <record id="param_weight_recurring_mistake" model="ir.config_parameter">
+            <field name="key">language_lessons.weight.recurring_mistake</field>
+            <field name="value">4</field>
+        </record>
+        <record id="param_weight_grammar" model="ir.config_parameter">
+            <field name="key">language_lessons.weight.grammar</field>
+            <field name="value">2</field>
+        </record>
+        <!-- Off by default (ADR-038 § 38b) — never nudge SM-2 due dates
+             without explicit operator opt-in. -->
+        <record id="param_known_due_today" model="ir.config_parameter">
+            <field name="key">language_lessons.known_due_today</field>
+            <field name="value">False</field>
+        </record>
+
+    </data>
+</odoo>

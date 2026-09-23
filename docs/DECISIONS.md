@@ -2572,3 +2572,157 @@ defaults.
   the prod feature surface is TTS-only).
 - **WAF / Cloudflare** in front of nginx. The current TLS + headers
   setup is the right floor; a CDN/WAF is the next ceiling.
+
+---
+
+## ADR-038: Lesson Import — rule-based parsing, non-invasive novelty analysis, deferred lemmatization (M39 Phase 1)
+
+**Status:** Accepted (M39, 2026-09-23)
+
+**Context:** M39 lets a user paste the text of a tutoring lesson (source:
+a Preply canvas board, copy-pasted by hand in Phase 1) and get it turned
+into structured vocabulary/phrase/correction/grammar items, classified by
+novelty against their own dictionary and prior lessons, with brand-new
+items auto-added to `language.entry` so the existing translation/
+enrichment/SRS pipelines pick them up. A later phase turns the whole
+lesson into a `website_slides` eLearning course. Four architectural
+choices were locked before writing code, three of them via a direct
+clarification round with the user.
+
+### Sub-decision 38a: rule-based parser, LLM only as a fallback classifier
+
+**Decision:** `language_lessons.models.lesson_parser.parse_lesson_text()`
+is a pure Python function with **no ORM and no LLM call**. It recognises
+explicit section markers (`Topic:` / `Vocab:` / `Phrases:` / `Mistakes:`
+/ `Grammar:` / `Notes:`, case-insensitive, colon optional) and splits
+bulleted lines deterministically (`=` for translations, `→`/`->` for
+corrections). Lines outside any recognised section fall back to a
+token-count heuristic (≤3 tokens → vocab, else → note) — still
+deterministic, no model call.
+
+**Why not LLM-first:** every other structured-extraction feature in this
+codebase (M18 cloze data, M19 idioms, the M34 radar's cue matching) keeps
+the LLM out of the critical parsing path and uses it only for generative
+or explanatory output. A 1.5B local model asked to segment a lesson into
+sections would reproduce the exact quality ceiling already documented for
+Slavic/Greek output (ADR-027 revisit triggers) — but here the failure
+mode is worse: a mis-segmented lesson silently mis-files a correction as
+a vocab word instead of just rendering awkward text. Keeping the parser
+rule-based means a failure is either "recognised the marker" or "fell
+through to the heuristic" — both inspectable and testable without a
+model in the loop. The LLM's only sanctioned role (not built in Phase 1)
+would be reclassifying the small residue of heuristic-fallback lines,
+never the section markers or the split delimiters themselves.
+
+### Sub-decision 38b: novelty analysis never mutates SM-2 state by default
+
+**Decision:** classifying an item as `new` / `seen` / `known` is a
+read-only comparison against `language.entry` + `language.review` +
+prior `language.lesson.item` rows. The only write side-effect for `seen`/
+`known` items is optional and off by default: a system parameter
+`language_lessons.known_due_today` (Boolean, default `False`) that, when
+enabled, pulls a `known` item's `next_review_date` to today without
+touching `ease_factor`, `repetitions`, or `interval`. `new` items get a
+brand-new `language.entry` (which lazily gets an SRS card on the user's
+next `/my/practice` visit, per the existing M7 `enqueue_new_entries()`
+flow) — that's entry creation, not SM-2 mutation.
+
+**Why:** M36 § 35c and the M33/M31 "server-side floor" pattern established
+that any feature touching SRS state needs an explicit, narrow contract.
+Silently nudging due dates on every lesson import would let a single
+lesson accidentally reschedule a user's whole review queue. The
+clarification round with the user confirmed **off by default** — the
+opt-in path exists for a user who wants "review this in the lesson's own
+context" without it becoming implicit product behaviour.
+
+### Sub-decision 38c: no lemmatization in Phase 1
+
+**Decision:** novelty matching in Phase 1 is normalized-text exact match
+(via the **existing** `language_words.normalize()` — no new pipeline)
+plus the longest-match sub-phrase check described in 38d. `went` will
+not match an existing `go` entry. This was an explicit open question in
+the spec; the user chose to skip it for Phase 1 rather than pull in
+`simplemma` (or any lemmatizer) unreviewed.
+
+**Consequence:** a lesson item that's a conjugated/declined form of a
+word already in the dictionary will be classified `new` and get its own
+`language.entry`, distinct from the base form. This is a known, accepted
+false-new rate for Phase 1 — documented as a revisit trigger below, not
+a silent gap.
+
+### Sub-decision 38d: longest-match sub-phrase lookup ported from M34's YouTube Vocab Radar
+
+**Decision:** when a `phrase` item's full normalized text has no exact
+match, `language.lesson._find_dictionary_match()` runs the same
+longest-match sliding-window algorithm as M34's `_findCueHit`
+(ADR-033 § 34e) — tokenize the item text, try n-gram windows from
+longest to shortest against the user's own entry set, first hit wins.
+This is a server-side Python port, not a DOM/network feature; the
+motivating case is identical to M34's: a lesson phrase like "to check in
+at the gate" shouldn't get filed as 100% brand-new when the user's
+dictionary already has "check in" as its own entry.
+
+**Why reuse rather than reinvent:** the algorithm is already validated
+(13/13 sandbox cases in M34) and the shape — tokenize once, try
+progressively shorter windows, first/longest match wins, cap at one match
+per input unit — transfers directly. Writing a second, subtly different
+matcher for the same conceptual problem would be the kind of
+unnecessary-abstraction the project's own conventions warn against;
+porting the proven one is the smaller, safer diff.
+
+### Sub-decision 38e: `created_from='lesson_import'` via the canonical-extension pattern, not the undeclared-value shortcut
+
+**Decision:** `CREATED_FROM_SELECTION` (defined in
+`language_words.models.language_entry`) gets a new `('lesson_import',
+'Lesson Import')` value via a proper `_inherit` field-selection override
+in `language_lessons`, following the same "extend the canonical list,
+never hardcode a bare string" discipline ADR-029 established for
+`LANGUAGE_SELECTION`.
+
+**Note for a future cleanup pass:** while implementing this, an existing
+latent bug was found — `language_portal/controllers/portal_library.py`
+(M12, Gold Vocabulary "Add to My List") writes
+`created_from='seeded_content'`, a value that was never added to
+`CREATED_FROM_SELECTION`. Odoo's `Selection` field validates against the
+declared list on write, so this call is expected to raise
+`ValidationError: Wrong value for language.entry.created_from:
+'seeded_content'` in practice — the same failure class M29 § 29b
+documents for the `LANGUAGE_SELECTION` duplicate-literal bug. This
+milestone does **not** fix it (out of scope — a one-line fix in an
+unrelated module); it's flagged here so a future session doesn't
+rediscover it from scratch, and so M39's own `'lesson_import'` value
+doesn't repeat the same mistake.
+
+### Sub-decision 38f: course visibility = owner + tutor (Phase 2, recorded now)
+
+**Decision (recorded for Phase 2, no code yet):** the generated
+`slide.channel` per lesson will be visible to the lesson owner **and**
+the tutor, not fully private and not public. This needs an invite/member
+mechanism beyond the plain "owner-only" `record_rules.xml` pattern used
+everywhere else in this codebase (ADR-004's private-by-default posture,
+narrowed further since this is tutor-provided material, not shareable
+community content). Recorded now, before Phase 1 ships, specifically so
+the Phase 1 data model (`language.lesson.user_id`, no `channel_id` yet)
+doesn't need a breaking shape change when Phase 2 adds the tutor-access
+mechanism.
+
+### Revisit triggers
+
+- **Lemmatization.** If false-new rates from conjugated/declined forms
+  turn out to be a real nuisance in practice, add `simplemma` (or
+  equivalent) as an explicit follow-up with its own ADR sub-decision —
+  per the user's own instruction, not without a review of the added
+  dependency.
+- **`known_due_today` default.** If users consistently turn it on by
+  hand after every import, consider flipping the default — but only
+  after observing that pattern, not pre-emptively.
+- **`portal_library.py` `'seeded_content'` bug** (38e) — one-line fix
+  (add the value to `CREATED_FROM_SELECTION` or switch the controller to
+  `'manual'`), unrelated to M39, worth a follow-up commit.
+- **LLM fallback classifier** for parser-heuristic residue — only if the
+  token-count heuristic proves too coarse on real lesson text; the LLM
+  service already has the sync-endpoint pattern (ADR-031 § 31a table)
+  ready to extend.
+- **Tutor-access mechanism** for Phase 2 course visibility (38f) — needs
+  its own design pass (invite token? a lightweight `res.partner`-based
+  guest? a second `res.users` account per tutor?) before Phase 2 starts.
