@@ -5,6 +5,17 @@ tested without a database. It recognises explicit section markers and
 splits bulleted lines deterministically. Lines outside any recognised
 section fall back to a token-count heuristic. This module must never
 import anything from ``odoo``.
+
+Section markers REQUIRE a trailing colon (ADR-038 § 38h). Real lesson
+content copy-pasted from a table (e.g. a "Function | Phrase | Example"
+header row, each cell on its own line when pasted as plain text)
+contains bare single-word lines like "Phrase" or "Notes" that are NOT
+intended as section headers. Without a mandatory colon, "Phrase"
+alone would false-positive-match, flip the parser into the phrases
+section, and corrupt everything that follows — this was caught live
+against a real user-supplied lesson. A colon is a much stronger,
+low-collision signal of deliberate intent; every documented example
+of the marker format already includes one.
 """
 
 import re
@@ -25,9 +36,10 @@ _SECTION_ALIASES = {
     'notes': 'notes',
 }
 
-# One of the keywords above, optionally followed by ':' and trailing text.
+# One of the keywords above, MUST be followed by ':' (see the § 38h
+# note below), then optional trailing text on the same line.
 _HEADER_RE = re.compile(
-    r'^\s*(' + '|'.join(sorted(_SECTION_ALIASES, key=len, reverse=True)) + r')\s*:?\s*(.*)$',
+    r'^\s*(' + '|'.join(sorted(_SECTION_ALIASES, key=len, reverse=True)) + r')\s*:\s*(.*)$',
     re.IGNORECASE,
 )
 

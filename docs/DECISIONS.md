@@ -2799,6 +2799,47 @@ the LLM, costs nothing, and returns instantly — exactly as § 38a
 intended. This amendment only widens what happens when that fast path's
 precondition (recognisable markers) isn't met.
 
+### Sub-decision 38h: a section marker requires a trailing colon (bugfix, same day)
+
+**The bug, caught live against the user's own first real lesson
+import:** § 38a's header regex made the colon optional
+(`vocab\s*:?\s*`) so a bare `Vocab` line would also count as a marker.
+Real lesson content copy-pasted from an HTML table collapses each cell
+onto its own line with no delimiter — a "Function | Phrase | Example"
+header row becomes three separate lines: `Function`, `Phrase`,
+`Example`. The bare word `Phrase` matched the marker regex (`phrase`
+is one of the six recognised keywords), which set `markers_found =
+True` and flipped the parser into the phrases section for everything
+that followed, corrupting the rest of the document. Confirmed directly
+against the stored `language.lesson.item` rows in production: item
+#240 was the literal text `Function` (mis-filed as `vocab`), and item
+#250 was `Example` (mis-filed as `phrase`) — exactly where the table
+header row landed.
+
+**Decision:** the colon is now mandatory —
+`r'^\s*(keyword)\s*:\s*(.*)$'`, no `?` on the colon. A bare keyword
+with no colon (`Vocab` on its own line) now falls through to the
+ordinary no-section heuristic like any other line, instead of being
+treated as a section header.
+
+**Why this is safe, not just a narrower feature:** every documented
+example of the marker format in PLAN.md, ADR-038 § 38a, and the
+parser's own test suite already includes a colon — nothing that was
+meant to work stops working. The failure mode for a marker line that's
+missing its colon also changed for the better: previously a coincidental
+match on a common English word (`Phrase`, `Notes`, `Grammar`, `Correction`
+all appear in ordinary prose) could silently corrupt a large stretch
+of a freeform document processed through the fast path; now the
+document-level `markers_found` gate (§ 38g) correctly reports no
+markers were found at all, and the WHOLE document is routed through
+LLM extraction instead — a graceful degradation to the slower but
+far more robust path, not a corrupted result on the fast path.
+
+**Test coverage added:** a dedicated regression test reproducing the
+exact "Function / Phrase / Example" collision, plus a test confirming
+a colon-less keyword line falls through to the heuristic rather than
+opening a section.
+
 ### Revisit triggers
 
 - **`_LESSON_EXTRACT_MAX_CHARS` (§ 38g).** 3000 chars comfortably covers

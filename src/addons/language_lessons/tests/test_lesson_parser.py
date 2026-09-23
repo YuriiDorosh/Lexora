@@ -75,9 +75,33 @@ class TestLessonParser(TransactionCase):
         item = result['items'][0]
         self.assertEqual(item['item_type'], 'note')
 
-    def test_mixed_case_and_optional_colon(self):
-        result = parse_lesson_text('VOCAB\n- apple\nvocabulary:\n- banana')
+    def test_case_insensitive_with_colon(self):
+        result = parse_lesson_text('VOCAB:\n- apple\nvocabulary:\n- banana')
         self.assertEqual(len(result['items']), 2)
+        self.assertTrue(all(i['item_type'] == 'vocab' for i in result['items']))
+        self.assertTrue(result['markers_found'])
+
+    def test_colon_is_required_for_a_marker(self):
+        """ADR-038 § 38h: a keyword with NO colon is not a marker — it
+        falls through to the no-section heuristic like any other line."""
+        result = parse_lesson_text('Vocab\n- apple')
+        self.assertFalse(result['markers_found'])
+        # Both lines land via the heuristic (no active section was ever set).
+        self.assertEqual([i['text'] for i in result['items']], ['Vocab', 'apple'])
+
+    def test_lone_table_cell_word_is_not_treated_as_a_marker(self):
+        """Regression test for a real production bug: a copy-pasted table
+        header row ("Function | Phrase | Example") becomes three separate
+        lines when pasted as plain text. Without a mandatory colon, the
+        bare word "Phrase" false-positive-matched the marker regex,
+        flipped the parser into the phrases section, and corrupted every
+        line that followed (caught live on 2026-09-23 against a real
+        user-supplied Preply lesson)."""
+        result = parse_lesson_text('Function\nPhrase\nExample')
+        self.assertFalse(result['markers_found'])
+        self.assertEqual(len(result['items']), 3)
+        # All three fall through the no-section heuristic (single tokens),
+        # none of them silently opened a "phrases" section.
         self.assertTrue(all(i['item_type'] == 'vocab' for i in result['items']))
 
     def test_empty_section_produces_no_items(self):
