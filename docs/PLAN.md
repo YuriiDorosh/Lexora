@@ -4569,36 +4569,48 @@ without creating duplicate entries; re-pasting the same text on a second
 lesson (later date) with an overlapping word shows `seen_source =
 previous_lesson`.
 
-### Phase 2 — course generation into `website_slides` (future milestone)
+### Phase 2 — course generation into `website_slides` (future milestone, narrowed 2026-09-23)
 
-1 lesson → 1 `slide.channel`, owner + tutor visibility (needs an
-invite/member mechanism, open question resolved above), slides in the
-order Overview → New words & phrases → Seen before → Corrections →
-Grammar (linked to the M12 Grammar Encyclopedia where a topic matches) →
-Quiz. Question generation is **deterministic, no LLM** — translation MCQ
-and reverse MCQ reuse the PvP distractor-selection logic (ADR-011), cloze
-reuses the lesson's own context sentences, error-correction pairs the
-wrong sentence against its own correction plus two rule-based mangled
-distractors. Regenerate updates the existing channel in place rather than
-duplicating it. PDF export follows the M13 QWeb-report pattern.
+> **Scope cut, same day as the async pivot:** the user decided to drop
+> auto-generated quizzes/tests from Phase 2 entirely — no MCQ
+> distractor generation, no cloze questions, no error-correction
+> questions, no `slide.question`/karma machinery. The reasoning: a
+> generated quiz on top of a lesson that's already being SRS-tracked
+> (M7) and can be practiced via PvP (M9/M10) is redundant — those
+> systems already own "test the user," and duplicating that inside a
+> one-off course generator adds real complexity (distractor selection,
+> mangled-sentence generation, karma wiring) for a feature the user
+> doesn't want. Phase 2 is now: 1 lesson → 1 `slide.channel`, owner +
+> tutor visibility, slides in the order Overview → New words & phrases
+> → Seen before → Corrections → Grammar (linked to the M12 Grammar
+> Encyclopedia where a topic matches). **No Quiz slide.** PDF export
+> still follows the M13 QWeb-report pattern. Still a future milestone,
+> not started.
 
-### Phase 3 — Preply Chrome-extension capture (future milestone, blocked on a DOM/network sample)
+### Phase 3 — dropped (2026-09-23), superseded by Phase 1
 
-A "Save lesson to Lexora" button on the Preply lesson page. Capture
-strategy (DOM read vs. `fetch`/WebSocket interception à la M34's
-`youtube_radar_inject.js` vs. screenshot+OCR as a last resort) is decided
-only after a real DevTools sample of the canvas DOM or network payload is
-captured and dropped into `tests/fixtures/`. The Odoo-side surface is
-already in place from Phase 1: `language.lesson.source_type =
-'preply_extension'` feeds the same parser/analysis pipeline a manual
-paste does — no architectural change needed when this phase starts, only
-a capture layer on top.
+> The original ТЗ scoped a Phase 3 Chrome extension that would drive a
+> local headless browser (Playwright/Selenium) to scrape the Preply
+> canvas DOM automatically. The user decided against this after
+> Phase 1 shipped: manual copy-paste of the lesson text into
+> `/my/lessons/new` is good enough, and it avoids the real cost of a
+> browser-automation integration — fighting Preply's DOM/auth/anti-bot
+> posture, a fixture-dependent capture strategy, ongoing maintenance
+> every time Preply's page changes. Phase 1's `source_type` field still
+> has a `preply_extension` value in its Selection for forward
+> compatibility, but there is no plan to build a capture layer for it.
+> If this is revisited, it would need its own fresh scoping
+> conversation, not a resumption of the original plan.
 
 ### Explicitly out of scope (all phases)
 
 - Server-side scraping of Preply using the user's own login credentials.
+- Browser automation (Selenium/Playwright) of any kind — dropped along
+  with Phase 3 above; manual copy-paste is the permanent input method.
+- Auto-generated quizzes/tests on the LMS course — dropped from
+  Phase 2 above; SRS (M7) and PvP (M9/M10) already own "test the user."
 - Public/shared course visibility — this is tutor-provided material, not
   community content (ADR-004 posture, narrowed further for this feature).
 - Any change to the SM-2 algorithm.
-- Vision/OCR — reserved as the last-resort fallback for Phase 3 only, if
-  DOM/network capture turns out to be infeasible.
+- Vision/OCR — was reserved for the now-dropped Phase 3; no longer
+  applicable.

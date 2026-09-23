@@ -48,6 +48,16 @@ QUEUE_IN = "enrichment.requested"
 QUEUE_COMPLETED = "enrichment.completed"
 QUEUE_FAILED = "enrichment.failed"
 
+# M39 ADR-038 § 38i — lesson extraction over a whole document is slow
+# (minutes on this CPU class), so it moved off the sync HTTP path onto
+# the same RabbitMQ consumer thread, sharing the connection/channel
+# with the enrichment queue (one extra basic_consume call, same
+# prefetch_count=1 — this CPU only ever runs one inference at a time
+# regardless of which queue it came from).
+LESSON_QUEUE_IN = "lesson.extraction.requested"
+LESSON_QUEUE_COMPLETED = "lesson.extraction.completed"
+LESSON_QUEUE_FAILED = "lesson.extraction.failed"
+
 # ---------------------------------------------------------------------------
 # LLM configuration (from environment / docker-compose)
 # ---------------------------------------------------------------------------
@@ -55,7 +65,7 @@ QUEUE_FAILED = "enrichment.failed"
 LLM_MODEL_REPO = os.getenv("LLM_MODEL_REPO", "Qwen/Qwen2.5-1.5B-Instruct-GGUF")
 LLM_MODEL_FILENAME = os.getenv("LLM_MODEL_FILENAME", "qwen2.5-1.5b-instruct-q4_k_m.gguf")
 LLM_MODEL_DIR = os.getenv("LLM_MODEL_DIR", "/models")
-LLM_N_CTX = int(os.getenv("LLM_N_CTX", "2048"))
+LLM_N_CTX = int(os.getenv("LLM_N_CTX", "4096"))  # bumped for M39 lesson extraction (ADR-038 § 38i)
 LLM_N_THREADS = int(os.getenv("LLM_N_THREADS", "0"))  # 0 = auto
 LLM_MAX_TOKENS = int(os.getenv("LLM_MAX_TOKENS", "512"))
 LLM_AUTO_DOWNLOAD = os.getenv("LLM_AUTO_DOWNLOAD", "1") == "1"
@@ -359,8 +369,47 @@ def _process_message(channel, method, properties, body):
             channel.basic_nack(delivery_tag=method.delivery_tag, requeue=False)
 
 
+def _process_lesson_extraction_message(channel, method, properties, body):
+    """Handle one lesson.extraction.requested message (M39 ADR-038 § 38i).
+
+    A whole-document extraction can take minutes on this CPU — that's
+    exactly why it moved off the sync HTTP path onto this consumer.
+    """
+    message = {}
+    try:
+        message = json.loads(body)
+        job_id = message.get("job_id", "")
+        payload = message.get("payload", {})
+
+        raw_text = (payload.get("raw_text") or "")[:_LESSON_EXTRACT_MAX_CHARS]
+        language = payload.get("language", "en")
+
+        _logger.info("Lesson extraction job_id=%s lang=%s chars=%d", job_id, language, len(raw_text))
+
+        result = _extract_lesson(raw_text, language)
+
+        _publish(channel, LESSON_QUEUE_COMPLETED, {"job_id": job_id, "payload": result})
+        channel.basic_ack(delivery_tag=method.delivery_tag)
+        _logger.info("Lesson extraction completed job_id=%s items=%d",
+                     job_id, len(result.get("items") or []))
+
+    except Exception as exc:
+        job_id = message.get("job_id", "?") if message else "?"
+        _logger.error("Lesson extraction failed job_id=%s: %s", job_id, exc)
+        try:
+            _publish(
+                channel,
+                LESSON_QUEUE_FAILED,
+                {"job_id": message.get("job_id", "") if message else "", "payload": {"error": str(exc)}},
+            )
+            channel.basic_ack(delivery_tag=method.delivery_tag)
+        except Exception:
+            channel.basic_nack(delivery_tag=method.delivery_tag, requeue=False)
+
+
 def _consumer_thread():
-    """Background thread: connect to RabbitMQ and consume enrichment.requested."""
+    """Background thread: connect to RabbitMQ and consume enrichment.requested
+    + lesson.extraction.requested on a single shared channel."""
     global _consumer_alive
     import pika
 
@@ -372,14 +421,22 @@ def _consumer_thread():
                 port=RABBITMQ_PORT,
                 virtual_host=RABBITMQ_VHOST,
                 credentials=credentials,
-                heartbeat=30,
+                # 600s (not the pika default / the previous 30s): a
+                # BlockingConnection cannot send heartbeats while a
+                # callback is executing, and lesson.extraction callbacks
+                # can legitimately run for minutes (ADR-038 § 38i). Same
+                # fix M6's audio service needed for the same reason
+                # (TASKS.md M6 "Bug 2").
+                heartbeat=600,
                 blocked_connection_timeout=10,
             )
             connection = pika.BlockingConnection(params)
             channel = connection.channel()
             channel.queue_declare(queue=QUEUE_IN, durable=True)
+            channel.queue_declare(queue=LESSON_QUEUE_IN, durable=True)
             channel.basic_qos(prefetch_count=1)
             channel.basic_consume(queue=QUEUE_IN, on_message_callback=_process_message)
+            channel.basic_consume(queue=LESSON_QUEUE_IN, on_message_callback=_process_lesson_extraction_message)
             _consumer_alive = True
             _logger.info(
                 "LLM enrichment consumer started. llm_ready=%s. Waiting for messages…",
@@ -1667,7 +1724,7 @@ def _extract_lesson(raw_text: str, language: str) -> dict:
         result = _llm.create_chat_completion(
             messages=messages,
             response_format={"type": "json_object"},
-            max_tokens=1000,
+            max_tokens=1800,
             temperature=0.3,
             repeat_penalty=1.1,
         )

@@ -133,6 +133,45 @@ was active). See ADR-038 § 38g for the full before/after analysis.
   `xml.etree`) all green. **`--test-enable` has not yet been run** —
   see M39-S6 below.
 
+**Step M39-S3-FIX2 — colon-required marker fix (ADR-038 § 38h) + async
+extraction pivot (ADR-038 § 38i), both same-day, both against the
+user's own first real lesson import on prod**
+
+- [x] Colon made mandatory in `_HEADER_RE` — a bare `Phrase` table-cell
+  line (from a copy-pasted "Function | Phrase | Example" table header)
+  was false-matching as a section marker and corrupting the whole
+  rule-based parse. 2 new regression tests.
+- [x] `/extract-lesson` sync HTTP call (§ 38g) measured live at ~190s
+  and still failed with `parse_error` (hit `max_tokens` before the
+  JSON closed) — moved to RabbitMQ: `lesson.extraction.requested` /
+  `.completed` / `.failed`, new `job_id` field, new `extracting` state,
+  new cron (`cron_consume_lesson_extraction_results`), same
+  publish/drain/handle_completed/handle_failed shape as
+  `language_translation`. `LLM_N_CTX` 2048→4096, `max_tokens` back up
+  to 1800 (now safe — nothing is blocking on it). LLM service's
+  consumer thread `heartbeat` 30→600 (same fix M6's audio service
+  needed — a `BlockingConnection` can't heartbeat during a long
+  callback). Portal detail page shows an `extracting` banner + a
+  15s `<meta refresh>` (no JS dependency).
+- [x] Tests rewritten from mocked-`requests.post` to mocked-publish +
+  direct `_handle_extraction_completed`/`_handle_extraction_failed`
+  calls (same pattern as `language_translation`'s tests) — 5 tests:
+  enqueue-not-block, rule-based-never-enqueues, full round-trip
+  (enqueue → simulated completed event → items + analyzed), empty
+  result → error, failed event → error, duplicate/unknown job_id is a
+  safe no-op.
+- [x] User scope decision, same session: dropped Phase 3 (Preply
+  Chrome-extension / browser automation) entirely — manual copy-paste
+  via `/my/lessons/new` is the permanent input method; dropped
+  auto-generated quizzes/tests from Phase 2 — SRS (M7) and PvP
+  (M9/M10) already own "test the user." PLAN.md §M39 Phase 2/3
+  sections rewritten accordingly.
+- [ ] **Not yet done:** `--test-enable -u language_lessons` has not
+  been run for real (blocked on the same `--no-http`
+  docker-exec workflow as every other module — see M39-S6). A live
+  re-parse of the user's own lesson #1 on prod, end to end through the
+  new async path, is the next verification step.
+
 **Step M39-S4 — Security + backend views**
 
 - [x] M39-S4-01 · `security/ir.model.access.csv` +

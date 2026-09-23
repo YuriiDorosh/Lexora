@@ -10,6 +10,7 @@
         'security/ir.model.access.csv',
         'security/record_rules.xml',
         'data/system_parameters.xml',
+        'data/ir_cron_lesson_extraction.xml',
         'data/website_menus.xml',
         'views/language_lesson_views.xml',
         'views/portal_lessons.xml',

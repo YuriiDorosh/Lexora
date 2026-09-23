@@ -1,8 +1,5 @@
-import json
 import logging
-import os
-
-import requests
+import uuid
 
 from odoo import api, fields, models
 from odoo.exceptions import UserError, ValidationError
@@ -13,17 +10,6 @@ from .lesson_parser import parse_lesson_text
 
 _logger = logging.getLogger(__name__)
 
-# Reachable via the internal Docker network hostname in every compose
-# file (dev + prod) — same env-var-with-default pattern every other
-# sync LLM proxy in this codebase uses (portal_api.py, portal_roleplay.py).
-_LLM_SVC = os.environ.get('LLM_SERVICE_URL', 'http://llm-service:8000').rstrip('/')
-# A freeform lesson document asks for up to 25 structured items in one
-# completion (max_tokens=1000 on the LLM service) — slower than the
-# ~10-40s single-field completions elsewhere in this codebase (ADR-027).
-# 90s proved too tight against a real ~250-word household-items lesson
-# on the target server; 180s gives real headroom.
-_LLM_EXTRACT_TIMEOUT = 180
-
 SOURCE_TYPE_SELECTION = [
     ('manual_text', 'Manual Text'),
     ('preply_extension', 'Preply Extension'),
@@ -32,6 +18,7 @@ SOURCE_TYPE_SELECTION = [
 
 STATE_SELECTION = [
     ('draft', 'Draft'),
+    ('extracting', 'Extracting (AI)'),
     ('parsed', 'Parsed'),
     ('analyzed', 'Analyzed'),
     ('published', 'Published'),
@@ -100,6 +87,14 @@ class LanguageLesson(models.Model):
         index=True,
     )
     error_message = fields.Text(string='Error Message')
+    job_id = fields.Char(
+        string='Job ID',
+        readonly=True,
+        copy=False,
+        index=True,
+        help='UUID for the in-flight lesson.extraction RabbitMQ job (ADR-018). '
+             'Only set while state=extracting.',
+    )
     parse_method = fields.Selection(
         selection=PARSE_METHOD_SELECTION,
         string='Parse Method',
@@ -123,8 +118,8 @@ class LanguageLesson(models.Model):
             lesson.correction_count = len(items.filtered(lambda i: i.item_type == 'correction'))
 
     # ------------------------------------------------------------------
-    # Parsing (ADR-038 § 38a rule-based fast path; § 38g LLM fallback for
-    # freeform/unmarked canvas text)
+    # Parsing (ADR-038 § 38a rule-based fast path; § 38i async LLM
+    # fallback for freeform/unmarked canvas text)
     # ------------------------------------------------------------------
 
     def action_parse(self):
@@ -135,91 +130,117 @@ class LanguageLesson(models.Model):
                 lesson.write({'state': 'error', 'error_message': str(exc)})
                 continue
 
-            parse_method = 'rule_based'
-            if not parsed.get('markers_found'):
+            if parsed.get('markers_found'):
+                lesson._apply_parsed_items(parsed, 'rule_based')
+            else:
                 # No Topic:/Vocab:/... markers anywhere in the pasted text —
                 # this is real freeform canvas content (ADR-038 § 38g), not
-                # a hand-typed quick note. Fall back to LLM extraction.
-                try:
-                    parsed = lesson._llm_extract_lesson(lesson.raw_payload, lesson.language)
-                    parse_method = 'llm'
-                except UserError as exc:
-                    lesson.write({
-                        'state': 'error',
-                        'error_message': str(exc),
-                        'parse_method': False,
-                    })
-                    continue
-
-            lesson.item_ids.unlink()
-
-            vals = {'parse_method': parse_method}
-            if not lesson.name or lesson.name == 'New Lesson':
-                if parsed.get('topic'):
-                    vals['name'] = parsed['topic']
-
-            item_vals_list = [
-                {
-                    'lesson_id': lesson.id,
-                    'sequence': (idx + 1) * 10,
-                    'item_type': item['item_type'],
-                    'text': item['text'],
-                    'translation_hint': item['translation_hint'],
-                    'corrected_text': item['corrected_text'],
-                    'context': item['context'],
-                }
-                for idx, item in enumerate(parsed['items'])
-            ]
-            if item_vals_list:
-                self.env['language.lesson.item'].create(item_vals_list)
-
-            if not item_vals_list and parse_method == 'llm':
-                # The LLM path found no markers AND extracted nothing —
-                # surface this as an error rather than a silently-empty
-                # "analyzed" lesson, so the user knows to retry / edit.
-                lesson.write({
-                    'state': 'error',
-                    'error_message': (
-                        'No recognisable structure found in this text, and '
-                        'AI extraction returned nothing usable. Try adding '
-                        'explicit markers (Topic:/Vocab:/Phrases:/Mistakes:/'
-                        'Grammar:/Notes:), or click Re-parse to retry the AI '
-                        'extraction.'
-                    ),
-                })
-                continue
-
-            vals.update({'state': 'parsed', 'error_message': False})
-            lesson.write(vals)
+                # a hand-typed quick note. Extraction over a whole document
+                # can take minutes on CPU (§ 38i) — never block the request;
+                # publish the job and let the cron-drained consumer apply
+                # the result whenever it lands.
+                lesson._enqueue_llm_extraction()
         return True
 
-    def _llm_extract_lesson(self, raw_text, language):
-        """POST to the LLM service's /extract-lesson sync endpoint and
-        return the same {topic, items[]} shape parse_lesson_text() does,
-        so the caller (action_parse) doesn't need to know which path ran.
-
-        Raises UserError (never a raw exception) on any failure so
-        action_parse can write a clean, user-facing error state.
+    def _apply_parsed_items(self, parsed, parse_method):
+        """Create language.lesson.item rows from a {topic, items[]} result
+        and advance state to 'parsed' (or 'error' if the LLM path found
+        nothing usable). Shared by the sync rule-based path and the async
+        extraction-completed handler so both end up in an identical state.
         """
         self.ensure_one()
-        try:
-            resp = requests.post(
-                f'{_LLM_SVC}/extract-lesson',
-                json={'raw_text': raw_text or '', 'language': language},
-                timeout=_LLM_EXTRACT_TIMEOUT,
-            )
-            resp.raise_for_status()
-            data = json.loads(resp.content.decode('utf-8', errors='replace'))
-        except Exception as exc:
-            _logger.warning('Lesson %s: LLM extraction unavailable: %s', self.id, exc)
-            raise UserError(
-                'This lesson has no recognisable Topic:/Vocab:/... markers, so '
-                'Lexora tried AI extraction instead, but the AI service is '
-                'currently unavailable. Try again in a moment, or add explicit '
-                'markers to the pasted text.'
-            ) from exc
+        self.item_ids.unlink()
 
-        raw_items = data.get('items') if isinstance(data, dict) else None
+        vals = {'parse_method': parse_method}
+        if (not self.name or self.name == 'New Lesson') and parsed.get('topic'):
+            vals['name'] = parsed['topic']
+
+        item_vals_list = [
+            {
+                'lesson_id': self.id,
+                'sequence': (idx + 1) * 10,
+                'item_type': item['item_type'],
+                'text': item['text'],
+                'translation_hint': item['translation_hint'],
+                'corrected_text': item['corrected_text'],
+                'context': item['context'],
+            }
+            for idx, item in enumerate(parsed['items'])
+        ]
+        if item_vals_list:
+            self.env['language.lesson.item'].create(item_vals_list)
+
+        if not item_vals_list and parse_method == 'llm':
+            # The LLM path found no markers AND extracted nothing — surface
+            # this as an error rather than a silently-empty "analyzed"
+            # lesson, so the user knows to retry / edit.
+            self.write({
+                'state': 'error',
+                'parse_method': False,
+                'error_message': (
+                    'No recognisable structure found in this text, and AI '
+                    'extraction returned nothing usable. Try adding explicit '
+                    'markers (Topic:/Vocab:/Phrases:/Mistakes:/Grammar:/Notes:), '
+                    'or click Re-parse to retry the AI extraction.'
+                ),
+            })
+            return
+
+        vals.update({'state': 'parsed', 'error_message': False, 'job_id': False})
+        self.write(vals)
+
+    def action_reparse(self):
+        for lesson in self:
+            lesson.item_ids.unlink()
+            lesson.write({
+                'state': 'draft', 'error_message': False,
+                'job_id': False, 'parse_method': False,
+            })
+        return self.action_parse()
+
+    # ------------------------------------------------------------------
+    # Async LLM extraction (ADR-038 § 38i) — publish/consume, same shape
+    # as language_translation's _enqueue_single / action_consume_results.
+    # ------------------------------------------------------------------
+
+    def _enqueue_llm_extraction(self):
+        self.ensure_one()
+        from odoo.addons.language_core.models.rabbitmq_publisher import RabbitMQPublisher  # noqa: PLC0415
+
+        job_id = str(uuid.uuid4())
+        self.write({'state': 'extracting', 'job_id': job_id, 'error_message': False})
+
+        publisher = RabbitMQPublisher(self.env)
+        publisher.publish(
+            'lesson.extraction.requested',
+            {
+                'lesson_id': self.id,
+                'raw_text': self.raw_payload or '',
+                'language': self.language,
+            },
+            job_id=job_id,
+        )
+
+    def action_consume_extraction_results(self):
+        """Drain lesson-extraction result queues — called by scheduled cron."""
+        from odoo.addons.language_core.models.rabbitmq_consumer import RabbitMQConsumer  # noqa: PLC0415
+        consumer = RabbitMQConsumer(self.env)
+        consumer.drain('lesson.extraction.completed', self._handle_extraction_completed)
+        consumer.drain('lesson.extraction.failed', self._handle_extraction_failed)
+
+    def _handle_extraction_completed(self, job_id, payload):
+        lesson = self._find_by_job_id(job_id)
+        if not lesson:
+            _logger.warning('lesson.extraction.completed: no record for job_id=%s', job_id)
+            return
+        if lesson.state != 'extracting':
+            _logger.info(
+                'lesson.extraction.completed: duplicate delivery for job_id=%s (state=%s) — skipped',
+                job_id, lesson.state,
+            )
+            return
+
+        raw_items = payload.get('items') if isinstance(payload, dict) else None
         items = []
         if isinstance(raw_items, list):
             for raw_item in raw_items:
@@ -243,15 +264,44 @@ class LanguageLesson(models.Model):
                     'context': _opt('context'),
                 })
 
-        topic = data.get('topic') if isinstance(data, dict) else None
+        topic = payload.get('topic') if isinstance(payload, dict) else None
         topic = topic.strip() if isinstance(topic, str) and topic.strip() else None
-        return {'topic': topic, 'items': items}
 
-    def action_reparse(self):
-        for lesson in self:
-            lesson.item_ids.unlink()
-            lesson.write({'state': 'draft', 'error_message': False})
-        return self.action_parse()
+        lesson.sudo()._apply_parsed_items({'topic': topic, 'items': items}, 'llm')
+        if lesson.state == 'parsed':
+            try:
+                lesson.action_analyze_novelty()
+            except UserError as exc:
+                lesson.write({'state': 'error', 'error_message': str(exc)})
+        _logger.info('lesson.extraction.completed: lesson_id=%s job_id=%s items=%d',
+                     lesson.id, job_id, len(items))
+
+    def _handle_extraction_failed(self, job_id, payload):
+        lesson = self._find_by_job_id(job_id)
+        if not lesson:
+            _logger.warning('lesson.extraction.failed: no record for job_id=%s', job_id)
+            return
+        if lesson.state != 'extracting':
+            _logger.info(
+                'lesson.extraction.failed: duplicate delivery for job_id=%s (state=%s) — skipped',
+                job_id, lesson.state,
+            )
+            return
+        lesson.sudo().write({
+            'state': 'error',
+            'parse_method': False,
+            'error_message': (
+                'AI extraction failed: '
+                + str((payload or {}).get('error', 'unknown error'))
+                + '. Click Re-parse to try again, or add explicit Topic:/'
+                  'Vocab:/... markers to skip AI extraction entirely.'
+            ),
+        })
+        _logger.warning('lesson.extraction.failed: lesson_id=%s job_id=%s error=%s',
+                         lesson.id, job_id, (payload or {}).get('error'))
+
+    def _find_by_job_id(self, job_id):
+        return self.sudo().search([('job_id', '=', job_id)], limit=1) or None
 
     # ------------------------------------------------------------------
     # Novelty analysis (ADR-038 § 38b/38d)

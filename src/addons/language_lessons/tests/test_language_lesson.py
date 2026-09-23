@@ -5,14 +5,13 @@ Every ``language.entry.create()`` call auto-enqueues translation jobs
 translation tests do — no real RabbitMQ connection in the test env.
 """
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from odoo.tests.common import TransactionCase
 
 _PUBLISHER_PATH = (
     'odoo.addons.language_core.models.rabbitmq_publisher.RabbitMQPublisher.publish'
 )
-_REQUESTS_POST_PATH = 'odoo.addons.language_lessons.models.language_lesson.requests.post'
 
 
 def _patch_publish():
@@ -253,64 +252,94 @@ class TestLanguageLesson(TransactionCase):
     # Preply-canvas text rather than a hand-typed marker-formatted note.
     # ------------------------------------------------------------------
 
-    def test_no_markers_routes_to_llm_extraction(self):
+    def test_no_markers_enqueues_llm_extraction_job(self):
+        """action_parse() on freeform text publishes a job and leaves the
+        lesson in state='extracting' — it does NOT block on the LLM
+        (ADR-038 § 38i)."""
         raw = (
             'Household Items\n'
             'Lesson Objectives\n'
             '• Name common rooms and furniture\n\n'
-            'Category | Words\n'
-            'Rooms | living room, kitchen, bathroom\n'
+            'Category: Words\n'
+            'Rooms: living room, kitchen, bathroom\n'
         )
         lesson = self._make_lesson(raw)
-
-        fake_response = MagicMock()
-        fake_response.content = b'''{
-            "status": "ok",
-            "topic": "Household Items",
-            "items": [
-                {"item_type": "vocab", "text": "living room", "translation_hint": null,
-                 "corrected_text": null, "context": null},
-                {"item_type": "vocab", "text": "kitchen", "translation_hint": null,
-                 "corrected_text": null, "context": null},
-                {"item_type": "vocab", "text": "bathroom", "translation_hint": null,
-                 "corrected_text": null, "context": null}
-            ]
-        }'''
-        fake_response.raise_for_status = lambda: None
-
-        with patch(_REQUESTS_POST_PATH, return_value=fake_response) as mock_post:
+        with _patch_publish() as mock_publish:
             lesson.action_parse()
+        mock_publish.assert_called_once()
+        call_args = mock_publish.call_args
+        self.assertEqual(call_args[0][0], 'lesson.extraction.requested')
+        self.assertEqual(lesson.state, 'extracting')
+        self.assertTrue(lesson.job_id)
+        self.assertEqual(len(lesson.item_ids), 0)
 
-        mock_post.assert_called_once()
-        self.assertEqual(lesson.state, 'parsed')
-        self.assertEqual(lesson.parse_method, 'llm')
-        self.assertEqual(lesson.name, 'Household Items')
-        self.assertEqual(len(lesson.item_ids), 3)
-        self.assertSetEqual(
-            {i.text for i in lesson.item_ids},
-            {'living room', 'kitchen', 'bathroom'},
-        )
-
-    def test_markers_present_never_calls_llm(self):
+    def test_markers_present_never_enqueues_llm_job(self):
         lesson = self._make_lesson('Vocab:\n- gate')
-        with patch(_REQUESTS_POST_PATH) as mock_post:
+        with _patch_publish() as mock_publish:
             lesson.action_parse()
-        mock_post.assert_not_called()
+        mock_publish.assert_not_called()
+        self.assertEqual(lesson.state, 'parsed')
         self.assertEqual(lesson.parse_method, 'rule_based')
 
-    def test_llm_extraction_service_down_sets_error_state(self):
-        lesson = self._make_lesson('Household Items\nJust some prose, no markers at all here.')
-        with patch(_REQUESTS_POST_PATH, side_effect=ConnectionError('boom')):
+    def test_extraction_completed_creates_items_and_analyzes(self):
+        """The full async round-trip: enqueue → simulate the LLM
+        service's completed event → items land → novelty analysis runs
+        automatically, same as the synchronous rule-based path used to."""
+        lesson = self._make_lesson('Household Items\nJust freeform prose, no markers at all.')
+        with _patch_publish():
             lesson.action_parse()
-        self.assertEqual(lesson.state, 'error')
-        self.assertIn('AI', lesson.error_message)
+        self.assertEqual(lesson.state, 'extracting')
+        job_id = lesson.job_id
 
-    def test_llm_extraction_empty_result_sets_error_state(self):
+        Lesson = self.env['language.lesson']
+        with _patch_publish():  # new 'new' items still auto-enqueue translation
+            Lesson._handle_extraction_completed(job_id, {
+                'topic': 'Household Items',
+                'items': [
+                    {'item_type': 'vocab', 'text': 'living room', 'translation_hint': None,
+                     'corrected_text': None, 'context': None},
+                    {'item_type': 'vocab', 'text': 'kitchen', 'translation_hint': None,
+                     'corrected_text': None, 'context': None},
+                ],
+            })
+
+        self.assertEqual(lesson.state, 'analyzed')
+        self.assertEqual(lesson.parse_method, 'llm')
+        self.assertEqual(lesson.name, 'Household Items')
+        self.assertEqual(len(lesson.item_ids), 2)
+        self.assertTrue(all(i.novelty == 'new' for i in lesson.item_ids))
+        self.assertFalse(lesson.job_id)  # cleared once applied
+
+    def test_extraction_completed_empty_result_sets_error_state(self):
         lesson = self._make_lesson('Some freeform text with no markers whatsoever in it.')
-        fake_response = MagicMock()
-        fake_response.content = b'{"status": "ok", "topic": null, "items": []}'
-        fake_response.raise_for_status = lambda: None
-        with patch(_REQUESTS_POST_PATH, return_value=fake_response):
+        with _patch_publish():
             lesson.action_parse()
+        job_id = lesson.job_id
+
+        self.env['language.lesson']._handle_extraction_completed(job_id, {'topic': None, 'items': []})
         self.assertEqual(lesson.state, 'error')
         self.assertEqual(len(lesson.item_ids), 0)
+
+    def test_extraction_failed_sets_error_state(self):
+        lesson = self._make_lesson('Some freeform text with no markers whatsoever in it.')
+        with _patch_publish():
+            lesson.action_parse()
+        job_id = lesson.job_id
+
+        self.env['language.lesson']._handle_extraction_failed(job_id, {'error': 'LLM unavailable'})
+        self.assertEqual(lesson.state, 'error')
+        self.assertIn('LLM unavailable', lesson.error_message)
+
+    def test_extraction_completed_idempotent(self):
+        """A duplicate delivery of the same job_id after the lesson has
+        already moved on (state != 'extracting') is a safe no-op."""
+        lesson = self._make_lesson('Vocab:\n- gate')  # rule-based, never 'extracting'
+        lesson.action_parse()
+        self.assertEqual(lesson.state, 'parsed')
+
+        self.env['language.lesson']._handle_extraction_completed('nonexistent-job-id', {
+            'topic': 'x', 'items': [{'item_type': 'vocab', 'text': 'y'}],
+        })
+        # No crash, and the rule-based lesson is untouched.
+        self.assertEqual(lesson.state, 'parsed')
+        self.assertEqual(len(lesson.item_ids), 1)

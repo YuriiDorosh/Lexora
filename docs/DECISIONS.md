@@ -2840,8 +2840,97 @@ exact "Function / Phrase / Example" collision, plus a test confirming
 a colon-less keyword line falls through to the heuristic rather than
 opening a section.
 
+### Sub-decision 38i: LLM extraction moved off the sync HTTP path onto RabbitMQ (architecture correction, same day)
+
+**The problem, caught live against the same real lesson, right after
+§ 38g shipped:** § 38g made `/extract-lesson` a synchronous HTTP call
+from the Odoo portal request — same shape as `/explain-grammar`,
+`/roleplay`, etc. Timed live against the user's actual household-items
+lesson (~250 words, 8 vocab items) on the target CPU
+(6-vCPU AVX-only Xeon E5-2680 v2, ADR-027): the call took **~190
+seconds** and still failed with `parse_error` because `max_tokens`
+was hit before the JSON closed. This is a different workload class
+from every other sync LLM endpoint in this codebase — those ask for
+one short field (an explanation, a topic sentence, a score); this
+asks for a whole structured document (up to 25 items) in one
+completion, which is 5-10× the token budget and correspondingly
+slower to generate on CPU. No amount of timeout-raising fixes this —
+it was the wrong pattern for this workload, full stop.
+
+**Decision:** `/extract-lesson` stays as an HTTP endpoint (useful for
+manual smoke-testing), but the Odoo → LLM-service path for the § 38g
+fallback moves onto the existing RabbitMQ infrastructure, mirroring
+`language_translation`'s `_enqueue_single` /
+`action_consume_results` / `_handle_completed` / `_handle_failed`
+shape exactly:
+
+- `language.lesson._enqueue_llm_extraction()` generates a `job_id`
+  (new `Char` field, ADR-018 idempotency), writes `state='extracting'`,
+  and publishes `lesson.extraction.requested` — then returns
+  immediately. `action_parse()` no longer blocks on the LLM at all.
+- The LLM service's existing consumer thread (previously bound to
+  only `enrichment.requested`) now also consumes
+  `lesson.extraction.requested` on the same channel/connection, calls
+  the same `_extract_lesson()` helper § 38g already built, and
+  publishes `lesson.extraction.completed` / `.failed`.
+- A new cron (`cron_consume_lesson_extraction_results`, 1-minute
+  interval, identical pattern to translation/enrichment/anki) drains
+  the result queues. `_handle_extraction_completed` creates the
+  `language.lesson.item` rows (via a new shared `_apply_parsed_items()`
+  helper — also used by the synchronous rule-based path so both ends
+  produce an identical final state) and immediately chains
+  `action_analyze_novelty()`, so the net user-visible behaviour is
+  unchanged: paste → (eventually) see New/Seen/Corrections. Only the
+  *timing* changed, from blocking to eventual.
+- The portal detail page shows a `state='extracting'` banner (spinner
+  + explanatory copy) with a plain `<meta http-equiv="refresh"
+  content="15">` — no JS dependency, works even with JS disabled,
+  consistent with this being a low-traffic personal-use feature that
+  doesn't need a websocket/polling apparatus.
+
+**Freed from the synchronous deadline, two other numbers also
+changed:** `LLM_N_CTX` raised from 2048 → 4096 (both dev and prod
+compose defaults) so a long prompt (system + few-shot example + up to
+3000 chars of lesson text, ≈1200-1400 tokens) has real room left for
+a complete JSON completion; `max_tokens` for this endpoint raised back
+to 1800 (was cut to 1000 chasing the old 90s deadline, which is
+exactly what caused the mid-item truncation in the first place — a
+tighter budget made the sync problem worse, not better, because it
+just failed faster). Neither change would have been safe to make
+under the sync architecture — a bigger context and a bigger token
+budget only make a single request slower, and the sync path was
+already too slow.
+
+**One more bug fixed while wiring the consumer:** pika's
+`BlockingConnection` cannot send heartbeats while a message callback
+is still executing, and a multi-minute extraction call blocks the
+whole event loop for that long. The consumer's `heartbeat=30` (safe
+for the sub-second enrichment case) would have gotten this new queue's
+long-running callback disconnected mid-job. Raised to `heartbeat=600`
+— the exact fix M6's audio service needed for the same reason
+(TASKS.md M6 "Bug 2", RabbitMQ connection lost during long TTS/STT
+jobs), now applied here before it ever shipped broken.
+
+**Rule for the codebase going forward:** the sync-vs-async LLM-endpoint
+line drawn in ADR-030 ("sync only when latency is bounded ~10-40s and
+the user is actively staring at the result") is not just a style
+preference — § 38i is what happens when it's ignored. Any future
+endpoint that summarises, restructures, or extracts from a
+**whole document** (not a single field) belongs on the async path by
+default; sync is the exception that needs justifying, not the default.
+
 ### Revisit triggers
 
+- **Async extraction wall-clock time is still unmeasured against a
+  real completed run (§ 38i).** The sync path measured ~190s before
+  failing on a truncated completion; the async path removes the
+  failure but the actual multi-minute duration is unchanged (only
+  `max_tokens` went up, which should let it finish rather than
+  truncate, at the cost of taking even longer). If real runs turn out
+  to regularly exceed ~5 minutes, that's the trigger to either shrink
+  the few-shot example (fewer input tokens = faster prefill) or split
+  extraction into a first pass that only locates candidate table/list
+  regions and a second pass that structures just those.
 - **`_LESSON_EXTRACT_MAX_CHARS` (§ 38g).** 3000 chars comfortably covers
   the two real lessons seen so far but will truncate longer lesson
   documents. If that turns out to matter in practice: raise `LLM_N_CTX`

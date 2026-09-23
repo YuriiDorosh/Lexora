@@ -64,7 +64,7 @@
                                         <td><span class="badge bg-secondary"><t t-esc="lesson.known_count"/></span></td>
                                         <td><span class="badge bg-warning text-dark"><t t-esc="lesson.correction_count"/></span></td>
                                         <td>
-                                            <span t-attf-class="badge #{ 'bg-danger' if lesson.state == 'error' else ('bg-success' if lesson.state in ('analyzed', 'published') else 'bg-light text-dark') }">
+                                            <span t-attf-class="badge #{ 'bg-danger' if lesson.state == 'error' else ('bg-success' if lesson.state in ('analyzed', 'published') else ('bg-info text-dark' if lesson.state == 'extracting' else 'bg-light text-dark')) }">
                                                 <t t-esc="lesson.state"/>
                                             </span>
                                         </td>
@@ -144,6 +144,12 @@
     <template id="portal_lesson_detail" name="Lesson Detail">
         <t t-call="portal.portal_layout">
             <t t-set="breadcrumbs_searchbar" t-value="False"/>
+            <t t-if="lesson.state == 'extracting'">
+                <!-- No JS dependency — plain meta refresh so the page
+                     picks up the async extraction result on its own
+                     once the cron (runs every ~1 min) drains it. -->
+                <meta http-equiv="refresh" content="15"/>
+            </t>
             <div class="container py-4">
                 <div class="d-flex align-items-center justify-content-between mb-2">
                     <h2 class="mb-0"><t t-esc="lesson.name"/></h2>
@@ -166,6 +172,16 @@
 
                 <t t-if="lesson.state == 'error'">
                     <div class="alert alert-danger"><t t-esc="lesson.error_message"/></div>
+                </t>
+                <t t-if="lesson.state == 'extracting'">
+                    <div class="alert alert-info d-flex align-items-center">
+                        <div class="spinner-border spinner-border-sm me-2" role="status"></div>
+                        <div>
+                            🤖 No explicit markers found in this text — analyzing with AI in the
+                            background (this can take a couple of minutes on CPU). This page
+                            refreshes automatically every 15 seconds.
+                        </div>
+                    </div>
                 </t>
 
                 <div class="row mb-4 text-center">

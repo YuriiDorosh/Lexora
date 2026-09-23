@@ -28,7 +28,7 @@
                     <button name="action_parse" type="object" string="Parse" invisible="state != 'draft'" class="btn-primary"/>
                     <button name="action_reparse" type="object" string="Re-parse" invisible="state == 'draft'"/>
                     <button name="action_analyze_novelty" type="object" string="Analyze Novelty" invisible="state != 'parsed'" class="btn-primary"/>
-                    <field name="state" widget="statusbar" statusbar_visible="draft,parsed,analyzed"/>
+                    <field name="state" widget="statusbar" statusbar_visible="draft,extracting,parsed,analyzed"/>
                 </header>
                 <sheet>
                     <group>
