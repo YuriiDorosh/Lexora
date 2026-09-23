@@ -15,9 +15,142 @@
 
 ## Current Milestone
 
-### M38 — Production Infrastructure & Deployment Readiness
+### M39 — Lesson Import → LMS Courses (Phase 1)
 
 **Status:** In progress.
+**Branch:** `m39_lesson_import` (to be created off `main`).
+**Started:** 2026-09-23
+
+**Scope:** New `language_lessons` module. Phase 1 only — rule-based
+parser, novelty analysis against the user's own dictionary + prior
+lessons, auto-creation of `language.entry` for brand-new vocab/phrases,
+manual-paste portal at `/my/lessons*`. Phase 2 (course generation into
+`website_slides`) and Phase 3 (Preply Chrome-extension capture) are
+separate future milestones — see PLAN.md §M39 and ADR-038.
+
+**Locked decisions from the pre-Phase-1 clarification round with the
+user** (full rationale in ADR-038):
+1. No lemmatization in Phase 1 (`went` will not match `go`).
+2. Course visibility in Phase 2 will be owner + tutor (not public,
+   not fully private) — recorded now, no code impact until Phase 2.
+3. `known → due today` nudge is a system parameter, **off by default**.
+
+#### Sub-steps
+
+**Step M39-S1 — Module scaffold + parser (pure function, no ORM)**
+
+- [x] M39-S1-01 · `language_lessons/__manifest__.py` — depends
+  `language_words`, `language_translation`, `language_learning`,
+  `portal`.
+- [x] M39-S1-02 · `models/lesson_parser.py` — `parse_lesson_text(raw)`.
+  Recognises `Topic:` / `Vocab(ulary):` / `Phrase(s):` /
+  `Mistake(s):`/`Correction(s):` / `Grammar:` / `Notes:` markers
+  (case-insensitive, colon optional). `=` then `" - "` for
+  translation hints; `→`/`->` for corrections; ≤3-token heuristic
+  for unmarked lines. Manually cross-checked against the ТЗ's full
+  worked example (`Travel & Airports`) outside Odoo — output matches
+  section-by-section.
+- [x] M39-S1-03 · `tests/test_lesson_parser.py` — 20 pure function
+  tests, no database: all markers, both separators, mixed case,
+  empty sections, no-section heuristic, Cyrillic/Polish text,
+  hyphenated-word non-split, full spec example, empty/None input.
+
+**Step M39-S2 — Models**
+
+- [x] M39-S2-01 · `models/language_lesson.py` — `language.lesson`
+  (fields per PLAN §M39; `action_parse` / `action_reparse` /
+  `action_analyze_novelty`).
+- [x] M39-S2-02 · `models/language_lesson_item.py` —
+  `language.lesson.item` (fields per PLAN §M39; `text_normalized`
+  via the **existing** `language_words.normalize()`).
+- [x] M39-S2-03 · `models/language_entry_lesson.py` — `_inherit
+  language.entry`, extends `CREATED_FROM_SELECTION` with
+  `('lesson_import', 'Lesson Import')` (canonical-extension pattern,
+  ADR-038 § 38e — not the undeclared-value shortcut). While
+  implementing this, found `portal_library.py`'s `'seeded_content'`
+  is the same undeclared-value bug — documented in ADR-038 § 38e as
+  a follow-up, not fixed here (out of scope for M39).
+- [x] M39-S2-04 · `data/system_parameters.xml` — the six weight
+  params + `known_due_today` (default `False`).
+
+**Step M39-S3 — Novelty analysis**
+
+- [x] M39-S3-01 · `_find_dictionary_match()` — longest-match
+  sliding-window port of M34's `_findCueHit` (ADR-033 § 34e /
+  ADR-038 § 38d), server-side Python.
+- [x] M39-S3-02 · `action_analyze_novelty()` full implementation:
+  exact + longest-match against `language.entry`, `language.review`
+  state lookup for `known`, prior-lesson-item lookup for `seen`,
+  `is_recurring_mistake` for corrections, weight snapshotting,
+  optional `known_due_today` nudge.
+- [x] M39-S3-03 · `tests/test_language_lesson.py` — 10 ORM tests:
+  new / seen (vocab, no dup entry) / seen (vocab, review=learning
+  stays seen) / known (SRS review) / seen (prior lesson only, no
+  active entry) / longest sub-phrase match / recurring mistake /
+  idempotent re-parse (no duplicate entries on re-run) / parse
+  state+topic / reparse item replacement. **Not yet executed** —
+  needs the user's Docker stack (`make up-dev`); see M39-S6.
+
+**Step M39-S4 — Security + backend views**
+
+- [x] M39-S4-01 · `security/ir.model.access.csv` +
+  `security/record_rules.xml` (owner-only, same pattern as every
+  other portal-owned model).
+- [x] M39-S4-02 · `views/language_lesson_views.xml` — backend
+  list/form + `Lexora → Lessons` menuitem.
+
+**Step M39-S5 — Portal**
+
+- [x] M39-S5-01 · `controllers/portal.py` — `GET /my/lessons`,
+  `GET`+`POST /my/lessons/new`, `GET /my/lessons/<id>`,
+  `POST /my/lessons/<id>/reparse`.
+- [x] M39-S5-02 · `views/portal_lessons.xml` — list / new-lesson form
+  / detail (New words / Seen before / Corrections / Grammar / Notes
+  sections with counts) + a portal-home "My Lessons" docs-entry
+  widget (same pattern as every other `language_*` portal module).
+- [x] M39-S5-03 · `data/website_menus.xml` — navbar entry under the
+  existing Practice group.
+
+**Step M39-S6 — Verification + docs flip**
+
+- [x] M39-S6-pre · Static checks run in this session (no Docker
+  available in the sandbox that authored this code): `py_compile` on
+  every `.py` file, `xml.etree` well-formedness on every `.xml` file,
+  and a standalone run of `parse_lesson_text()` against the ТЗ's own
+  worked example — output matches section-by-section. All green.
+- [ ] M39-S6-01 · `docker exec odoo odoo --config /etc/odoo/odoo.conf
+  -d lexora --init language_lessons --stop-after-init --no-http` →
+  0 errors. **Pending — run on your machine** (`make up-dev` first if
+  the stack isn't already up).
+- [ ] M39-S6-02 · `--update language_lessons --test-enable --no-http
+  --stop-after-init` → all green; no regression in `language_words` /
+  `language_translation` / `language_learning` suites.
+- [ ] M39-S6-03 · Manual: paste a mixed lesson → new words get
+  entries + auto-enqueued translations; known words don't duplicate;
+  a second lesson with an overlapping word shows
+  `seen_source=previous_lesson`.
+- [ ] M39-S6-04 · PLAN.md / TASKS.md flipped to ✅ Complete;
+  README.md Feature Catalogue + Implementation Status updated.
+- [ ] M39-S6-05 · Commit + push `m39_lesson_import`.
+
+#### Out of scope (this milestone — see PLAN.md §M39 Phase 2/3)
+
+- Course generation into `website_slides` (Phase 2).
+- Preply Chrome-extension capture (Phase 3, blocked on a DOM/network
+  sample from the user's own DevTools).
+- Lemmatization, LLM-driven parsing, OCR/vision.
+
+#### Blockers
+
+(none)
+
+---
+
+## Completed Milestones (M38)
+
+### M38 — Production Infrastructure & Deployment Readiness
+
+**Status:** Complete and verified.
 **Branch:** `m38_production_readiness` (off `main` after M37 merged
 in PR #85).
 **Started:** 2026-05-18

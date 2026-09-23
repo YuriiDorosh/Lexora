@@ -1,0 +1,252 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- ============================================================== -->
+    <!-- Portal home widget — "My Lessons" counter                      -->
+    <!-- ============================================================== -->
+    <template id="portal_my_home_lessons" name="Portal My Home: Lessons" inherit_id="portal.portal_my_home">
+        <xpath expr="//div[hasclass('o_portal_docs')]" position="inside">
+            <t t-call="portal.portal_docs_entry">
+                <t t-set="title">My Lessons</t>
+                <t t-set="url" t-value="'/my/lessons'"/>
+                <t t-set="placeholder_count" t-value="'lesson_count'"/>
+            </t>
+        </xpath>
+    </template>
+
+    <!-- ============================================================== -->
+    <!-- List  /my/lessons                                              -->
+    <!-- ============================================================== -->
+    <template id="portal_lessons_list" name="My Lessons">
+        <t t-call="portal.portal_layout">
+            <t t-set="breadcrumbs_searchbar" t-value="False"/>
+            <div class="container py-4">
+                <div class="d-flex align-items-center justify-content-between mb-4">
+                    <h2 class="mb-0">📚 My Lessons</h2>
+                    <a href="/my/lessons/new" class="btn btn-primary">+ Import Lesson</a>
+                </div>
+
+                <t t-if="not lessons">
+                    <div class="text-center text-muted py-5">
+                        <p>No lessons imported yet.</p>
+                        <a href="/my/lessons/new" class="btn btn-primary">Import your first lesson</a>
+                    </div>
+                </t>
+                <t t-if="lessons">
+                    <div class="card shadow-sm">
+                        <table class="table table-hover mb-0">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>Topic</th>
+                                    <th>Date</th>
+                                    <th>Language</th>
+                                    <th>Tutor</th>
+                                    <th>New</th>
+                                    <th>Seen</th>
+                                    <th>Known</th>
+                                    <th>Corrections</th>
+                                    <th>Status</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <t t-foreach="lessons" t-as="lesson">
+                                    <tr>
+                                        <td>
+                                            <a t-attf-href="/my/lessons/#{lesson.id}">
+                                                <t t-esc="lesson.name"/>
+                                            </a>
+                                        </td>
+                                        <td><t t-esc="lesson.lesson_date"/></td>
+                                        <td><t t-esc="lang_names.get(lesson.language, lesson.language)"/></td>
+                                        <td><t t-esc="lesson.tutor_name or '—'"/></td>
+                                        <td><span class="badge bg-success"><t t-esc="lesson.new_count"/></span></td>
+                                        <td><span class="badge bg-info text-dark"><t t-esc="lesson.seen_count"/></span></td>
+                                        <td><span class="badge bg-secondary"><t t-esc="lesson.known_count"/></span></td>
+                                        <td><span class="badge bg-warning text-dark"><t t-esc="lesson.correction_count"/></span></td>
+                                        <td>
+                                            <span t-attf-class="badge #{ 'bg-danger' if lesson.state == 'error' else ('bg-success' if lesson.state in ('analyzed', 'published') else 'bg-light text-dark') }">
+                                                <t t-esc="lesson.state"/>
+                                            </span>
+                                        </td>
+                                    </tr>
+                                </t>
+                            </tbody>
+                        </table>
+                    </div>
+                </t>
+            </div>
+        </t>
+    </template>
+
+    <!-- ============================================================== -->
+    <!-- New lesson  GET/POST /my/lessons/new                           -->
+    <!-- ============================================================== -->
+    <template id="portal_lesson_new" name="Import Lesson">
+        <t t-call="portal.portal_layout">
+            <t t-set="breadcrumbs_searchbar" t-value="False"/>
+            <div class="container py-4" style="max-width: 800px;">
+                <h2 class="mb-4">📚 Import Lesson</h2>
+
+                <t t-if="error">
+                    <div class="alert alert-danger" role="alert">
+                        <t t-esc="error"/>
+                    </div>
+                </t>
+
+                <form action="/my/lessons/new" method="post" class="card shadow-sm p-4">
+                    <input type="hidden" name="csrf_token" t-att-value="request.csrf_token()"/>
+
+                    <div class="mb-3">
+                        <label class="form-label">Topic name (optional — auto-filled from "Topic:" if left blank)</label>
+                        <input type="text" name="name" class="form-control" t-att-value="post.get('name')"/>
+                    </div>
+
+                    <div class="row mb-3">
+                        <div class="col-md-4">
+                            <label class="form-label">Lesson date</label>
+                            <input type="date" name="lesson_date" class="form-control" t-att-value="post.get('lesson_date')"/>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Language</label>
+                            <select name="language" class="form-select">
+                                <t t-foreach="lang_names.items()" t-as="lang_item">
+                                    <option t-att-value="lang_item[0]" t-att-selected="lang_item[0] == post.get('language')">
+                                        <t t-esc="lang_item[1]"/>
+                                    </option>
+                                </t>
+                            </select>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Tutor (optional)</label>
+                            <input type="text" name="tutor_name" class="form-control" t-att-value="post.get('tutor_name')"/>
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">Lesson text (paste from the canvas board)</label>
+                        <textarea name="raw_payload" class="form-control" rows="14" placeholder="Topic: Travel &amp; Airports&#10;Vocab:&#10;- boarding pass = посадковий талон&#10;- to check in&#10;Phrases:&#10;- I'm running late&#10;Mistakes:&#10;- I go to the airport yesterday -&gt; I went to the airport yesterday&#10;Grammar:&#10;- Past Simple vs Present Perfect"><t t-esc="post.get('raw_payload')"/></textarea>
+                        <div class="form-text">
+                            Section markers: <code>Topic:</code> <code>Vocab:</code> <code>Phrases:</code>
+                            <code>Mistakes:</code> <code>Grammar:</code> <code>Notes:</code>. Use
+                            <code>=</code> for translations and <code>→</code> / <code>-&gt;</code> for corrections.
+                        </div>
+                    </div>
+
+                    <button type="submit" class="btn btn-primary">Import &amp; Analyze</button>
+                </form>
+            </div>
+        </t>
+    </template>
+
+    <!-- ============================================================== -->
+    <!-- Detail  /my/lessons/<id>                                       -->
+    <!-- ============================================================== -->
+    <template id="portal_lesson_detail" name="Lesson Detail">
+        <t t-call="portal.portal_layout">
+            <t t-set="breadcrumbs_searchbar" t-value="False"/>
+            <div class="container py-4">
+                <div class="d-flex align-items-center justify-content-between mb-2">
+                    <h2 class="mb-0"><t t-esc="lesson.name"/></h2>
+                    <form t-attf-action="/my/lessons/#{lesson.id}/reparse" method="post">
+                        <input type="hidden" name="csrf_token" t-att-value="request.csrf_token()"/>
+                        <button type="submit" class="btn btn-outline-secondary btn-sm">↺ Re-parse</button>
+                    </form>
+                </div>
+                <p class="text-muted mb-4">
+                    <t t-esc="lesson.lesson_date"/> ·
+                    <t t-esc="lang_names.get(lesson.language, lesson.language)"/>
+                    <t t-if="lesson.tutor_name"> · with <t t-esc="lesson.tutor_name"/></t>
+                    · status: <t t-esc="lesson.state"/>
+                </p>
+
+                <t t-if="lesson.state == 'error'">
+                    <div class="alert alert-danger"><t t-esc="lesson.error_message"/></div>
+                </t>
+
+                <div class="row mb-4 text-center">
+                    <div class="col"><div class="card p-2"><div class="h4 text-success mb-0"><t t-esc="lesson.new_count"/></div><small>New</small></div></div>
+                    <div class="col"><div class="card p-2"><div class="h4 text-info mb-0"><t t-esc="lesson.seen_count"/></div><small>Seen</small></div></div>
+                    <div class="col"><div class="card p-2"><div class="h4 text-secondary mb-0"><t t-esc="lesson.known_count"/></div><small>Known</small></div></div>
+                    <div class="col"><div class="card p-2"><div class="h4 text-warning mb-0"><t t-esc="lesson.correction_count"/></div><small>Corrections</small></div></div>
+                </div>
+
+                <div class="card shadow-sm mb-3">
+                    <div class="card-header"><h5 class="mb-0">🆕 New words &amp; phrases</h5></div>
+                    <div class="card-body">
+                        <t t-if="not new_items"><p class="text-muted mb-0">None.</p></t>
+                        <t t-foreach="new_items" t-as="item">
+                            <div class="mb-2 pb-2 border-bottom">
+                                <strong><t t-esc="item.text"/></strong>
+                                <t t-if="item.translation_hint"> — <t t-esc="item.translation_hint"/></t>
+                                <t t-if="item.entry_id">
+                                    <a t-attf-href="/my/vocabulary/#{item.entry_id.id}" class="ms-2 small">view entry →</a>
+                                </t>
+                            </div>
+                        </t>
+                    </div>
+                </div>
+
+                <div class="card shadow-sm mb-3">
+                    <div class="card-header"><h5 class="mb-0">↺ Seen before</h5></div>
+                    <div class="card-body">
+                        <t t-if="not seen_items"><p class="text-muted mb-0">None.</p></t>
+                        <t t-foreach="seen_items" t-as="item">
+                            <div class="mb-1">
+                                <t t-esc="item.text"/>
+                                <span t-attf-class="badge #{ 'bg-secondary' if item.novelty == 'known' else 'bg-info text-dark' } ms-1">
+                                    <t t-esc="'✓ already learned' if item.novelty == 'known' else 'seen'"/>
+                                </span>
+                                <t t-if="item.first_seen_lesson_id">
+                                    <a t-attf-href="/my/lessons/#{item.first_seen_lesson_id.id}" class="small ms-1">
+                                        in "<t t-esc="item.first_seen_lesson_id.name"/>"
+                                    </a>
+                                </t>
+                            </div>
+                        </t>
+                    </div>
+                </div>
+
+                <div class="card shadow-sm mb-3">
+                    <div class="card-header"><h5 class="mb-0">Corrections</h5></div>
+                    <div class="card-body">
+                        <t t-if="not correction_items"><p class="text-muted mb-0">None.</p></t>
+                        <t t-foreach="correction_items" t-as="item">
+                            <div class="mb-2">
+                                <span class="text-danger text-decoration-line-through"><t t-esc="item.text"/></span>
+                                →
+                                <span class="text-success"><t t-esc="item.corrected_text or '—'"/></span>
+                                <t t-if="item.is_recurring_mistake">
+                                    <span class="badge bg-danger ms-1">⚠ recurring</span>
+                                </t>
+                            </div>
+                        </t>
+                    </div>
+                </div>
+
+                <div class="card shadow-sm mb-3">
+                    <div class="card-header"><h5 class="mb-0">Grammar</h5></div>
+                    <div class="card-body">
+                        <t t-if="not grammar_items"><p class="text-muted mb-0">None.</p></t>
+                        <ul t-if="grammar_items" class="mb-0">
+                            <t t-foreach="grammar_items" t-as="item">
+                                <li><t t-esc="item.text"/></li>
+                            </t>
+                        </ul>
+                    </div>
+                </div>
+
+                <div class="card shadow-sm" t-if="note_items">
+                    <div class="card-header"><h5 class="mb-0">Notes</h5></div>
+                    <div class="card-body">
+                        <ul class="mb-0">
+                            <t t-foreach="note_items" t-as="item">
+                                <li><t t-esc="item.text"/></li>
+                            </t>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </t>
+    </template>
+
+</odoo>

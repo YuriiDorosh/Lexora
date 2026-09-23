@@ -1,8 +1,8 @@
 # Lexora — Implementation Plan (MVP)
 
-> Version: 3.2 (M38 — Production Infrastructure — In Progress)
-> Last updated: 2026-05-18
-> Status: M0–M25 complete; M26 postponed (resource constraints); M27–M37 complete; M38 in progress
+> Version: 3.3 (M39 — Lesson Import → LMS Courses — Phase 1 in progress)
+> Last updated: 2026-09-23
+> Status: M0–M25 complete; M26 postponed (resource constraints); M27–M38 complete; M39 Phase 1 in progress
 
 ---
 
@@ -64,7 +64,8 @@
 | M34 | Browser Extension — YouTube Vocab Radar | ✅ Complete | Passive vocabulary radar for YouTube. Background fetches the user's vocabulary via new `GET /lexora_api/my_vocab`; main-world inject patches `XMLHttpRequest.prototype` + `window.fetch` to sniff `/api/timedtext` (JSON3 primary, SRV3/SRV1 XML fallback, DOM-observer for live streams). Content script builds a longest-match sliding-window index over the cue track and pauses the video ~4 s before a known word. Glassmorphism Shadow-DOM card shows the word + all-language translations (🇺🇦/🇬🇷/🇵🇱/🇬🇧) + the surrounding cue with the word highlighted, plus ⏪ Rewind 5 s & Play / ▶ Continue / 🔕 Skip this word / ✖ Disable for this video. Cooldown timer (default 120 s) starts at overlay close, not at fire, so the user can read the alert at their pace. Three Options-page controls + per-tab skip set + per-video kill switch. No persistence by default (ADR-033) |
 | M35 | Browser Extension — Multi-word YouTube Subtitle Selection | ✅ Complete | Multi-word phrase lookup on YouTube subtitles via **Ctrl/⌘-Click multi-select** (Strategy C). Native browser selection (Strategy A) was implemented end-to-end and failed in browser smoke — YT's player aggressively re-applies `user-select: none` via JS on every cue render and the `selectstart` interception runs below event listeners. Strategy B (manual drag state machine) was rejected without smoke for the same cue-segment-volatility reason. Strategy C wins: the user Ctrl-clicks each word in the phrase (toggle semantics on re-click); the buffer is finalised on the LAST `Control`/`Meta` keyup (multi-key safe via post-event `e.ctrlKey \|\| e.metaKey` check); the concatenated phrase routes through the same `_openLookupOverlay` pipeline as M24's single-word click. Plain-click anywhere / Escape / `yt-navigate-finish` clear the buffer. Click order preserved (NOT spatial). Every downstream Quick Look feature (Add to Vocabulary, Explain Grammar M28, Explain Slang/Idiom M32, Practice Pronunciation M33) inherits phrase support unchanged. Visually robust, deterministic (always whole-word), immune to YT's selection-suppression. 16/16 sandbox cases pass; browser smoke confirmed (ADR-034) |
 | M36 | Mobile PWA & Offline Sync | ✅ Complete | Lexora installs to the iPhone / Android home screen and reviews SRS cards in airplane mode. Web App Manifest at `/lexora.webmanifest` + Service Worker served from an Odoo controller at `/sw.js` (root scope; `Cache-Control: no-cache` for update detection). IndexedDB layer via vendored `idb` 7.1.1 UMD (ISC licence; no CDN dependency) with two stores: `cards_to_review` (prefetched from `GET /lexora_api/offline_batch`, capped 200 cards / 30 days) and `sync_queue` (offline review results, keyed by `crypto.randomUUID()` for idempotent replay). Mobile route `/my/practice/mobile` renders a touch-first card UI: tap-to-flip 3D glassmorphism card, swipe left/right for grading (60-px commit threshold, 600 ms time budget, vertical-scroll detection), huge Forgot / Remembered buttons (80 px tall × ~half-viewport wide). `POST /lexora_api/sync_offline` dedupes via the new `language.review.offline.log` table on `UNIQUE(user_id, client_uuid)`, then routes each row through the existing `action_register_review(grade)` SM-2 pipeline. SW caching: precache 7 stable static-asset URLs (cache-first + SWR); HTML cached opportunistically via network-first-nav; `/lexora_api/*` ALWAYS network; everything else passthrough. User-controlled update banner (NOT `skipWaiting` / `clients.claim`) with a first-install-suppression guard so brand-new visits don't auto-reload. Six dedicated tests + 73 prior tests stay green (79/0). Sandbox routing matrix 27/27. ADR-035 records seven sub-decisions (35a-g) + plan deviations (precache list dropped from 12 to 7; idb licence corrected to ISC; first-install reload suppression; markupsafe.Markup for embedded JSON). Zero new services, zero new permissions, zero new RabbitMQ queues (ADR-035) |
-| M38 | Production Infrastructure & Deployment Readiness | 🟡 In Progress | Production-grade deployment surface. Single unified `docker-compose.prod.yml` at repo root with strict `restart: unless-stopped` on every service, prod-only named volumes (`postgres_prod_data`, `odoo_prod_data`, `redis_prod_data`, `rabbitmq_prod_data`, `llm_models_prod`, `audio_models_prod`), and a single internal Docker bridge `lexora_prod_net`. Internal data stores (Postgres, RabbitMQ, Redis) and the four FastAPI worker services lose their host port bindings — only nginx exposes 80 + 443. Nginx is rewritten as `nginx.prod.conf.template`: HTTP→HTTPS 301 on 80, TLSv1.2/1.3-only on 443, HSTS + X-Frame-Options + X-Content-Type-Options + Referrer-Policy headers, WebSocket pass-through, generous DB-manager timeouts (1800 s) and 2 GB upload cap so `.zip` backup restore via `/web/database/manager` works. SSL certs are host-managed via Let's Encrypt and bind-mounted `/etc/letsencrypt:/etc/letsencrypt:ro`. Domain rendered through the official nginx-image envsubst template hook. Odoo runs from `odoo.prod.conf.template` with `@@ADMIN_PASSWD@@` and `@@DB_PASSWORD@@` placeholders that an `entrypoint.prod.sh` substitutes from `.env.prod` at container start (chmod 600); no secrets committed to git. NO `--dev=all`, NO hot-reload. New `.env.prod.example` template with `CHANGE_ME_*` placeholders for every secret. Makefile gains `prod-up / prod-down / prod-build / prod-logs / prod-ps / prod-env-check / prod-restore-db` targets. No GitHub Actions — deployment is manual via Git pull + SSH. ADR-037 documents the seven sub-decisions |
+| M38 | Production Infrastructure & Deployment Readiness | ✅ Complete | Production-grade deployment surface. Single unified `docker-compose.prod.yml` at repo root with strict `restart: unless-stopped` on every service, prod-only named volumes (`postgres_prod_data`, `odoo_prod_data`, `redis_prod_data`, `rabbitmq_prod_data`, `llm_models_prod`, `audio_models_prod`), and a single internal Docker bridge `lexora_prod_net`. Internal data stores (Postgres, RabbitMQ, Redis) and the four FastAPI worker services lose their host port bindings — only nginx exposes 80 + 443. Nginx is rewritten as `nginx.prod.conf.template`: HTTP→HTTPS 301 on 80, TLSv1.2/1.3-only on 443, HSTS + X-Frame-Options + X-Content-Type-Options + Referrer-Policy headers, WebSocket pass-through, generous DB-manager timeouts (1800 s) and 2 GB upload cap so `.zip` backup restore via `/web/database/manager` works. SSL certs are host-managed via Let's Encrypt and bind-mounted `/etc/letsencrypt:/etc/letsencrypt:ro`. Domain rendered through the official nginx-image envsubst template hook. Odoo runs from `odoo.prod.conf.template` with `@@ADMIN_PASSWD@@` and `@@DB_PASSWORD@@` placeholders that an `entrypoint.prod.sh` substitutes from `.env.prod` at container start (chmod 600); no secrets committed to git. NO `--dev=all`, NO hot-reload. New `.env.prod.example` template with `CHANGE_ME_*` placeholders for every secret. Makefile gains `prod-up / prod-down / prod-build / prod-logs / prod-ps / prod-env-check / prod-restore-db` targets. No GitHub Actions — deployment is manual via Git pull + SSH. ADR-037 documents the seven sub-decisions |
+| M39 | Lesson Import → LMS Courses (Phase 1) | 🟡 In Progress | New `language_lessons` module. Rule-based, LLM-free parser turns copy-pasted Preply-canvas text (`Topic:` / `Vocab:` / `Phrases:` / `Mistakes:` / `Grammar:` / `Notes:` markers) into `language.lesson` + `language.lesson.item` records. Novelty analysis classifies each vocab/phrase item as `new` / `seen` / `known` against the user's own `language.entry` dictionary and prior lessons (longest-match, YouTube-Radar-style, for sub-phrase hits); `new` items auto-create a `language.entry` (`created_from='lesson_import'`) so translation/enrichment/SRS pick them up automatically. Corrections flagged `is_recurring_mistake` against prior lessons. Emphasis weights are env-configurable system parameters, snapshotted per item at analyze time. Portal at `/my/lessons*`. Phase 2 (course generation into `website_slides`) and Phase 3 (Preply Chrome-extension capture) are separate follow-up milestones — see ADR-038 |
 | M37 | Mobile PWA — Offline Dictionary | ✅ Complete | Extends the M36 mobile PWA with a **read-only offline dictionary**. New `GET /lexora_api/offline_vocabulary` returns the user's full active vocabulary (capped 2000 entries by default, 5000 max) with all completed translations; `auth='user'` + `Cache-Control: no-store` (IndexedDB owns offline data; SW never caches). IndexedDB schema bumped v1 → v2 via additive `upgrade(db, oldVersion)` callback — new `vocabulary_cache` store (keyPath `id`) sits alongside M36's `cards_to_review` + `sync_queue` stores; cascading `if (oldVersion < N)` blocks mean existing M36 users get only the new store while fresh installs create all three in one transaction. Two new DB methods: `replaceVocabulary(words)` (wholesale clear + bulk-put) and `getVocabulary()` (alphabetical sort by `normalized`). `stats()` extended with `vocabCount`. Mobile UI gets a native-app-style **bottom navigation bar** with two tabs: **Practice** (the M36 swipe-card flow, unchanged) and **Dictionary** (new). Dictionary panel: sticky search bar (`font-size: 16px` so iOS Safari doesn't auto-zoom on focus), glassmorphism row cards, **O(n)-per-keystroke DOM-stable filter** (pre-computed `_dictRows = [{row, haystack}]` array; toggles `display:none` rather than rebuilding the DOM — sub-millisecond on 2000 rows). Background `_prefetchVocabulary` fires on boot + reconnect; **re-renders only if the Dictionary tab is currently active** (silent IDB update otherwise — never disturbs a Practice-mid-session user). SW VERSION bumped to `lexora-pwa-v2`, triggering the M36-S5 user-controlled-update banner in production for the first time; `LEXORA_API_RE` regex extended with `offline_vocabulary` as the third always-network alternative. 19/19 IDB sandbox + 12/12 SW routing assertions pass; 79/0 regression. Architecture locked in ADR-036 (36a-d): separate route over parameterised `/my_vocab`; additive IDB upgrade without data migration; DOM-stable filter; user-state-respecting prefetch (ADR-036) |
 
 ---
@@ -4416,3 +4417,176 @@ run `make prod-build && make prod-up`, browse to `https://${DOMAIN}`,
 and reach Odoo's setup screen. The `/web/database/manager` page accepts
 the `ADMIN_PASSWD` from `.env.prod` and restores a `.zip` produced from
 the dev environment.
+
+---
+
+## M39 — Lesson Import → LMS Courses
+
+**Goal:** after every tutoring lesson (Preply, content lives on a canvas
+board), copy-paste the lesson text into Lexora. The system parses it into
+structured vocabulary/phrases/corrections/grammar items, classifies each
+vocab/phrase item as brand-new vs. already-known against the user's own
+dictionary and prior lessons, auto-creates `language.entry` records for the
+new ones (so translation/enrichment/SRS pick them up through the existing
+pipelines — ADR-018/ADR-029), and — in a later phase — turns the whole
+lesson into a dedicated `website_slides` eLearning course with a strong
+visual/quiz emphasis on new material and a lighter touch on familiar
+material.
+
+**New module:** `language_lessons`. Depends: `language_words`,
+`language_translation`, `language_learning`, `portal` (Phase 1); adds
+`website_slides` in Phase 2.
+
+**Locked scope decisions (ADR-038):**
+- Parsing is **rule-based and deterministic**, not LLM-driven. The LLM (if
+  ever wired in) is only a fallback classifier for stray lines the parser
+  can't place into a section — never the source of truth for structure.
+- Novelty analysis (`new` / `seen` / `known`) **never mutates SM-2 state**
+  by default. A system parameter can opt into nudging `known` items' next
+  review date to today; **off by default** (locked in the pre-Phase-1
+  clarification round).
+- **No lemmatization in Phase 1** (`went` will not auto-match `go`). Kept
+  as an explicitly documented revisit trigger, not silently deferred.
+- Course visibility in Phase 2 is **owner + tutor** (not fully private,
+  not public) — this needs an invite/member mechanism on top of the
+  ADR-004 private-by-default posture; deferred to Phase 2 but recorded
+  now so the Phase 1 data model doesn't need to change shape later.
+- Longest-match sub-phrase lookup against the user's dictionary reuses the
+  **exact algorithmic shape of M34's YouTube Vocab Radar** (`_findCueHit`
+  / ADR-033 § 34e) — ported to server-side Python since there's no DOM or
+  network interception involved here, just a short lesson-item string
+  checked against the user's own entry set.
+
+### Phase 1 — parser, novelty analysis, manual portal import (this milestone)
+
+**Work:**
+
+1. `language_lessons/models/lesson_parser.py` — a pure Python function,
+   **no ORM dependency**, so it's testable without a database:
+   `parse_lesson_text(raw_text: str) -> {"topic": str | None, "items": [...]}`.
+   Recognises `Topic:` / `Vocab:` (or `Vocabulary:`) / `Phrases:` (or
+   `Phrase:`) / `Mistakes:` (or `Corrections:` / `Correction:`) /
+   `Grammar:` / `Notes:` (or `Note:`) section markers, case-insensitive,
+   colon optional. Within `Vocab`/`Phrases`, splits each bulleted line on
+   `=` first, then on a space-padded `-` (`" - "`) as a fallback, so
+   hyphenated compounds like `check-in` are never mis-split. Within
+   `Mistakes`, splits on `→` or `->`. Lines with no active section use the
+   token-count heuristic from the spec (≤3 tokens → vocab, else → note).
+2. `language_lessons/models/language_lesson.py` — `language.lesson`:
+   `name`, `user_id`, `lesson_date`, `tutor_name`, `language` (canonical
+   `LANGUAGE_SELECTION` import, ADR-029), `source_type`
+   (`manual_text` / `preply_extension` / `json_upload`), `raw_payload`,
+   `item_ids`, `state` (`draft` → `parsed` → `analyzed` → `published` /
+   `error`; Phase 1 only reaches `analyzed`), `error_message`, and stored
+   counters (`new_count`, `seen_count`, `known_count`,
+   `correction_count`). `action_parse()` / `action_reparse()` /
+   `action_analyze_novelty()`.
+3. `language_lessons/models/language_lesson_item.py` —
+   `language.lesson.item`: `lesson_id`, `item_type`
+   (`vocab`/`phrase`/`correction`/`grammar`/`note`), `text`,
+   `text_normalized` (via the **existing** `language_words.normalize()` —
+   no new normalization pipeline), `translation_hint`, `corrected_text`,
+   `context`, `entry_id`, `novelty` (`new`/`seen`/`known`/`none`),
+   `seen_source` (`vocab`/`previous_lesson`/`both`/`none`),
+   `first_seen_lesson_id`, `srs_state_at_import`, `emphasis_weight`,
+   `is_recurring_mistake`, `sequence`.
+4. Novelty analysis (`action_analyze_novelty`), one pass per lesson:
+   - Fetch the user's active entries in `lesson.language` once; build a
+     `normalized_text → entry` map (exact match) for vocab/phrase items,
+     plus the longest-match sliding-window check (M34-style) for phrase
+     items whose full text doesn't match anything but contains a shorter
+     known sub-phrase or word.
+   - Fetch `language.review` states for those entries once; `known` =
+     entry found **and** review state is `review`; `seen` = entry found
+     with any other/no review state, **or** found only in a prior lesson
+     (`lesson_date <` current); `new` = found nowhere.
+   - `new` vocab/phrase items call `language.entry.create(...)` with
+     `created_from='lesson_import'` (a new value appended to the
+     canonical `CREATED_FROM_SELECTION` via an `_inherit` override —
+     the correct pattern per ADR-029, not the undeclared-value shortcut
+     `portal_library.py` took for `'seeded_content'`, which is a
+     pre-existing latent bug **out of scope** for this milestone). This
+     is what makes translation auto-enqueue (M29) and SRS card creation
+     (lazy, M7) happen for free.
+   - `correction` items are checked against prior lessons' correction
+     items (same normalized wrong-sentence) for `is_recurring_mistake`.
+   - `emphasis_weight` is snapshotted per item from system parameters
+     (`language_lessons.weight.new=3`, `.weight.seen=2`, `.weight.known=1`,
+     `.weight.correction=3`, `.weight.recurring_mistake=4`,
+     `.weight.grammar=2`) so a later SRS change never silently reshuffles
+     an already-analyzed lesson.
+   - Optional, **off by default**: `language_lessons.known_due_today`
+     system parameter — when `True`, `known` items' `language.review`
+     row gets `next_review_date` pulled to today (never touches
+     `ease_factor` / `repetitions` / `interval`).
+5. Portal (`language_lessons/controllers/portal.py`,
+   `views/portal_lessons.xml`): `GET /my/lessons` (list),
+   `GET /my/lessons/new` + `POST /my/lessons/new` (paste lesson text →
+   parse → analyze, synchronously — this is fast, no RabbitMQ needed),
+   `GET /my/lessons/<id>` (detail: New words / Seen before / Corrections
+   / Grammar / Notes, with counts and a re-parse button),
+   `POST /my/lessons/<id>/reparse`.
+6. Backend admin views + menu (`Lexora → Lessons`), security
+   (`ir.model.access.csv` + owner-only `record_rules.xml`, same pattern
+   as every other portal-owned model in this codebase).
+7. Tests: parser (marker recognition, `=`/`→`/`->` splitting, mixed case,
+   empty sections, no-section heuristic, Cyrillic/Polish text) as pure
+   function tests with no database; ORM tests for novelty classification
+   (`new`/`seen` via dictionary/`seen` via prior lesson/`known`), longest
+   sub-phrase match, recurring-mistake detection, weight snapshotting,
+   idempotent re-parse.
+
+**Verification:**
+```bash
+docker exec odoo odoo --config /etc/odoo/odoo.conf \
+  -d lexora --init language_lessons --stop-after-init --no-http
+
+docker exec odoo odoo --config /etc/odoo/odoo.conf \
+  -d lexora --update language_lessons --test-enable --no-http --stop-after-init
+# → all language_lessons tests green; no regression in language_words /
+#   language_translation / language_learning suites
+
+curl -o /dev/null -w "%{http_code}\n" -b cookies.txt \
+  http://localhost:5433/my/lessons        # → 200
+```
+
+Manual: paste a lesson with a mix of brand-new and already-in-dictionary
+words → new words get `language.entry` rows and a translation request is
+visibly enqueued; already-known words are classified `seen`/`known`
+without creating duplicate entries; re-pasting the same text on a second
+lesson (later date) with an overlapping word shows `seen_source =
+previous_lesson`.
+
+### Phase 2 — course generation into `website_slides` (future milestone)
+
+1 lesson → 1 `slide.channel`, owner + tutor visibility (needs an
+invite/member mechanism, open question resolved above), slides in the
+order Overview → New words & phrases → Seen before → Corrections →
+Grammar (linked to the M12 Grammar Encyclopedia where a topic matches) →
+Quiz. Question generation is **deterministic, no LLM** — translation MCQ
+and reverse MCQ reuse the PvP distractor-selection logic (ADR-011), cloze
+reuses the lesson's own context sentences, error-correction pairs the
+wrong sentence against its own correction plus two rule-based mangled
+distractors. Regenerate updates the existing channel in place rather than
+duplicating it. PDF export follows the M13 QWeb-report pattern.
+
+### Phase 3 — Preply Chrome-extension capture (future milestone, blocked on a DOM/network sample)
+
+A "Save lesson to Lexora" button on the Preply lesson page. Capture
+strategy (DOM read vs. `fetch`/WebSocket interception à la M34's
+`youtube_radar_inject.js` vs. screenshot+OCR as a last resort) is decided
+only after a real DevTools sample of the canvas DOM or network payload is
+captured and dropped into `tests/fixtures/`. The Odoo-side surface is
+already in place from Phase 1: `language.lesson.source_type =
+'preply_extension'` feeds the same parser/analysis pipeline a manual
+paste does — no architectural change needed when this phase starts, only
+a capture layer on top.
+
+### Explicitly out of scope (all phases)
+
+- Server-side scraping of Preply using the user's own login credentials.
+- Public/shared course visibility — this is tutor-provided material, not
+  community content (ADR-004 posture, narrowed further for this feature).
+- Any change to the SM-2 algorithm.
+- Vision/OCR — reserved as the last-resort fallback for Phase 3 only, if
+  DOM/network capture turns out to be infeasible.

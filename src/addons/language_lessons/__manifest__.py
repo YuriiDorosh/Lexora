@@ -1,0 +1,20 @@
+{
+    'name': 'Language Lessons',
+    'version': '18.0.1.0.0',
+    'category': 'Custom/Lexora',
+    'summary': 'Lesson import → novelty analysis → auto-added vocabulary. M39.',
+    'author': 'Lexora',
+    'license': 'LGPL-3',
+    'depends': ['language_words', 'language_translation', 'language_learning', 'portal'],
+    'data': [
+        'security/ir.model.access.csv',
+        'security/record_rules.xml',
+        'data/system_parameters.xml',
+        'data/website_menus.xml',
+        'views/language_lesson_views.xml',
+        'views/portal_lessons.xml',
+    ],
+    'installable': True,
+    'auto_install': False,
+    'application': False,
+}
