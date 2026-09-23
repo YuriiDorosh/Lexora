@@ -1556,7 +1556,7 @@ class ExtractLessonRequest(BaseModel):
 
 
 _VALID_LESSON_ITEM_TYPES = {"vocab", "phrase", "correction", "grammar", "note"}
-_LESSON_EXTRACT_MAX_ITEMS = 40
+_LESSON_EXTRACT_MAX_ITEMS = 25
 
 # Plain prose, explicit JSON shape (M18-FIX-09 rule). The few-shot example
 # below carries most of the structural teaching — a 1.5B model generalises
@@ -1578,7 +1578,7 @@ _EXTRACT_LESSON_SYSTEM_PROMPT = (
     "sentence pairs as correction items. Extract named grammar or language "
     "topics as grammar items. SKIP lesson objectives, homework "
     "instructions, role-play prompts, and full dialogues entirely — do "
-    "not turn them into items. Limit to the 40 most useful items."
+    "not turn them into items. Limit to the 25 most useful items."
 )
 
 _EXTRACT_LESSON_EXAMPLE_INPUT = (
@@ -1667,7 +1667,7 @@ def _extract_lesson(raw_text: str, language: str) -> dict:
         result = _llm.create_chat_completion(
             messages=messages,
             response_format={"type": "json_object"},
-            max_tokens=1500,
+            max_tokens=1000,
             temperature=0.3,
             repeat_penalty=1.1,
         )

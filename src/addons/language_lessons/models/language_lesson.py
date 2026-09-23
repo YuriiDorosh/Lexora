@@ -17,7 +17,12 @@ _logger = logging.getLogger(__name__)
 # file (dev + prod) — same env-var-with-default pattern every other
 # sync LLM proxy in this codebase uses (portal_api.py, portal_roleplay.py).
 _LLM_SVC = os.environ.get('LLM_SERVICE_URL', 'http://llm-service:8000').rstrip('/')
-_LLM_EXTRACT_TIMEOUT = 90
+# A freeform lesson document asks for up to 25 structured items in one
+# completion (max_tokens=1000 on the LLM service) — slower than the
+# ~10-40s single-field completions elsewhere in this codebase (ADR-027).
+# 90s proved too tight against a real ~250-word household-items lesson
+# on the target server; 180s gives real headroom.
+_LLM_EXTRACT_TIMEOUT = 180
 
 SOURCE_TYPE_SELECTION = [
     ('manual_text', 'Manual Text'),
@@ -139,7 +144,11 @@ class LanguageLesson(models.Model):
                     parsed = lesson._llm_extract_lesson(lesson.raw_payload, lesson.language)
                     parse_method = 'llm'
                 except UserError as exc:
-                    lesson.write({'state': 'error', 'error_message': str(exc)})
+                    lesson.write({
+                        'state': 'error',
+                        'error_message': str(exc),
+                        'parse_method': False,
+                    })
                     continue
 
             lesson.item_ids.unlink()
