@@ -65,7 +65,7 @@ LESSON_QUEUE_FAILED = "lesson.extraction.failed"
 LLM_MODEL_REPO = os.getenv("LLM_MODEL_REPO", "Qwen/Qwen2.5-1.5B-Instruct-GGUF")
 LLM_MODEL_FILENAME = os.getenv("LLM_MODEL_FILENAME", "qwen2.5-1.5b-instruct-q4_k_m.gguf")
 LLM_MODEL_DIR = os.getenv("LLM_MODEL_DIR", "/models")
-LLM_N_CTX = int(os.getenv("LLM_N_CTX", "4096"))  # bumped for M39 lesson extraction (ADR-038 § 38i)
+LLM_N_CTX = int(os.getenv("LLM_N_CTX", "6144"))  # bumped for M39 lesson extraction (ADR-038 § 38i)
 LLM_N_THREADS = int(os.getenv("LLM_N_THREADS", "0"))  # 0 = auto
 LLM_MAX_TOKENS = int(os.getenv("LLM_MAX_TOKENS", "512"))
 LLM_AUTO_DOWNLOAD = os.getenv("LLM_AUTO_DOWNLOAD", "1") == "1"
@@ -1613,20 +1613,35 @@ class ExtractLessonRequest(BaseModel):
 
 
 _VALID_LESSON_ITEM_TYPES = {"vocab", "phrase", "correction", "grammar", "note"}
+# Server-side safety cap on the PARSED list (defensive coerce). The
+# prompt's own cap below is lower — a 1.5B model does not reliably
+# self-limit to a stated count on a vocab-heavy real lesson (observed
+# live: asked to stop at 25, it kept enumerating every table cell in a
+# ~38-item document and ran out of max_tokens mid-JSON instead of
+# stopping). Keeping the PROMPT'S target well under this server cap
+# gives it real room to actually finish, rather than just moving the
+# same truncation problem further down the document.
 _LESSON_EXTRACT_MAX_ITEMS = 25
 
 # Plain prose, explicit JSON shape (M18-FIX-09 rule). The few-shot example
 # below carries most of the structural teaching — a 1.5B model generalises
 # from a worked example far more reliably than from a description alone
-# (same lesson learned in M30/M31/M32).
+# (same lesson learned in M30/M31/M32). The item-count cap is stated
+# FIRST and repeated, in ALL CAPS, because a live production run showed
+# the model treating "limit to N" as an aspiration, not a hard stop —
+# it kept enumerating every table cell in the document (~38 items) and
+# ran out of max_tokens mid-JSON well past the requested cap.
 _EXTRACT_LESSON_SYSTEM_PROMPT = (
+    "HARD LIMIT: extract AT MOST 15 items total. Never exceed 15, even if "
+    "the document has more useful material — pick the 15 most useful and "
+    "stop. This is a strict cap, not a suggestion.\n\n"
     "You extract structured study material from a messy, pasted English-"
     "tutoring lesson document (it may contain tables, dialogues, homework "
     "instructions, and objectives all mixed together). Reply with ONLY a "
     "JSON object — no preamble, no markdown — with two keys: \"topic\" "
-    "(a short title string, or null) and \"items\" (a list of objects). "
-    "Each item has: \"item_type\" (one of vocab, phrase, correction, "
-    "grammar, note), \"text\", \"translation_hint\" (or null), "
+    "(a short title string, or null) and \"items\" (a list of AT MOST 15 "
+    "objects). Each item has: \"item_type\" (one of vocab, phrase, "
+    "correction, grammar, note), \"text\", \"translation_hint\" (or null), "
     "\"corrected_text\" (or null, only for corrections), \"context\" (an "
     "example sentence, or null). Split comma-separated word lists and "
     "table cells into SEPARATE vocab items — one word or short expression "
@@ -1635,7 +1650,7 @@ _EXTRACT_LESSON_SYSTEM_PROMPT = (
     "sentence pairs as correction items. Extract named grammar or language "
     "topics as grammar items. SKIP lesson objectives, homework "
     "instructions, role-play prompts, and full dialogues entirely — do "
-    "not turn them into items. Limit to the 25 most useful items."
+    "not turn them into items. Remember: 15 items maximum, no exceptions."
 )
 
 _EXTRACT_LESSON_EXAMPLE_INPUT = (
@@ -1724,7 +1739,7 @@ def _extract_lesson(raw_text: str, language: str) -> dict:
         result = _llm.create_chat_completion(
             messages=messages,
             response_format={"type": "json_object"},
-            max_tokens=1800,
+            max_tokens=2500,
             temperature=0.3,
             repeat_penalty=1.1,
         )

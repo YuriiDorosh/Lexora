@@ -2919,6 +2919,24 @@ endpoint that summarises, restructures, or extracts from a
 **whole document** (not a single field) belongs on the async path by
 default; sync is the exception that needs justifying, not the default.
 
+**Follow-up, same deploy cycle: the model does not reliably self-limit
+an item count.** With the async deadline removed, the first live retry
+against the user's real lesson still truncated — now at char ~6500
+instead of ~2900, because `max_tokens=1800` gave it more room and it
+used every bit of it trying to enumerate all ~38 words/phrases in the
+document, ignoring the prompt's "limit to 25 most useful" instruction
+entirely. A soft "limit to N" phrased as one sentence among many is
+not load-bearing for a 1.5B model. Fixed by (a) stating the cap
+**first**, in a standalone HARD LIMIT sentence, repeated at the end,
+reduced to 15 (real lessons regularly have 30+ candidate words; 15
+well-chosen ones is still a useful import, and a much safer target to
+actually finish under), and (b) raising `max_tokens` to 2500 and
+`LLM_N_CTX` to 6144 anyway, as a second line of defence in case the
+model still overshoots the stated cap. Same rule as ADR-031's
+server-side-floor pattern: a soft instruction is a 90%-solution:
+tighten the constraint until compliance is reliable, and always keep a
+numeric safety margin behind it rather than trusting the prompt alone.
+
 ### Revisit triggers
 
 - **Async extraction wall-clock time is still unmeasured against a

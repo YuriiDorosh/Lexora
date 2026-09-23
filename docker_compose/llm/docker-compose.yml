@@ -29,7 +29,7 @@ services:
       LLM_MODEL_REPO: ${LLM_MODEL_REPO:-Qwen/Qwen2.5-1.5B-Instruct-GGUF}
       LLM_MODEL_FILENAME: ${LLM_MODEL_FILENAME:-qwen2.5-1.5b-instruct-q4_k_m.gguf}
       LLM_MODEL_DIR: ${LLM_MODEL_DIR:-/models}
-      LLM_N_CTX: ${LLM_N_CTX:-4096}
+      LLM_N_CTX: ${LLM_N_CTX:-6144}
       LLM_N_THREADS: ${LLM_N_THREADS:-0}
       LLM_MAX_TOKENS: ${LLM_MAX_TOKENS:-512}
       LLM_AUTO_DOWNLOAD: ${LLM_AUTO_DOWNLOAD:-1}
