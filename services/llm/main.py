@@ -1712,6 +1712,86 @@ def _coerce_lesson_items(raw_items) -> list[dict]:
     return cleaned
 
 
+def _salvage_truncated_lesson_json(raw: str) -> dict:
+    """Best-effort recovery when max_tokens cut the completion off
+    mid-item (M39 ADR-038 § 38j).
+
+    Three live production runs against the same real lesson proved a
+    1.5B model does not reliably obey a numeric item-count cap stated
+    in the prompt — soft ("limit to 25") and hard ("HARD LIMIT: at most
+    15, no exceptions") phrasing both failed the same way: it kept
+    enumerating every candidate item in the document and ran out of
+    max_tokens mid-object, producing unparseable JSON and ZERO usable
+    items despite having generated a dozen+ perfectly complete ones.
+
+    Rather than continuing to fight the model's behaviour, this walks
+    the raw text, finds the `"items": [` array, and collects every
+    COMPLETE top-level `{...}` object up to the truncation point via
+    brace-depth tracking (respecting quoted strings so a brace inside
+    a text value doesn't miscount). Whatever was mid-flight when
+    generation stopped is discarded rather than poisoning the whole
+    result. Same "server-side floor, not a prompt-engineering ceiling"
+    rule as ADR-031's other safety nets.
+    """
+    topic = None
+    topic_match = re.search(r'"topic"\s*:\s*("(?:[^"\\]|\\.)*"|null)', raw)
+    if topic_match and topic_match.group(1) != "null":
+        try:
+            topic = json.loads(topic_match.group(1))
+        except Exception:
+            topic = None
+
+    items: list[dict] = []
+    items_idx = raw.find('"items"')
+    if items_idx == -1:
+        return {"topic": topic, "items": items}
+    arr_start = raw.find("[", items_idx)
+    if arr_start == -1:
+        return {"topic": topic, "items": items}
+
+    i, n = arr_start + 1, len(raw)
+    while i < n:
+        while i < n and raw[i] in " \t\r\n,":
+            i += 1
+        if i >= n or raw[i] == "]":
+            break
+        if raw[i] != "{":
+            break  # not object-shaped — stop salvaging here
+
+        depth, j, in_string, escape, obj_end = 0, i, False, False, None
+        while j < n:
+            ch = raw[j]
+            if in_string:
+                if escape:
+                    escape = False
+                elif ch == "\\":
+                    escape = True
+                elif ch == '"':
+                    in_string = False
+            else:
+                if ch == '"':
+                    in_string = True
+                elif ch == "{":
+                    depth += 1
+                elif ch == "}":
+                    depth -= 1
+                    if depth == 0:
+                        obj_end = j
+                        break
+            j += 1
+
+        if obj_end is None:
+            break  # this object was mid-flight when generation stopped
+
+        try:
+            items.append(json.loads(raw[i:obj_end + 1]))
+        except Exception:
+            pass  # a malformed-but-brace-balanced chunk — skip, keep going
+        i = obj_end + 1
+
+    return {"topic": topic, "items": items}
+
+
 def _extract_lesson(raw_text: str, language: str) -> dict:
     """Return {topic, items[]} extracted from freeform lesson text.
 
@@ -1751,8 +1831,18 @@ def _extract_lesson(raw_text: str, language: str) -> dict:
     try:
         parsed = _parse_enrichment_json(raw)
     except Exception as exc:
-        _logger.error("extract-lesson JSON parse failed: %s — raw=%r", exc, raw[:300])
-        return {"topic": None, "items": [], "parse_error": True}
+        _logger.warning(
+            "extract-lesson JSON parse failed (%s) — attempting item salvage. raw=%r",
+            exc, raw[:200],
+        )
+        parsed = _salvage_truncated_lesson_json(raw)
+        salvaged_count = len(parsed.get("items") or [])
+        if salvaged_count:
+            _logger.info("extract-lesson salvaged %d complete items from a truncated completion",
+                         salvaged_count)
+        else:
+            _logger.error("extract-lesson salvage found nothing usable — raw=%r", raw[:300])
+            return {"topic": None, "items": [], "parse_error": True}
 
     topic = parsed.get("topic")
     topic = str(topic).strip() if isinstance(topic, str) and topic.strip() else None
