@@ -6,6 +6,10 @@ logs/nginx/*
 docker_compose/db/backups/*
 backups/*
 
+# Local-only ops notes (server layout, deploy commands) — never commit,
+# references internal infra details (SSH host, container names, DB path).
+SERVER_NOTES.md
+
 # Keep directories if needed
 !logs/.gitkeep
 !logs/nginx/.gitkeep
